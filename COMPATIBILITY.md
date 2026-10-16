@@ -98,7 +98,7 @@ descendant teardown, or fresh evidence on the other five targets.
 Until 1.0, the four first-party clients use an exact Cargo requirement:
 
 ```toml
-kernal-api = { version = "=0.1.29", features = ["..."] }
+kernal-api = { version = "=0.1.30", features = ["..."] }
 
 [profile.dev.package.kernal-api]
 codegen-units = 1
@@ -107,7 +107,7 @@ codegen-units = 1
 codegen-units = 1
 ```
 
-The Python companion is likewise pinned with `kernal-api==0.1.29` when used by
+The Python companion is likewise pinned with `kernal-api==0.1.30` when used by
 first-party Python tooling. A source checkout may temporarily use a path patch
 only on an explicit migration branch; release branches must resolve the exact
 registry version. There is no `optional = true` legacy implementation behind

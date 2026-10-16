@@ -19,6 +19,6 @@ proof-block-after-capture = []
 [dependencies]
 # Migration-only source fixture. Replace the path with the exact release pin
 # after the guest-capable facade is published; this is not release acceptance.
-kernal-api = { version = "=0.1.29", path = "../../..", default-features = false }
+kernal-api = { version = "=0.1.30", path = "../../..", default-features = false }
 dashmap = "6.1.0"
 crossbeam-channel = "0.5.15"
