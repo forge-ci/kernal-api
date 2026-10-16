@@ -18,7 +18,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/soldr \
-    && /opt/soldr/bin/pip install --disable-pip-version-check soldr==0.9.21
+    && /opt/soldr/bin/pip install --disable-pip-version-check --upgrade soldr
 
 ENV PATH="/opt/soldr/bin:${PATH}"
 # Cargo's test harness expects the login-session identity variables it has on CI.
