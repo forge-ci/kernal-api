@@ -12,7 +12,7 @@ implementations of these facilities.
 | Operating systems | Linux, macOS, Windows |
 | Architectures | x86-64, ARM64 |
 | Async engine | `kernal_api::async_engine`, backed by exactly Tokio 1.53.1 |
-| Heap allocator/profiler | exactly `mimalloc-pprof` 0.9.4 |
+| Heap allocator/profiler | exactly `mimalloc-pprof` 1.1.0 (`pprof` feature) |
 | Native crash interception | exactly `crash-handler` 0.7.0 |
 | Async task protocol | exactly `console-api` 0.9.0 / `console-subscriber` 0.5.0 |
 | CPU/async export | one checked-in `perftools.profiles` schema |
@@ -98,7 +98,7 @@ descendant teardown, or fresh evidence on the other five targets.
 Until 1.0, the four first-party clients use an exact Cargo requirement:
 
 ```toml
-kernal-api = { version = "=0.1.29", features = ["..."] }
+kernal-api = { version = "=0.1.30", features = ["..."] }
 
 [profile.dev.package.kernal-api]
 codegen-units = 1
@@ -107,7 +107,7 @@ codegen-units = 1
 codegen-units = 1
 ```
 
-The Python companion is likewise pinned with `kernal-api==0.1.29` when used by
+The Python companion is likewise pinned with `kernal-api==0.1.30` when used by
 first-party Python tooling. A source checkout may temporarily use a path patch
 only on an explicit migration branch; release branches must resolve the exact
 registry version. There is no `optional = true` legacy implementation behind

@@ -20,7 +20,7 @@ execution-probe = ["engine-probe", "dep:kernal-api"]
 anyhow = "=1.0.104"
 wit-component = "=0.251.0"
 wasmparser = "=0.251.0"
-kernal-api = { version = "=0.1.29", path = "../../..", default-features = false, optional = true }
+kernal-api = { version = "=0.1.30", path = "../../..", default-features = false, optional = true }
 wasmtime = { version = "=45.0.0", optional = true, default-features = false, features = ["cranelift", "runtime", "component-model", "component-model-async"] }
 
 [dev-dependencies]
