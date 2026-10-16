@@ -242,11 +242,3 @@ platform-code     = ["src/platform_win*.rs", "src/platform_win/**", "src/platfor
 
 [publish]
 pypi = { auth = "token", environment = "release", mode = "real" }
-
-# -- Exceptions ----------------------------------------------------------------
-[[exceptions]]
-rule    = "RUST-013"
-path    = ".github/actions/soldr/action.yml"
-reason  = "One Soldr runtime for every job (ci/test_cache_policy.py SOLDR_RUNTIME_VERSION): a runtime is a cache generation, and producers on two runtimes cannot restore each other's exact-only cook bases. Owner: zackees. Bump path in the issue."
-issue   = "https://github.com/zackees/ci.yml/issues/130"
-expires = "2026-12-31"
