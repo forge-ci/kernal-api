@@ -38,10 +38,9 @@ SETUP_SOLDR = re.compile(
     r"^(?P<indent> *)(?P<marker>- )?uses: \./\.github/actions/soldr(?P<comment>.*)$"
 )
 
-# Pin the runtime independently of the action SHA. A floating `latest` Soldr
-# release creates another cache generation and makes concurrent producers
-# disagree about which exact-only cook base they can restore.
-SOLDR_RUNTIME_VERSION = "0.9.29"
+# The Soldr runtime is setup-soldr's default -- the one soldr pin -- so no
+# step passes `version:`. `@v0` moves only through setup-soldr's gated
+# promotion, so every step in a run still resolves one runtime.
 
 # Every setup-soldr step, keyed by (workflow, job): the target it cooks for
 # and the profile it compiles. A new step must be classified here, so its
@@ -256,13 +255,12 @@ class CachePolicyTests(unittest.TestCase):
         # promotion, so every step still resolves the same revision per run.
         self.assertEqual(ref, "v0", "float every setup-soldr step at the v0 major")
 
-    def test_one_pinned_soldr_runtime_version(self):
+    def test_no_step_pins_the_soldr_runtime(self):
         for step in self.steps():
             with self.subTest(workflow=step["workflow"], job=step["job"]):
-                self.assertEqual(
+                self.assertIsNone(
                     step["inputs"].get("version"),
-                    SOLDR_RUNTIME_VERSION,
-                    "pin the Soldr runtime so main producers share one cache generation",
+                    "take setup-soldr's default runtime; only setup-soldr pins soldr",
                 )
 
     def test_cook_flags_match_the_compiled_profile(self):

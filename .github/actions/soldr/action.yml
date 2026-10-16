@@ -100,13 +100,10 @@ runs:
     - uses: zackees/setup-soldr@v0 # v0.9.82 or later (floating major)
       id: setup
       with:
-        # One pinned Soldr runtime for every job: a new runtime is a new cache
-        # generation, and concurrent producers on two runtimes cannot restore
-        # each other's exact-only cook bases. ci.toml records this as an
-        # [[exceptions]] entry for ci-lint RUST-013.
-        # Includes soldr#3430: resolve/fetch managed clang and lld when the
-        # host has neither, rather than generating a broken `exec clang` shim.
-        version: 0.9.29
+        # No `version:`: every job takes setup-soldr's default Soldr runtime,
+        # the one soldr pin (bumped by setup-soldr per release). `@v0` moves
+        # only through setup-soldr's gated promotion, so every step in a run
+        # resolves the same default -- one runtime, one cache generation.
         cook-delta: false # per-commit delta layer off (setup-soldr#528)
         save-cache: ${{ inputs.save-cache }}
         save-cache-remote: ${{ inputs.save-cache-remote }}
