@@ -159,6 +159,9 @@ audit-rate = 10
 
 [local.gate.replay]
 repository = "zackees/kernal-api"
+# Match jobs by their qualified identity (`jobID` + matrix), which current bosn
+# reports, rather than by display key.
+qualified = true
 workflow = "ci.yml"
 mode = "minimal"
 
