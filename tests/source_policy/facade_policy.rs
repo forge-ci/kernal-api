@@ -7,7 +7,13 @@ fn http_parser_version_is_pinned_for_published_consumers() {
     let manifest = include_str!("../../Cargo.toml");
     assert!(manifest
         .contains("hyper = { version = \"=1.11.0\", default-features = false, optional = true }"));
-    assert!(manifest.contains("http-client = [\"dep:reqwest\", \"dep:bytes\", \"dep:hyper\"]"));
+    for feature in ["http-client", "http-client-rustls"] {
+        let prefix = format!("{feature} = [\"dep:reqwest\", \"dep:bytes\", \"dep:hyper\", ");
+        assert!(
+            manifest.contains(&prefix),
+            "{feature} must pin hyper's parser"
+        );
+    }
 }
 
 /// `crash-handler` exports unmangled signal and exception symbols

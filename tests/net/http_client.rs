@@ -1,4 +1,4 @@
-#![cfg(feature = "http-client")]
+#![cfg(any(feature = "http-client", feature = "http-client-rustls"))]
 
 use kernal_api::http::{Client, Limits, Method, Request};
 use std::io::{Read, Write};
