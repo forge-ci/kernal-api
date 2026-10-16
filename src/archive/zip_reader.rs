@@ -39,7 +39,7 @@ impl Reader {
         validate_entry(&entry, self.limits)?;
         // Name length is bounded before the guest-facing record is allocated.
         Ok(Some(Entry {
-            name: entry.name().to_owned(),
+            name: entry.name().map_err(io::Error::other)?.into_owned(),
             bytes: entry.size(),
         }))
     }
@@ -76,7 +76,9 @@ impl Reader {
     }
 }
 
-fn validate_entry(entry: &zip::read::ZipFile<'_>, limits: ExtractionLimits) -> io::Result<()> {
+fn validate_entry<R: io::Read + ?Sized>(
+    entry: &zip::read::ZipFile<'_, R>,
+    limits: ExtractionLimits) -> io::Result<()> {
     // Initial streamed-entry capability is regular-files only. Links, dirs,
     // and special entries must not silently turn into ordinary byte streams.
     let kind = entry.unix_mode().unwrap_or(0) & 0o170000;
@@ -86,6 +88,9 @@ fn validate_entry(entry: &zip::read::ZipFile<'_>, limits: ExtractionLimits) -> i
     if entry.size() > limits.max_entry_bytes {
         return Err(invalid("ZIP entry exceeds byte limit"));
     }
-    relative_path(entry.name(), limits.max_path_bytes)?;
+    relative_path(
+        &entry.name().map_err(io::Error::other)?,
+        limits.max_path_bytes,
+    )?;
     Ok(())
 }

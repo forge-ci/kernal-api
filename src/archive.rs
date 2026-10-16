@@ -568,7 +568,8 @@ fn extract_zip(file: File, dest: &Path, limits: ExtractionLimits) -> io::Result<
         if entry.size() > limits.max_entry_bytes {
             return Err(invalid("ZIP entry exceeds byte limit"));
         }
-        let relative = relative_path(entry.name(), limits.max_path_bytes)?;
+        let name = entry.name().map_err(io::Error::other)?;
+        let relative = relative_path(&name, limits.max_path_bytes)?;
         let output = root.join(&relative);
         if entry.is_symlink() {
             let mut bytes = Vec::new();
