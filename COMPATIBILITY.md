@@ -98,7 +98,7 @@ descendant teardown, or fresh evidence on the other five targets.
 Until 1.0, the four first-party clients use an exact Cargo requirement:
 
 ```toml
-kernal-api = { version = "=0.1.31", features = ["..."] }
+kernal-api = { version = "=0.1.32", features = ["..."] }
 
 [profile.dev.package.kernal-api]
 codegen-units = 1
@@ -107,7 +107,7 @@ codegen-units = 1
 codegen-units = 1
 ```
 
-The Python companion is likewise pinned with `kernal-api==0.1.31` when used by
+The Python companion is likewise pinned with `kernal-api==0.1.32` when used by
 first-party Python tooling. A source checkout may temporarily use a path patch
 only on an explicit migration branch; release branches must resolve the exact
 registry version. There is no `optional = true` legacy implementation behind
@@ -252,6 +252,14 @@ the same client operation and no runtime fallback to a second HAL.
   errors converted privately. The broker implementation, its wire, and its
   round trips stay in `running-process`; endpoint naming, payloads, and
   fallback policy remain application policy.
+- `broker_v2` (feature `broker-v2`, opt-in and outside `full`): the broker
+  v2 daemon lifecycle. `backend_endpoint`, `daemon_identity_path`,
+  `publish` (a `Publication` guard), `published`, and
+  `BrokerLaunch::from_env` own the daemon side; `negotiate`, `connect`, and
+  `connect_published` own the client side and return an owned
+  `Connection` stream with its `Route`. Identity bytes, the v2 Hello wire,
+  name validation, and the identity path stay in `running-process`; daemon
+  start policy and payload protocol remain application policy.
 
 Client CI installs the two Dylints in [DYLINT.md](DYLINT.md). They deny direct
 implementation-crate use and host `cfg` selection outside this HAL, including

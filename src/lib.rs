@@ -144,6 +144,14 @@ pub mod daemon_registration_v2;
 #[cfg(feature = "broker-client")]
 pub mod broker_client;
 
+/// Facade-owned broker v2 daemon lifecycle: publish, discover, and connect.
+///
+/// Daemons publish their backend endpoint where the v2 broker resolves it;
+/// clients negotiate through a bound broker or dial the published identity.
+/// Payload protocols and daemon start policy remain with callers.
+#[cfg(feature = "broker-v2")]
+pub mod broker_v2;
+
 /// Build-script helpers: Windows executable resources for an application's
 /// own `build.rs`. Depend on it as a renamed build-dependency so the
 /// application's `kernal-api/<feature>` entries never reach the build script

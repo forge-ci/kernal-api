@@ -1,6 +1,6 @@
 [package]
 name = "kernal-api"
-version = "0.1.31"
+version = "0.1.32"
 build = "build.rs"
 edition = "2021"
 rust-version = "1.95.0"
@@ -134,6 +134,11 @@ daemon-registration-v2 = ["running-process/daemon-registration-v2"]
 # its `client` feature is heavy (clap, interprocess, anyhow, toml), so this is
 # opt-in and outside `full`.
 broker-client = ["running-process/client"]
+# Facade-owned broker v2 daemon lifecycle: identity publication, broker
+# Hello negotiation, broker-launch recovery, and the backend connect. Same
+# heavy substrate client graph as broker-client, so it is opt-in and outside
+# `full` too.
+broker-v2 = ["running-process/client", "daemon-identity", "ipc"]
 pty = ["dep:portable-pty", "terminal-input"]
 event-stream = ["dep:futures-core", "dep:tokio-stream", "tokio-stream/sync"]
 http-server = ["dep:hyper", "hyper/server", "hyper/http1", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:futures-core"]
@@ -506,6 +511,7 @@ features = [
   "daemon-registration",
   "daemon-registration-v2",
   "broker-client",
+  "broker-v2",
   "build-resources",
 ]
 rustdoc-args = ["--cfg", "docsrs"]

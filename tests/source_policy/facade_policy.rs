@@ -328,6 +328,44 @@ fn daemon_identity_remains_opt_in_and_out_of_full() {
     );
 }
 
+/// The broker v2 lifecycle shares the substrate's heavy `client` graph, so it
+/// stays opt-in and outside `full`, and delegates the wire to the substrate.
+#[test]
+fn broker_v2_remains_opt_in_out_of_full_and_an_adapter() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("read manifest");
+    assert!(
+        manifest.contains("broker-v2 = [\"running-process/client\", \"daemon-identity\", \"ipc\"]"),
+        "broker-v2 must compose only the substrate client, identity, and ipc"
+    );
+    let full = manifest
+        .split("full = [")
+        .nth(1)
+        .and_then(|tail| tail.split(']').next())
+        .expect("locate full feature");
+    assert!(
+        !full.contains("broker-v2"),
+        "full must not pull the broker v2 graph"
+    );
+    let adapter =
+        std::fs::read_to_string(root.join("src/broker_v2.rs")).expect("read broker v2 facade");
+    assert!(
+        adapter.contains("backend::connect_service_with_deadline("),
+        "the facade must delegate the v2 Hello to the substrate"
+    );
+    for forbidden in [
+        "write_frame(",
+        "read_frame(",
+        "encode_to_vec(",
+        "HelloReply::decode(",
+    ] {
+        assert!(
+            !adapter.contains(forbidden),
+            "the broker v2 facade must not reimplement the broker wire ({forbidden:?})"
+        );
+    }
+}
+
 /// The broker client adapter selects the substrate's heavy `client` feature,
 /// so it stays opt-in, outside `full`, and an adapter rather than a second
 /// broker implementation.
@@ -1194,6 +1232,7 @@ fn published_documentation_renders_every_public_module() {
         "daemon-registration",
         "daemon-registration-v2",
         "broker-client",
+        "broker-v2",
     ] {
         assert!(
             metadata.contains(&format!("\"{feature}\"")),
@@ -1218,6 +1257,7 @@ fn published_documentation_renders_every_public_module() {
         ("daemon-registration", "daemon_registration"),
         ("daemon-registration-v2", "daemon_registration_v2"),
         ("broker-client", "broker_client"),
+        ("broker-v2", "broker_v2"),
     ] {
         assert!(
             lib.contains(&format!(
@@ -1236,6 +1276,7 @@ fn published_documentation_renders_every_public_module() {
         "daemon-registration",
         "daemon-registration-v2",
         "broker-client",
+        "broker-v2",
         "window-icon",
     ] {
         assert!(

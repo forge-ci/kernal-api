@@ -127,10 +127,10 @@ adds `kernal-api` a second time, as a build-dependency with only this feature:
 
 ```toml
 [dependencies]
-kernal-api = { version = "=0.1.31", features = ["window-icon"] }
+kernal-api = { version = "=0.1.32", features = ["window-icon"] }
 
 [build-dependencies]
-kernal-api = { version = "=0.1.31", default-features = false, features = ["build-resources"] }
+kernal-api = { version = "=0.1.32", default-features = false, features = ["build-resources"] }
 ```
 
 Features enabled in the `[dependencies]` entry never reach the build script:
@@ -170,6 +170,10 @@ compile. They are documented on docs.rs but must be enabled by name:
   returning an owned `std::io` stream, plus owned route, refusal-code,
   refusal-kind, and error values for classifying why a broker declined; the
   broker implementation stays in the private substrate
+- `broker-v2` for the broker v2 daemon lifecycle: a daemon names an
+  owner-private backend endpoint, recovers a broker-assigned launch, and
+  publishes its identity where the v2 broker resolves it; a client connects
+  through a bound v2 broker or, with none bound, the published identity
 
 The library never installs a global allocator or subscriber by surprise.
 Applications opt in explicitly and can still compile all facilities into one
