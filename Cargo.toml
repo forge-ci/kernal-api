@@ -199,7 +199,13 @@ hash-sha256 = ["dep:sha2"]
 archive = ["dep:zip", "dep:tar", "dep:zstd", "dep:flate2"]
 # Test-only native authentication and guest-header experiment.
 archive-auth-test-support = ["archive", "dep:openssl", "dep:tempfile"]
-http-client = ["dep:reqwest", "dep:bytes", "dep:hyper"]
+# One HTTP client, two TLS backends: `http-client` uses the platform's native
+# TLS (OpenSSL on Linux), `http-client-rustls` uses rustls with the bundled
+# webpki roots, so a consumer can ship without OpenSSL (#427). Either enables
+# the same `http` module; enabling both links both backends and reqwest keeps
+# native TLS as its default.
+http-client = ["dep:reqwest", "dep:bytes", "dep:hyper", "reqwest/default-tls"]
+http-client-rustls = ["dep:reqwest", "dep:bytes", "dep:hyper", "reqwest/rustls-tls"]
 conpty-sidecar = [
   "pty",
   "dep:dirs",
@@ -283,7 +289,7 @@ full = [
 [dependencies]
 # Portable decoding is opt-in for native screenshot proofs and window icons.
 png = { version = "=0.17.16", optional = true }
-reqwest = { version = "=0.12.28", default-features = false, features = ["default-tls"], optional = true }
+reqwest = { version = "=0.12.28", default-features = false, optional = true }
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "backup"], optional = true }
 # Constrain reqwest's private parser for published consumers, not just this
 # repository's lockfile. Its metadata bounds are audited in docs/http-client.md.

@@ -28,6 +28,9 @@ CASES = (
     ("hash-sha256", "sha2"),
     ("http-client", "reqwest"),
     ("http-client", "hyper"),
+    ("http-client", "openssl-sys"),
+    ("http-client-rustls", "reqwest"),
+    ("http-client-rustls", "rustls"),
     ("http-server", "hyper"),
     ("http-server", "http-body-util"),
     ("event-stream", "tokio-stream"),
@@ -143,6 +146,13 @@ def build_resources_consumer_failures() -> list[str]:
     return failures
 
 
+def rustls_client_failures() -> list[str]:
+    """`http-client-rustls` exists so a consumer can ship without OpenSSL (#427)."""
+    graph = tree("http-client-rustls")
+    native = sorted(graph & {"openssl", "openssl-sys", "native-tls"})
+    return [f"http-client-rustls graph contains {', '.join(native)}"] if native else []
+
+
 def main() -> int:  # noqa: C901 -- Existing dependency-boundary checks; ratchet complexity 13.
     default_graph = tree("")
     failures: list[str] = []
@@ -176,6 +186,7 @@ def main() -> int:  # noqa: C901 -- Existing dependency-boundary checks; ratchet
             f"secure-random adds unrelated facilities: {', '.join(unexpected_entropy)}"
         )
     failures.extend(build_resources_consumer_failures())
+    failures.extend(rustls_client_failures())
     for feature, package in CASES:
         if package in default_graph:
             failures.append(f"RED failed: default graph unexpectedly contains {package}")

@@ -5,6 +5,20 @@ reads, and a blocking adapter driven by the caller's kernel runtime. Product
 URLs, payload schemas, status interpretation, artifact publication and fallback
 policy remain with the application. No backend types are public.
 
+## TLS backend
+
+Enable exactly one of the two features; both expose the same `http` module.
+
+- `http-client` uses the platform's native TLS: OpenSSL on Linux,
+  Security.framework on macOS, SChannel on Windows. Certificates are checked
+  against the operating system's trust store.
+- `http-client-rustls` uses rustls (ring provider) with the bundled Mozilla
+  roots from `webpki-roots`, so the consumer links no OpenSSL and needs no
+  system trust store (#427). rustls refuses a CA certificate presented as a
+  leaf, so the native-TLS fixture tests run only under `http-client`.
+
+Enabling both links both backends; reqwest then uses native TLS.
+
 ## Metadata and buffering
 
 `Limits::max_header_bytes` and `max_header_count` are acceptance ceilings checked

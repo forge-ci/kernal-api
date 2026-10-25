@@ -95,7 +95,7 @@ pub mod terminal_style;
 /// Bounded extraction into caller-exclusive staging directories.
 #[cfg(feature = "archive")]
 pub mod archive;
-#[cfg(feature = "http-client")]
+#[cfg(any(feature = "http-client", feature = "http-client-rustls"))]
 pub mod http;
 #[cfg(feature = "http-server")]
 pub mod http_server;

@@ -8,8 +8,9 @@ from pathlib import Path
 
 from ci_lint.cargo_messages import JsonValue
 from ci_lint.workflow_replay import ReplayExpectation, ReplayJob, prove_replay
+from ci_lint.workflow_replay_identity import identity_part
 
-VERIFY = ReplayJob("CI/verify", (
+VERIFY = ReplayJob("CI/verify", identity=(identity_part("verify"),), steps=(
     "Checkout candidate source", "Checkout pinned ci-lint", "Set up uv",
     "Verify local gate attestation",
     # Unconditional in the workflow: `reuse-check` declines anything that is
@@ -17,7 +18,7 @@ VERIFY = ReplayJob("CI/verify", (
     # real (if trivially passing) step in PR replay.
     "Verified default-branch reuse",
 ))
-LINUX = ReplayJob("CI/linux", (
+LINUX = ReplayJob("CI/linux", identity=(identity_part("linux"),), steps=(
     "Checkout candidate source", "Set up uv",
     "Select CI mode and verify the checked-out commit", "Verify selected source SHA",
     "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Set up soldr",
@@ -26,7 +27,7 @@ LINUX = ReplayJob("CI/linux", (
     "Scan the repository against the platform boundary", "Check the Dylint libraries' formatting",
     "Lint the default facade", "Test the default facade", "Test the Linux desktop status facade",
 ))
-DYLINT = ReplayJob("CI/Dylint workspace", (
+DYLINT = ReplayJob("CI/Dylint workspace", identity=(identity_part("dylints"),), steps=(
     "Start installing native webview development packages", "Checkout candidate source", "Set up uv",
     "Select CI mode and verify the checked-out commit", "Verify selected source SHA",
     "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Set up soldr",

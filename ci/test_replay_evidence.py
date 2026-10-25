@@ -22,7 +22,9 @@ def report(job: str) -> dict[str, JsonValue]:
         "state": "done", "conclusion": "success", "exit_code": 0,
         "act_exit_code": 0, "cleanup": "removed", "act_version": "0.2.89-act2.4",
         "tree": {"malformed_lines": 0, "groups": [{"jobs": [
-            {"key": expected.key, "status": "completed", "conclusion": "success",
+            {"key": expected.key, "job_id": expected.identity[-1].job_id, "matrix": {},
+             "identity": [{"jobID": part.job_id, "matrix": None} for part in expected.identity],
+             "status": "completed", "conclusion": "success",
              "sections": [{"name": name, "stage": "Main", "status": "completed",
                            "conclusion": "success", "first_seq": 1, "last_seq": 2}
                           for name in expected.steps]}
