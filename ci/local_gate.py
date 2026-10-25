@@ -255,7 +255,8 @@ def main() -> None:
             "--json",
         )
     )
-    run_id = submitted.get("run")
+    # bosn >= 0.1.2x returns the run record, keyed by "id".
+    run_id = submitted.get("run", submitted.get("id"))
     if not isinstance(run_id, str) or not run_id:
         raise ValueError("bosn did not return a run ID")
     print(f"bosn local gate run: {run_id}", flush=True)
