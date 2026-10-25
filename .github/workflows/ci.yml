@@ -59,8 +59,8 @@ jobs:
       - name: Checkout pinned ci-lint
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: zackees/ci.yml
-          ref: 29087cb90ddebb84cd5f4b2e0f85380e76c743e5
+          repository: forge-ci/ci.yml
+          ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
           path: .ci-lint
           persist-credentials: false
       - name: Set up uv
@@ -159,8 +159,8 @@ jobs:
       - name: Checkout pinned ci-lint
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: zackees/ci.yml
-          ref: 29087cb90ddebb84cd5f4b2e0f85380e76c743e5
+          repository: forge-ci/ci.yml
+          ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -994,8 +994,8 @@ jobs:
       - name: Checkout pinned ci-lint
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: zackees/ci.yml
-          ref: 29087cb90ddebb84cd5f4b2e0f85380e76c743e5
+          repository: forge-ci/ci.yml
+          ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint

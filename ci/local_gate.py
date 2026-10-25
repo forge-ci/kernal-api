@@ -23,7 +23,7 @@ else:
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ".github/workflows/ci.yml"
-CI_LINT = "ci-lint @ git+https://github.com/zackees/ci.yml@29087cb90ddebb84cd5f4b2e0f85380e76c743e5"
+CI_LINT = "ci-lint @ git+https://github.com/forge-ci/ci.yml@6de2d6f84297e3dc16b4001da1a61a9459c38b18"
 
 
 def bosn_command(*arguments: str) -> list[str]:
