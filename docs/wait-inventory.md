@@ -66,7 +66,33 @@ Status key:
 | Site | Status | Required result |
 | --- | --- | --- |
 | `platform::terminal_input::wait_for_terminal_input_event` | optional (`timeout: Option<Duration>`); bounded `TerminalInputCore::wait_for_event_within` (`Timeout`) exists | Migrate callers, then require a budget or document the listener exception. |
-| `platform::ipc` and `broker_*` | not yet audited | Inventory the endpoint accept, connect, read and write waits. |
+| `platform::ipc` and `broker_*` | audited; see [IPC and broker](#ipc-and-broker) | Bound the client paths listed there. |
+
+## IPC and broker
+
+Audited from source (Linux tree unless noted; Windows and macOS mirror it).
+Client connect, read and write paths are the hang risk: a dead or wedged
+peer blocks them forever. Accept-side waits are service-lifetime listeners.
+
+| API | Blocks a native thread | Status | Required result |
+| --- | --- | --- | --- |
+| `broker_client::connect_backend` | yes | partly bounded: broker Hello (internal 30 s default) and handoff (`handoff_ready_timeout`, 2 s) are bounded; the final backend connect, and the cached-endpoint attempt, are not | One caller-supplied deadline over the whole call. |
+| `broker_client::BackendConnection` `Read` / `Write` | yes | unbounded; no timeout setter | Read and write budgets. |
+| `broker_v2::connect` | yes | partly bounded: `deadline` covers negotiation only; the following `dial` -> `Stream::connect` is unbounded | Extend `deadline` over the dial. |
+| `broker_v2::connect_published` | yes | unbounded (`Stream::connect`) | A connect budget. |
+| `broker_v2::negotiate` | yes | bounded (`deadline`) | None. |
+| `broker_v2::Connection` `Read` | yes | optional (`set_read_timeout`, default `None`) | Bound by default or require one. |
+| `broker_v2::Connection` `Write` | yes | unbounded; no send timeout | A write budget. |
+| `platform::ipc::Stream::connect` | yes | unbounded; on Windows the local-socket layer waits on a busy pipe without limit | A connect budget. |
+| `platform::ipc::Stream` `Read` | yes | optional (`set_recv_timeout`, default `None`) | Bound by default or require one. |
+| `platform::ipc::Stream` `Write` / `flush` | yes | unbounded; the transport exposes only a receive timeout | A write budget. |
+| `platform::ipc::Stream::transfer_to_backend` | yes | non-blocking on Linux (`MSG_DONTWAIT`); Windows not yet checked | Confirm on Windows. |
+| `AsyncStream::connect`, `read`, `read_exact`, `write_all`, `flush`, `shutdown`, and the `AsyncReadHalf` / `AsyncWriteHalf` forms | no | unbounded; callers may wrap them in `async_engine::timeout` | `_within` forms, then migrate callers. |
+| `LocalSocketStream::connect` (owner-only) | no | unbounded; callers own deadlines | A connect budget. |
+| `LocalPipeClient::open` (Windows) | yes (one syscall) | bounded by design: pipe-busy is returned, not waited on | None. |
+| `legacy_send_fd_to` | yes | connect unbounded (send is non-blocking) | Bound the connect or remove the deprecated function. |
+| `legacy_send_fd_over`, `legacy_duplicate_handle` | yes (one syscall) | bounded by design | None. |
+| `Listener::accept`, `InheritedListener` accept, `AsyncListener::accept`, `LocalSocketListener::accept`, `OwnerOnlyPipeInstance::connect` (Windows) | `Listener` yes, others no | unbounded by design; the async forms are cancellable and keep the listener usable | Classify as service-lifetime listeners. |
 
 ## Enforcement
 
