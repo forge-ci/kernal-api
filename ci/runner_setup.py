@@ -76,40 +76,78 @@ def apt_install(packages: list[str]) -> int:
 
 # A mirror can trickle a large package (libwebkit2gtk-4.1-0 is ~25 MB) so
 # slowly that it never trips Acquire::*::Timeout, which only fires on a silent
-# connection. Each attempt is capped instead and retried on a fresh connection;
-# apt resumes the partial download from its archive cache. Worst case
-# (60 + 3 * 150 s) still ends before apt-finish's 540 s deadline.
+# connection. Only the download is capped and retried: killing it is safe and
+# apt resumes the partial .deb from its archive cache. Killing dpkg mid-unpack
+# is not (later attempts fail with "dpkg was interrupted"), so the offline
+# install gets one longer cap after `dpkg --configure -a`. Worst case
+# (60 + 100, then 10 + 60 + 100, then 10 + 180 s = 520 s) still ends before
+# apt-finish's 540 s deadline.
 APT_UPDATE_SECONDS = 60
-APT_INSTALL_SECONDS = 150
-APT_INSTALL_ATTEMPTS = 3
+APT_DOWNLOAD_SECONDS = 100
+APT_MIRROR_SECONDS = 10
+APT_CONFIGURE_SECONDS = 10
+APT_INSTALL_SECONDS = 180
+# GitHub's Azure Ubuntu mirror has trickled the 25 MB webkit .deb past every
+# capped attempt (runs 40368020419, 40374990547); the retry uses the primary.
+APT_FALLBACK_MIRROR = "archive.ubuntu.com"
 
 
-def apt_background_plan(packages: list[str]) -> list[list[str]]:
-    """The capped commands apt-start's child runs: update, then each install attempt."""
+def capped(seconds: int, command: list[str]) -> list[str]:
+    return ["sudo", "timeout", str(seconds), *command[1:]]
+
+
+def apt_background_plan(packages: list[str]) -> tuple[list[list[list[str]]], list[list[str]]]:
+    """apt-start's child: download attempts until one succeeds, then the install.
+
+    The first download attempt updates and fetches. The second moves the
+    sources off the Azure mirror and updates again before fetching.
+    """
     update, install = apt_commands(packages, APT_RESILIENCE)
-    return [
-        ["sudo", "timeout", str(APT_UPDATE_SECONDS), *update[1:]],
-        *[["sudo", "timeout", str(APT_INSTALL_SECONDS), *install[1:]]] * APT_INSTALL_ATTEMPTS,
+    download = capped(APT_DOWNLOAD_SECONDS, [*install, "--download-only"])
+    capped_update = capped(APT_UPDATE_SECONDS, update)
+    switch_mirror = [
+        "sudo",
+        "timeout",
+        str(APT_MIRROR_SECONDS),
+        "sh",
+        "-c",
+        "grep -rl azure.archive.ubuntu.com /etc/apt"
+        f" | xargs -r sed -i 's/azure\\.archive\\.ubuntu\\.com/{APT_FALLBACK_MIRROR}/g'",
     ]
+    downloads = [
+        [capped_update, download],
+        [switch_mirror, capped_update, download],
+    ]
+    finish = [
+        ["sudo", "timeout", str(APT_CONFIGURE_SECONDS), "dpkg", "--configure", "-a"],
+        capped(APT_INSTALL_SECONDS, install),
+    ]
+    return downloads, finish
 
 
 def apt_start(packages: list[str]) -> int:
     """Start the install detached; `apt-finish` waits for its status file."""
     temp = gha.runner_temp()
     (temp / APT_STATUS).unlink(missing_ok=True)
-    update, *installs = apt_background_plan(packages)
-    # A tiny Python child updates once, retries the capped install until one
-    # attempt succeeds, and records the final status either way, so the wait
-    # below always ends.
+    downloads, finish = apt_background_plan(packages)
+    # A tiny Python child retries the capped download until one attempt
+    # succeeds, installs offline, and records the final status either way, so
+    # the wait below always ends.
     child = (
         "import subprocess\n"
-        f"status = subprocess.run({update!r}, check=False).returncode\n"
-        "if status == 0:\n"
-        f"    for command in {installs!r}:\n"
+        "def run(commands):\n"
+        "    for command in commands:\n"
         "        status = subprocess.run(command, check=False).returncode\n"
-        "        if status == 0:\n"
-        "            break\n"
-        "        print(f'apt install attempt exited {status}; retrying', flush=True)\n"
+        "        if status != 0:\n"
+        "            return status\n"
+        "    return 0\n"
+        f"for attempt in {downloads!r}:\n"
+        "    status = run(attempt)\n"
+        "    if status == 0:\n"
+        "        break\n"
+        "    print(f'apt download attempt exited {status}; retrying', flush=True)\n"
+        "if status == 0:\n"
+        f"    status = run({finish!r})\n"
         f"open({str(temp / APT_STATUS)!r}, 'w').write(str(status))\n"
     )
     log = (temp / APT_LOG).open("w")
