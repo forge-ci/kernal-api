@@ -1299,6 +1299,11 @@ fn capture_sample(resolver: &mut crate::snapshot::SessionResolver) -> Option<Cra
     let Ok(attributed) = resolver.capture_attributed() else {
         return None;
     };
+    // Every sibling can miss the signal deadline under load (#418). An empty
+    // sample is no sample: publishing it would replace the last good one.
+    if attributed.threads.is_empty() {
+        return None;
+    }
     Some(CrashSample {
         modules: attributed
             .modules
@@ -1748,9 +1753,20 @@ mod tests {
         let mut resolver = crate::snapshot::SessionResolver::for_crash(
             &crate::snapshot::SnapshotConfig::default(),
         );
-        let Some(sample) = capture_sample(&mut resolver) else {
+        if crate::snapshot::capture_all_threads(&crate::snapshot::SnapshotConfig::default()).is_err() {
             return; // Unsupported host/architecture has no native sampler.
-        };
+        }
+        // A parked sibling guarantees a thread to sample. Under load a capture
+        // may still miss every signal deadline (#418), which `capture_sample`
+        // reports as no sample; a few attempts separate that from frame loss.
+        let (stop, parked) = std::sync::mpsc::channel::<()>();
+        let sibling = std::thread::spawn(move || {
+            let _ = parked.recv();
+        });
+        let sample = (0..5).find_map(|_| capture_sample(&mut resolver));
+        drop(stop);
+        sibling.join().expect("parked sibling");
+        let sample = sample.expect("five captures each missed every thread");
         assert!(!sample.threads.is_empty(), "sampler dropped every thread");
         assert!(sample.threads.iter().all(|thread| !thread.frames.is_empty()));
         assert!(sample.modules.iter().all(|module| !module.identity.is_empty()));
