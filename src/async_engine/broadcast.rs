@@ -80,6 +80,24 @@ impl<T: Clone> BroadcastReceiver<T> {
         })
     }
 
+    /// Wait at most `timeout` for the next value, with the same lag and
+    /// closure rules as [`Self::recv`]. An expired wait consumes nothing.
+    ///
+    /// # Errors
+    /// Reports lag, a drained and closed subscription, or the timeout.
+    /// Requires a runtime with its timer enabled.
+    pub async fn recv_within(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> Result<T, BroadcastRecvTimeoutError> {
+        match super::timeout(timeout, self.recv()).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(BroadcastRecvError::Lagged(n))) => Err(BroadcastRecvTimeoutError::Lagged(n)),
+            Ok(Err(BroadcastRecvError::Closed)) => Err(BroadcastRecvTimeoutError::Closed),
+            Err(_) => Err(BroadcastRecvTimeoutError::TimedOut),
+        }
+    }
+
     /// Receive without waiting, with the same lag and closure rules as [`Self::recv`].
     ///
     /// # Errors
@@ -104,6 +122,20 @@ pub enum BroadcastRecvError {
     /// No senders or retained values remain.
     #[error("broadcast channel is closed")]
     Closed,
+}
+
+/// A bounded-time broadcast receive could not deliver a value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum BroadcastRecvTimeoutError {
+    /// This many older values were overwritten; retry from the oldest retained.
+    #[error("broadcast receiver skipped {0} values")]
+    Lagged(u64),
+    /// No senders or retained values remain.
+    #[error("broadcast channel is closed")]
+    Closed,
+    /// No value arrived before the timeout.
+    #[error("no broadcast value arrived before the timeout")]
+    TimedOut,
 }
 
 /// A non-waiting broadcast receive could not deliver a value.
