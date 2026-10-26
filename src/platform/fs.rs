@@ -460,7 +460,7 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "fs")]
 use std::sync::Arc;
 #[cfg(feature = "fs")]
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 // ---------------------------------------------------------------------------
 // Advisory locking
@@ -684,6 +684,81 @@ pub fn try_lock_exclusive_owned(file: File) -> io::Result<OwnedFileLock> {
 #[cfg(feature = "fs")]
 pub fn try_lock_shared_owned(file: File) -> io::Result<OwnedFileLock> {
     crate::fs_try_lock_shared(&file)?;
+    Ok(OwnedFileLock { file: Some(file) })
+}
+
+/// Retry a non-blocking lock attempt on the same handle until it succeeds,
+/// fails for a reason other than contention, or `timeout` elapses.
+#[cfg(feature = "fs")]
+fn lock_within(
+    file: &File,
+    timeout: Duration,
+    attempt: fn(&File) -> io::Result<()>,
+) -> io::Result<()> {
+    let started = std::time::Instant::now();
+    let mut pause = Duration::from_millis(1);
+    loop {
+        match attempt(file) {
+            Err(error) if is_lock_conflict(&error) => {
+                let elapsed = started.elapsed();
+                if elapsed >= timeout {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "advisory file lock was not acquired within its timeout",
+                    ));
+                }
+                std::thread::sleep(pause.min(timeout - elapsed));
+                pause = (pause * 2).min(Duration::from_millis(20));
+            }
+            result => return result,
+        }
+    }
+}
+
+/// Take an exclusive advisory lock, waiting at most `timeout`.
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::TimedOut`] if another holder keeps the lock for
+/// the whole timeout, or the host error if the lock call fails otherwise.
+#[cfg(feature = "fs")]
+pub fn lock_exclusive_for(file: &File, timeout: Duration) -> io::Result<FileLock<'_>> {
+    lock_within(file, timeout, crate::fs_try_lock_exclusive)?;
+    Ok(FileLock::new(file))
+}
+
+/// Take a shared advisory lock, waiting at most `timeout`.
+///
+/// # Errors
+///
+/// As [`lock_exclusive_for`].
+#[cfg(feature = "fs")]
+pub fn lock_shared_for(file: &File, timeout: Duration) -> io::Result<FileLock<'_>> {
+    lock_within(file, timeout, crate::fs_try_lock_shared)?;
+    Ok(FileLock::new(file))
+}
+
+/// Take an exclusive advisory lock that owns `file`, waiting at most
+/// `timeout`. Unlike retrying [`try_lock_exclusive_owned`], the handle is
+/// kept across attempts.
+///
+/// # Errors
+///
+/// As [`lock_exclusive_for`]; `file` is closed on error.
+#[cfg(feature = "fs")]
+pub fn lock_exclusive_owned_for(file: File, timeout: Duration) -> io::Result<OwnedFileLock> {
+    lock_within(&file, timeout, crate::fs_try_lock_exclusive)?;
+    Ok(OwnedFileLock { file: Some(file) })
+}
+
+/// Take a shared advisory lock that owns `file`, waiting at most `timeout`.
+///
+/// # Errors
+///
+/// As [`lock_exclusive_owned_for`].
+#[cfg(feature = "fs")]
+pub fn lock_shared_owned_for(file: File, timeout: Duration) -> io::Result<OwnedFileLock> {
+    lock_within(&file, timeout, crate::fs_try_lock_shared)?;
     Ok(OwnedFileLock { file: Some(file) })
 }
 
