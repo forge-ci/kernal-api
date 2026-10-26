@@ -230,4 +230,45 @@ mod unix_wire {
         assert_eq!(&reply, b"pong");
         server.join().expect("backend");
     }
+
+    /// A backend that accepts and then stays silent cannot hold a reader
+    /// past its read timeout.
+    #[test]
+    fn a_read_timeout_bounds_a_silent_backend() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let backend = directory.path().join("silent.sock");
+        let listener = UnixListener::bind(&backend).expect("bind backend");
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().expect("accept");
+            released.recv().ok();
+        });
+
+        let backend_endpoint = backend.to_string_lossy().into_owned();
+        let request = BackendRequest::new(
+            dead_endpoint(&directory),
+            "kernal-api-test",
+            "1.0.0",
+            "1.0.0",
+        )
+        .cached_backend_endpoint(&backend_endpoint);
+        let mut connection = connect_backend(&request).expect("cached backend connects");
+        connection
+            .set_read_timeout(Some(std::time::Duration::from_millis(100)))
+            .expect("set read timeout");
+        let started = std::time::Instant::now();
+        let error = connection
+            .read(&mut [0_u8; 1])
+            .expect_err("a silent backend sends nothing");
+        assert!(
+            matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ),
+            "{error}"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        release.send(()).unwrap();
+        server.join().expect("backend");
+    }
 }

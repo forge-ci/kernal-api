@@ -76,8 +76,8 @@ peer blocks them forever. Accept-side waits are service-lifetime listeners.
 
 | API | Blocks a native thread | Status | Required result |
 | --- | --- | --- | --- |
-| `broker_client::connect_backend` | yes | partly bounded: broker Hello (internal 30 s default) and handoff (`handoff_ready_timeout`, 2 s) are bounded; the final backend connect, and the cached-endpoint attempt, are not | One caller-supplied deadline over the whole call. |
-| `broker_client::BackendConnection` `Read` / `Write` | yes | unbounded; no timeout setter | Read and write budgets. |
+| `broker_client::connect_backend` | yes | partly bounded: broker Hello (internal 30 s default) and handoff (`handoff_ready_timeout`, 2 s) are bounded; the final backend connect, and the cached-endpoint attempt, are not (both inside `running-process`) | One caller-supplied deadline over the whole call; needs an upstream `running-process` connect budget. |
+| `broker_client::BackendConnection` `Read` / `Write` | yes | read optional (`set_read_timeout`, default `None`); write unbounded | Bound reads by default; a write budget. |
 | `broker_v2::connect` | yes | bounded: `deadline` covers negotiation and the dial (`Stream::connect_within` with the remainder) | None. |
 | `broker_v2::connect_published` | yes | unbounded (`Stream::connect`); bounded `connect_published_within(service, timeout)` exists | Migrate callers, then remove the unbounded form. |
 | `broker_v2::negotiate` | yes | bounded (`deadline`) | None. |

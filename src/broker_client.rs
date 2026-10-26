@@ -419,6 +419,18 @@ impl BackendConnection {
     pub fn endpoint(&self) -> &str {
         &self.inner.endpoint
     }
+
+    /// Bound how long a read may block (`None` waits indefinitely).
+    ///
+    /// An expired read fails with [`io::ErrorKind::WouldBlock`] or
+    /// [`io::ErrorKind::TimedOut`], depending on the host.
+    ///
+    /// # Errors
+    ///
+    /// Returns the host error if the timeout cannot be applied.
+    pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> io::Result<()> {
+        self.inner.stream.set_recv_timeout(timeout)
+    }
 }
 
 impl Read for BackendConnection {
