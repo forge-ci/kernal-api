@@ -998,6 +998,29 @@ impl PlatformChild {
     ) -> Result<ProcessOutput, ProcessCaptureError> {
         self.inner.capture_bounded(limit).await
     }
+
+    /// [`Self::wait_with_output_bounded`] with a time budget.
+    ///
+    /// If the child has not exited and closed both streams within `timeout`,
+    /// the capture is abandoned, the child is killed, and this returns
+    /// [`ProcessCaptureError::Io`] with [`io::ErrorKind::TimedOut`]; output
+    /// captured so far is discarded.
+    pub async fn wait_with_output_bounded_within(
+        mut self,
+        limit: usize,
+        timeout: std::time::Duration,
+    ) -> Result<ProcessOutput, ProcessCaptureError> {
+        match async_engine::timeout(timeout, self.inner.capture_bounded(limit)).await {
+            Ok(result) => result,
+            Err(_) => {
+                self.kill().await.map_err(ProcessCaptureError::Io)?;
+                Err(ProcessCaptureError::Io(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "child output was not captured within its timeout",
+                )))
+            }
+        }
+    }
 }
 
 /// Post-exit output-drain policy for [`ProcessSession`].
@@ -2021,6 +2044,29 @@ mod tests {
             assert!(child.id().is_some(), "a timed-out wait must not report the child gone");
             child.kill().await.expect("kill after an expired wait");
             assert!(child.id().is_none());
+        });
+    }
+
+    #[test]
+    fn bounded_capture_times_out_and_kills_the_child() {
+        let runtime = crate::async_engine::RuntimeBuilder::current_thread()
+            .enable_all()
+            .build()
+            .expect("current-thread runtime");
+        runtime.run(async {
+            let child = slow_command().spawn().await.expect("spawn slow child");
+            let started = Instant::now();
+            let error = child
+                .wait_with_output_bounded_within(1024, Duration::from_millis(200))
+                .await
+                .expect_err("a 30 s child must outlive a 200 ms capture");
+            let waited = started.elapsed();
+            assert!(
+                matches!(&error, crate::ProcessCaptureError::Io(error) if error.kind() == std::io::ErrorKind::TimedOut),
+                "{error}"
+            );
+            assert!(waited >= Duration::from_millis(200), "returned early after {waited:?}");
+            assert!(waited < Duration::from_secs(20), "waited for natural exit: {waited:?}");
         });
     }
 
