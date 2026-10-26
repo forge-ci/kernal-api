@@ -177,7 +177,7 @@ mode = "minimal"
 [[local.gate.replay.jobs]]
 source-job = "ci.yml:verify"
 key = "CI/verify"
-steps = ["Checkout candidate source", "Checkout pinned ci-lint", "Set up uv", "Verify local gate attestation", "Verified default-branch reuse"]
+steps = ["Checkout candidate source", "Checkout pinned ci-lint", "Set up uv", "Verify local gate attestation"]
 lanes = ["linux-minimal", "dylint-minimal"]
 
 [[local.gate.replay.jobs]]
@@ -207,33 +207,6 @@ lane = "dylint-minimal"
 job = "dylints"
 event = "pull_request"
 inputs = {}
-
-# ── Default-branch verified reuse (GEN-021, zackees/ci.yml#162) ─────────────
-# A push to `main` may skip the validation steps of `linux` and `dylints`
-# when the one merged pull request already validated a byte-identical tree: one merged PR,
-# `merge_commit_sha` equal to the pushed SHA, the same tree, and a green,
-# fresh per-job proving run. Anything else -- a squash-merge batch, a drifted
-# tree, a failed or stale proving run -- leaves both jobs running.
-#
-# These two jobs are also the repository's only cache writers (`per = "none"`
-# everywhere, `write-on = ["main"]`), so a reused push keeps both jobs, their
-# setup and their setup-soldr save, and skips only the validation steps
-# (design strategy i). Those steps were the compiles, so a reused push
-# re-saves what it restored rather than a fresh build. Two things cover that,
-# and neither is a nightly:
-#
-#   * every push reuse cannot prove still runs both jobs in full, and at this
-#     repository's measured ~89.5% reuse rate that is roughly one full cache
-#     refresh every six days, for free;
-#   * `--max-age-hours` forces a full run once a proving run ages out.
-#
-# setup-soldr's `auto` key (CACHE-024) would remove the first dependence
-# entirely once it covers the `dylint` family; today it covers build-cache only.
-[reuse.default-branch]
-mode           = "enforce"
-workflows      = ["ci.yml"]
-required-jobs  = ["linux", "Dylint workspace", "Python lint"]
-max-age-hours  = 24
 
 [allow]
 workflows = { "ci.yml" = ["pull_request", "push:main", "workflow_dispatch", "merge_group"], "auto-release.yml" = ["workflow_dispatch"], "release.yml" = ["workflow_call"], "macos-x64-tests.yml" = ["schedule", "workflow_dispatch"] }
@@ -272,18 +245,19 @@ reason  = "executed inside a macOS Recovery guest (bash 3.2, no Python interpret
 issue   = "https://github.com/forge-ci/ci.yml/issues/94"
 expires = "2027-06-30"
 
-# -- GEN-022 step 5 -> 6 transition (forge-ci/ci.yml#432) ---------------------
-# Step 5 adds push-only writers that share `linux`'s/`dylints`' keys while both
-# validation jobs still run on push. On a push they compile nothing (GEN-021
-# reuse skips their steps), so the writer's save is the only new one. Step 6
-# gates both validation jobs `github.event_name != 'push'`, which makes the
-# pairs event-disjoint (ci.yml#488) and deletes this exception.
+# -- GEN-021: validation skips main pushes under a live merge queue -----------
+# GEN-022 step 6 (forge-ci/ci.yml#432). `fast`, `linux` and `dylints` carry
+# `github.event_name != 'push'`: the `main merge queue` ruleset requires
+# verify/linux/Dylint workspace on the `merge_group` run, which validates the
+# exact merge commit that lands (policy-general.md: the queue is the one other
+# justification for a blanket push skip). Main's cache writes moved to the
+# push-only `linux-cache-writer`/`dylint-cache-writer` jobs first (step 5).
 [[exceptions]]
-rule    = "CACHE-038"
+rule    = "GEN-021"
 path    = ".github/workflows/ci.yml"
-reason  = "GEN-022 step 5: push-only writers beside push-reusing validators until step 6 makes them event-disjoint"
+reason  = "merge queue validates the exact merge commit (merge_group runs verify/linux/Dylint workspace); push runs only the cache writers"
 issue   = "https://github.com/forge-ci/ci.yml/issues/432"
-expires = "2026-11-15"
+expires = "2027-04-30"
 
 # -- LAYOUT-001 migration debt (zackees/ci.yml#95, policy-rust.md) ----------------
 # One entry per file still in dylints/kernal_api_platform_boundary/src/baseline.txt

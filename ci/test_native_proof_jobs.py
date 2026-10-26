@@ -120,6 +120,17 @@ class NativeProofJobsTests(unittest.TestCase):
         self.assertNotRegex(writer, r"cargo test (?!--locked --lib --no-run)")
         self.assertIn("ci/dylint_steps.py lanes", self.job("dylint-cache-writer"))
 
+    def test_main_push_skips_validation_and_runs_only_the_writers(self):
+        """GEN-022 step 6: the queue proved the tree; a main push only writes caches."""
+        for name, skip in (("linux", "skip_linux"), ("dylints", "skip_dylints")):
+            with self.subTest(job=name):
+                head = self.job(name).split("steps:", 1)[0]
+                self.assertIn(f"if: needs.verify.outputs.{skip} != 'true' && github.event_name != 'push'", head)
+        self.assertIn("if: github.event_name != 'push'", self.job("fast").split("steps:", 1)[0])
+        # No GEN-021 reuse decision is left to consume.
+        self.assertNotIn("reuse-check", self.text())
+        self.assertNotIn("needs.verify.outputs.reuse", self.text())
+
     def test_cache_janitor_ends_every_queue_run_and_main_push(self):
         """GEN-022: the janitor follows every job, even failed ones, one sweep at a time."""
         job = self.job("cache-janitor")
@@ -384,7 +395,7 @@ class NativeProofJobsTests(unittest.TestCase):
         minimal = self.step("linux", "Test the Linux desktop status facade")
         full = self.step("linux", "Test the full Linux desktop status facade")
         self.assertIn(
-            "if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'",
+            "if: steps.mode.outputs.mode != 'full'",
             minimal,
         )
         self.assertIn("if: steps.mode.outputs.mode == 'full'", full)

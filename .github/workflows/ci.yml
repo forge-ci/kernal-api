@@ -55,13 +55,6 @@ jobs:
       # A source-bound attestation on a PR (GATE-008/010) skips a whole job.
       skip_linux: ${{ steps.gate.outputs.skip_linux }}
       skip_dylints: ${{ steps.gate.outputs.skip_dylints }}
-      # A verified byte-identical merge on main (GEN-021) skips only the
-      # validation steps of `linux` and `dylints`: both jobs are this
-      # repository's cache writers, so they still run their setup and their
-      # cache save (zackees/ci.yml#162, design section 8 strategy i).
-      # `reuse-check` writes `reuse`, never `skip_<job>`; exactly 'true' or
-      # the steps run. A PR, a failed decision or an empty output all run.
-      reuse: ${{ steps.reuse.outputs.reuse }}
     steps:
       - name: Checkout candidate source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -89,41 +82,14 @@ jobs:
           PYTHONPATH: .ci-lint
         run: uv run --no-project --python 3.12 python -m ci_lint local-gate verify --repo . --trust --github-output
 
-      # zackees/ci.yml#162 (GEN-021): a push to `main` whose one merged PR
-      # already validated a byte-identical tree may skip the validation
-      # steps of `linux` and `dylints`; the jobs and their cache saves still
-      # run (see the `reuse` output above). Asserts nothing unless exactly
-      # one PR is merged into main with `merge_commit_sha` equal to the
-      # pushed SHA, the trees are equal, and every --required-job is
-      # `success` in a fresh proving run. A squash-merge batch or a drifted
-      # tree leaves both jobs validating in full.
-      # Unconditional on purpose. `reuse-check` refuses anything that is not
-      # a push to the default branch at its first precondition, with no API
-      # call, so a PR run costs a python start-up and proves nothing.
-      # Guarding it with an `if:` instead would make it a step the replay
-      # proof has to exclude, and kernal-api's own drift test asserts that
-      # `verify`'s replayed steps are exactly the declared list.
-      - name: Verified default-branch reuse
-        id: reuse
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: >-
-          uv run --no-project --python 3.12
-          env PYTHONPATH=.ci-lint
-          python -m ci_lint reuse-check
-          --workflow ci.yml --mode enforce --github-output
-          --max-age-hours 24
-          --required-job "linux"
-          --required-job "Dylint workspace"
-          --required-job "Python lint"
-
   # GEN-004: Ruff check, Ruff format --check and Pylint over every tracked
   # Python file, on one small runner beside `linux`. Compiles nothing.
   fast:
     name: Python lint
     needs: verify
-    # A verified byte-identical main merge (GEN-021) was already linted on its PR.
-    if: needs.verify.outputs.reuse != 'true'
+    # GEN-022 step 6 (forge-ci/ci.yml#432): the merge queue linted the tree
+    # that lands, so a main push does not lint it again.
+    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -172,7 +138,9 @@ jobs:
   # on one runner: the Linux-only checks first, then lint and the full suite.
   linux:
     needs: verify
-    if: needs.verify.outputs.skip_linux != 'true'
+    # GEN-022 step 6 (forge-ci/ci.yml#432): a main push skips validation; the
+    # merge queue proved the tree, and `linux-cache-writer` owns main's saves.
+    if: needs.verify.outputs.skip_linux != 'true' && github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
@@ -261,13 +229,10 @@ jobs:
       - name: Restore native pkg-config search path
         run: python3 ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
       - name: Check workspace formatting
-        if: needs.verify.outputs.reuse != 'true'
         run: soldr cargo fmt --all -- --check
       - name: Check Python function complexity
-        if: needs.verify.outputs.reuse != 'true'
         run: uv run --no-project --with ruff==0.16.7 ruff check .
       - name: Check the CI guards and the guest build scripts
-        if: needs.verify.outputs.reuse != 'true'
         env:
           PYTHONPATH: .ci-lint
         # The module list lives in ci/linux_steps.py (CI_GUARD_MODULES).
@@ -278,7 +243,6 @@ jobs:
       # cheap enough to gate every mode; the `dylints` job adds the resolving
       # passes and the UI tests in full mode.
       - name: Scan the repository against the platform boundary
-        if: needs.verify.outputs.reuse != 'true'
         env:
           CARGO_HOME: ${{ runner.temp }}/kernal-boundary-scan-cargo
         # The lint's own rust-toolchain.toml is the one Dylint nightly pin.
@@ -288,20 +252,19 @@ jobs:
         # needs no Dylint linker.
         run: python3 ci/linux_steps.py boundary-scan
       - name: Check the Dylint libraries' formatting
-        if: needs.verify.outputs.reuse != 'true'
         run: python3 ci/linux_steps.py dylint-fmt
       - name: Lint the default facade
-        if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'
+        if: steps.mode.outputs.mode != 'full'
         run: soldr cargo clippy --locked --lib -- --deny warnings
       - name: Test the default facade
-        if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'
+        if: steps.mode.outputs.mode != 'full'
         # The build-ID assertion depends on the CI linker's note settings;
         # the full Nextest lane retains it on its existing all-feature graph.
         run: >-
           soldr cargo test --locked --lib --
           --skip platform_linux::tests::current_executable_exposes_a_gnu_build_id
       - name: Test the Linux desktop status facade
-        if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'
+        if: steps.mode.outputs.mode != 'full'
         # --no-default-features --features system-tray --lib system_tray, then
         # --no-default-features --features system-tray --test terminal system_tray
         run: python3 ci/linux_steps.py desktop-status
@@ -760,7 +723,8 @@ jobs:
   # the PR critical path. It selects its own mode and SHA the same way.
   dylints:
     needs: verify
-    if: needs.verify.outputs.skip_dylints != 'true'
+    # GEN-022 step 6: `dylint-cache-writer` runs the push-time Dylint pass.
+    if: needs.verify.outputs.skip_dylints != 'true' && github.event_name != 'push'
     name: Dylint workspace
     env:
       DYLINT_TOOLCHAIN: nightly-2026-05-28
@@ -781,7 +745,6 @@ jobs:
       # ~40 s instead of adding its own 22-46 s to the critical path. Bounded
       # mirror retries/timeouts: a stalled connection otherwise hangs apt.
       - name: Start installing native webview development packages
-        if: needs.verify.outputs.reuse != 'true'
         run: python3 ci/runner_setup.py apt-start libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Set up uv
         uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
@@ -848,7 +811,6 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python3 ci/dylint_steps.py lint-libs-decision --mode "${{ steps.mode.outputs.mode }}"
       - name: Finish installing native webview development packages
-        if: needs.verify.outputs.reuse != 'true'
         timeout-minutes: 10
         run: python3 ci/runner_setup.py apt-finish
       # A Dylint pass only sees what the compiler compiles, and `default = []`.
@@ -864,10 +826,8 @@ jobs:
       # file, printed in a group once all three finish, and every failing
       # lane is named.
       - name: Verify nightly checksum invalidation
-        if: needs.verify.outputs.reuse != 'true'
         run: uv run --no-project --python 3.12 python ci/dylint_freshness.py
       - name: Lint every client-style target
-        if: needs.verify.outputs.reuse != 'true'
         env:
           # Do not trust a partially restored global crates.io source tree.
           CARGO_HOME: ${{ runner.temp }}/kernal-dylint-cargo
