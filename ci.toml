@@ -21,6 +21,7 @@ macos-x64     = { target = "x86_64-apple-darwin",       runs-on = "macos-15-inte
 [rust]
 public  = "."
 private = "crates/private/*"                      # none exist yet; the future home per AGENTS.md
+public-role = "library"                         # the public crate IS the implementation, no amalgam yet (RUST-011, ci.yml#95)
 ship    = [["default"]]                           # the default facade (`default = []`); the all-features graph is a finding (ci.yml#37)
 
 [rust.tests]
@@ -252,7 +253,476 @@ platform-selector = "src/lib.rs"
 # The CI host-facts facade owns Python host queries for GATE-011 fidelity;
 # callers consume its typed record. Production Rust selectors remain confined
 # to the concrete trees below (LAYOUT-001).
-platform-code     = ["src/platform_win*.rs", "src/platform_win/**", "src/platform_linux*.rs", "src/platform_linux/**", "src/platform_macos*.rs", "src/platform_macos/**", "ci/platform_host.py"]
+platform-code     = ["src/platform_win*.rs", "src/platform_win/**", "src/platform_linux*.rs", "src/platform_linux/**", "src/platform_macos*.rs", "src/platform_macos/**", "ci/platform_host.py",
+                     # native modules included only via #[path] from the platform trees
+                     "src/sync_spawn_group.rs", "src/tests/platform_linux_coverage.rs"]
 
 [publish]
 pypi = { auth = "token", environment = "release", mode = "real" }
+
+# -- LAYOUT-001 migration debt (zackees/ci.yml#95, policy-rust.md) ----------------
+# One entry per file still in dylints/kernal_api_platform_boundary/src/baseline.txt
+# (kernal-api#152's shrink-only migration baseline). Delete an entry as its file empties;
+# the Dylint lint already fails any new occurrence, which is the compensating coverage.
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "ci/native_proof.py"
+reason  = "host queries predate the ci/platform_host.py facade; move them behind native_host() (Python is outside the Dylint lint's reach)"
+issue   = "https://github.com/forge-ci/ci.yml/issues/94"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/archive.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/archive/tar_format.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/bin/kernal-symbolize.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/crash/mod.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/crash/spool.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/platform/executable.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/platform/fs.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/platform/fs/temporary.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/platform/ipc.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/platform/process.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/platform/terminal.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/process_adapter.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/profile/tests.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/pty.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/snapshot/attribute.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/snapshot/linux.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/snapshot/macos.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/snapshot/mod.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/snapshot/modules.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/snapshot/unwind.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/snapshot/windows.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/symbolize/client.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/symbolize/discovery.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/symbolize/mod.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/symbolize/object_symbols.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/symbolize/pdb_symbols.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/symbolize/resolve.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/symbolize/split.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/tauri.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/terminal_style.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/wasm/compiler_dispatch.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/wasm/worker/output.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/wasm/worker/test_support.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "src/wasm/worker_protocol.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/daemon-registration-consumer/src/main.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/daemon-registration-v2-consumer/src/main.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/daemon/broker_client.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/daemon/daemon_identity_control.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/daemon/daemon_registration.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/daemon/daemon_registration_v2.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/data/command_schema_contract.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/diagnostics/unified_contract.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/fs/context_file_observation.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/fs/directory_cursor.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/fs/materialization.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/fs/private_regular_file_facade.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/fs/temporary_directory.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/fs/tree_hash.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/fs/user_home.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/net/archive_facade.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/net/http_server.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/net/owner_only_local_ipc.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/executable_naming.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/interrupt_notification.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/native_jobserver.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/process_exit_observation.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/process_host_control.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/process_owner_death_contract.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/process_session.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/process_session_control.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/process_target.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/process/termination_signal.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/source_policy/daemon_identity.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/terminal/terminal_input_ownership.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "LAYOUT-001"
+path    = "tests/wasm_worker_containment.rs"
+reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
+issue   = "https://github.com/forge-ci/kernal-api/issues/152"
+expires = "2027-01-31"
