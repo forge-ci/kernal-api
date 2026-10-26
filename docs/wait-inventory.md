@@ -20,7 +20,7 @@ Status key:
 | `Runtime::run` | yes (`block_on`) | unbounded | A deadline or service-lifetime policy on the root future. |
 | `Task<T>: Future`, `join`, `JoinSet::join_next` | no | unbounded | Bounded join or a typed owner lifetime. |
 | `launch_blocking` / `RuntimeHandle::launch_blocking` | lane thread | unbounded | Timing out the await cannot stop the closure. Document that, and bound the closures callers pass. |
-| `Semaphore::acquire`, `acquire_many` | no | unbounded | Acquisition budget; `try_acquire` is already non-blocking. |
+| `Semaphore::acquire`, `acquire_many` | no | unbounded; bounded `acquire_within` / `acquire_many_within(.., timeout)` exist (`SemaphoreAcquireTimedOut`, an expired waiter holds no permits) | Migrate zccache (`cache_system.rs`, `handle_compile_multi.rs`, `handle_link.rs`, `compile_progress.rs`), then remove the unbounded forms. |
 | `Sender::send`, `Receiver::recv` (bounded channel) | no | unbounded | A budget that hands back the unsent value on expiry. |
 | `Sender::blocking_send` | yes | **fixed**: required `timeout`; `TimedOut(value)` returns the unsent value and keeps no reservation | none |
 | `UnboundedReceiver::recv`, `BroadcastReceiver::recv`, `OneshotReceiver: Future` | no | unbounded | Bounded receive or an owner lifetime. |
