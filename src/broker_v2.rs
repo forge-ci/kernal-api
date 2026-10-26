@@ -348,9 +348,21 @@ impl Write for Connection {
     }
 }
 
-fn dial(endpoint: &str, route: Route) -> Result<Connection, BrokerV2Error> {
+fn dial(endpoint: &str, route: Route, timeout: Option<Duration>) -> Result<Connection, BrokerV2Error> {
     let address = ipc::Endpoint::new(endpoint.to_owned()).map_err(BrokerV2Error::BackendConnect)?;
-    let stream = ipc::Stream::connect(&address).map_err(BrokerV2Error::BackendConnect)?;
+    let stream = match timeout {
+        // A Unix connect completes into the backlog without waiting, so a
+        // zero budget would still dial; refuse it here instead.
+        Some(timeout) if timeout.is_zero() => {
+            return Err(BrokerV2Error::BackendConnect(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the connect deadline elapsed before the daemon was dialed",
+            )))
+        }
+        Some(timeout) => ipc::Stream::connect_within(&address, timeout),
+        None => ipc::Stream::connect(&address),
+    }
+    .map_err(BrokerV2Error::BackendConnect)?;
     Ok(Connection {
         stream,
         route,
@@ -378,7 +390,16 @@ pub fn negotiate(
 /// Dial the endpoint `service`'s daemon published, skipping any broker.
 pub fn connect_published(service: &str) -> Result<Connection, BrokerV2Error> {
     let identity = published(service)?.ok_or(BrokerV2Error::NotPublished)?;
-    dial(identity.endpoint().address(), Route::Published)
+    dial(identity.endpoint().address(), Route::Published, None)
+}
+
+/// [`connect_published`], waiting at most `timeout` to dial the daemon.
+///
+/// An expired dial is [`BrokerV2Error::BackendConnect`] carrying
+/// [`io::ErrorKind::TimedOut`].
+pub fn connect_published_within(service: &str, timeout: Duration) -> Result<Connection, BrokerV2Error> {
+    let identity = published(service)?.ok_or(BrokerV2Error::NotPublished)?;
+    dial(identity.endpoint().address(), Route::Published, Some(timeout))
 }
 
 /// Reach `service`'s daemon: through `program`'s v2 broker when one is bound,
@@ -389,16 +410,23 @@ pub fn connect_published(service: &str) -> Result<Connection, BrokerV2Error> {
 /// broker that has no definition for the service yet
 /// ([`BrokerV2Error::ServiceUnknown`]): it makes no policy claim, so the
 /// published identity is tried.
+///
+/// `deadline` bounds the whole call: negotiation and then the dial to the
+/// chosen endpoint share it. A dial that runs out of time is
+/// [`BrokerV2Error::BackendConnect`] carrying [`io::ErrorKind::TimedOut`].
 pub fn connect(
     program: &str,
     service: &str,
     version_hint: &str,
     deadline: Duration,
 ) -> Result<Connection, BrokerV2Error> {
-    match negotiate(program, service, version_hint, deadline) {
-        Ok(Some(endpoint)) => dial(&endpoint, Route::Broker),
+    let started = std::time::Instant::now();
+    let negotiated = negotiate(program, service, version_hint, deadline);
+    let remaining = deadline.saturating_sub(started.elapsed());
+    match negotiated {
+        Ok(Some(endpoint)) => dial(&endpoint, Route::Broker, Some(remaining)),
         Ok(None) | Err(BrokerV2Error::BrokerUnavailable(_) | BrokerV2Error::ServiceUnknown { .. }) => {
-            connect_published(service)
+            connect_published_within(service, remaining)
         }
         Err(error) => Err(error),
     }
