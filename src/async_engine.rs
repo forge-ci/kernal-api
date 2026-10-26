@@ -685,6 +685,12 @@ pub async fn timeout_at<F: Future>(
 #[error("the kernal-api lock was not acquired before the timeout")]
 pub struct LockTimedOut;
 
+/// A bounded [`Notified`] or [`OwnedNotified`] wait expired without a
+/// notification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("no kernal-api notification arrived before the timeout")]
+pub struct NotifyTimedOut;
+
 /// The configured deadline elapsed before an operation completed.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("the kernal-api async operation exceeded its deadline")]
@@ -898,6 +904,17 @@ impl<'a> Notified<'a> {
     pub fn enable(self: Pin<&mut Self>) -> bool {
         self.project().enable()
     }
+
+    /// Wait for the notification for at most `timeout`. A permit already
+    /// stored by [`Notify::notify_one`] satisfies even a zero timeout.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotifyTimedOut`] if no notification arrived in time.
+    /// Requires a runtime with its timer enabled.
+    pub async fn wait_within(self, timeout: Duration) -> Result<(), NotifyTimedOut> {
+        self::timeout(timeout, self).await.map_err(|_| NotifyTimedOut)
+    }
 }
 
 impl Future for Notified<'_> {
@@ -937,6 +954,17 @@ impl OwnedNotified {
     /// after registration only reports that state.
     pub fn enable(self: Pin<&mut Self>) -> bool {
         self.project().enable()
+    }
+
+    /// Wait for the notification for at most `timeout`. A permit already
+    /// stored by [`Notify::notify_one`] satisfies even a zero timeout.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotifyTimedOut`] if no notification arrived in time.
+    /// Requires a runtime with its timer enabled.
+    pub async fn wait_within(self, timeout: Duration) -> Result<(), NotifyTimedOut> {
+        self::timeout(timeout, self).await.map_err(|_| NotifyTimedOut)
     }
 }
 

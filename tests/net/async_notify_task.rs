@@ -127,3 +127,36 @@ fn max_blocking_threads_caps_the_blocking_lane() {
 fn max_blocking_threads_rejects_zero() {
     let _ = RuntimeBuilder::multi_thread().max_blocking_threads(0);
 }
+
+#[tokio::test(start_paused = true)]
+async fn bounded_notification_waits_time_out_and_still_see_an_enabled_permit() {
+    use kernal_api::async_engine::NotifyTimedOut;
+
+    let notify = Arc::new(Notify::new());
+    let start = tokio::time::Instant::now();
+    assert!(matches!(
+        notify.notified().wait_within(Duration::from_secs(2)).await,
+        Err(NotifyTimedOut)
+    ));
+    assert!(matches!(
+        Arc::clone(&notify)
+            .owned_notified()
+            .wait_within(Duration::from_secs(1))
+            .await,
+        Err(NotifyTimedOut)
+    ));
+    assert_eq!(start.elapsed(), Duration::from_secs(3));
+
+    // A stored notify_one permit satisfies even a zero budget.
+    notify.notify_one();
+    assert!(notify.notified().wait_within(Duration::ZERO).await.is_ok());
+
+    let owned = Arc::clone(&notify).owned_notified();
+    let notifier = Arc::clone(&notify);
+    let sender = tokio::spawn(async move {
+        async_engine::sleep(Duration::from_secs(5)).await;
+        notifier.notify_one();
+    });
+    assert!(owned.wait_within(Duration::from_secs(60)).await.is_ok());
+    sender.await.unwrap();
+}
