@@ -25,6 +25,8 @@ else:
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ".github/workflows/ci.yml"
+# bosn records the current repository name; the pre-transfer zackees/ name is not evidence.
+REPOSITORY = "forge-ci/kernal-api"
 CI_LINT = "ci-lint @ git+https://github.com/forge-ci/ci.yml@6de2d6f84297e3dc16b4001da1a61a9459c38b18"
 
 
@@ -90,13 +92,16 @@ class RunProof:
             type(raw.get("schema_version")) is not int
             or raw["schema_version"] != 1
             or raw.get("provider") != "github"
-            or raw.get("repository") != "zackees/kernal-api"
             or type(raw.get("act_exit_code")) is not int
             or raw["act_exit_code"] != 0
             or not isinstance(raw.get("tree_digest"), str)
             or re.fullmatch(r"[0-9a-f]{64}", str(raw["tree_digest"])) is None
         ):
             raise ValueError("bosn record lacks a successful source snapshot identity")
+        if raw.get("repository") != REPOSITORY:
+            raise ValueError(
+                f"bosn record is for {raw.get('repository')!r}, not {REPOSITORY}"
+            )
         strings = (
             "workspace",
             "sha",

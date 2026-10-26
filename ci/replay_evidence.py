@@ -10,6 +10,10 @@ from ci_lint.cargo_messages import JsonValue
 from ci_lint.workflow_replay import ReplayExpectation, ReplayJob, prove_replay
 from ci_lint.workflow_replay_identity import identity_part
 
+# The repository bosn records as the run's source. It moved from zackees/ to
+# forge-ci/, and bosn reports the current name, so the old one is not evidence.
+REPOSITORY = "forge-ci/kernal-api"
+
 VERIFY = ReplayJob("CI/verify", identity=(identity_part("verify"),), steps=(
     "Checkout candidate source", "Checkout pinned ci-lint", "Set up uv",
     "Verify local gate attestation",
@@ -43,7 +47,7 @@ def verify_checks(raw: JsonValue, workspace: Path, sha: str, git_tree: str, job:
     if job not in {"linux", "dylints"}:
         raise ValueError("unknown minimal replay job")
     expected = ReplayExpectation(
-        repository="zackees/kernal-api", workspace=workspace,
+        repository=REPOSITORY, workspace=workspace,
         sha=sha, git_tree=git_tree, workflow=".github/workflows/ci.yml",
         selected_job=job, mode="minimal",
         required_jobs=(VERIFY, LINUX if job == "linux" else DYLINT),

@@ -147,7 +147,7 @@ class RunProofTests(unittest.TestCase):
             jobs={"total": 1, "completed": 1, "failed": 0},
             schema_version=1,
             provider="github",
-            repository="zackees/kernal-api",
+            repository="forge-ci/kernal-api",
             act_exit_code=0,
             tree_digest="d" * 64,
         )
@@ -158,12 +158,14 @@ class RunProofTests(unittest.TestCase):
         for field, value in {
             "schema_version": True,
             "provider": "other",
-            "repository": "other/repo",
+            "repository": "zackees/kernal-api",
             "act_exit_code": 1,
             "tree_digest": "",
         }.items():
             with self.subTest(field=field), self.assertRaises(ValueError):
                 RunProof.from_json({**raw, field: value})
+        with self.assertRaises(ValueError):
+            RunProof.from_json({**raw, "repository": "other/repo"})
 
 
 if __name__ == "__main__":

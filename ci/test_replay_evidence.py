@@ -14,7 +14,7 @@ def report(job: str) -> dict[str, JsonValue]:
     """Construct a JSON boundary matching the original runner report shape."""
     checks = LINUX if job == "linux" else DYLINT
     return {
-        "schema_version": 1, "provider": "github", "repository": "zackees/kernal-api",
+        "schema_version": 1, "provider": "github", "repository": "forge-ci/kernal-api",
         "engine": "act", "workspace": "/repo", "sha": "a" * 40,
         "git_tree": "b" * 40, "dirty": None, "tree_digest": "c" * 64,
         "workflow": ".github/workflows/ci.yml", "job": job,
