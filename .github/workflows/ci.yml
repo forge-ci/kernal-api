@@ -15,6 +15,10 @@ on:
         type: string
   push:
     branches: [main]
+  # GEN-022 (forge-ci/ci.yml#405): main merges through a merge queue, which
+  # validates the exact merge commit. A queue run selects the push tier.
+  merge_group:
+    types: [checks_requested]
 
 # One live run per workflow per ref, main included: a new push cancels the
 # superseded run instead of queuing behind it in the shared account-wide runner
@@ -59,7 +63,7 @@ jobs:
       - name: Checkout pinned ci-lint
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: forge-ci/ci.yml
+          repository: zackees/ci.yml
           ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
           path: .ci-lint
           persist-credentials: false
@@ -159,7 +163,7 @@ jobs:
       - name: Checkout pinned ci-lint
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: forge-ci/ci.yml
+          repository: zackees/ci.yml
           ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
           path: .ci-lint
           persist-credentials: false
@@ -994,7 +998,7 @@ jobs:
       - name: Checkout pinned ci-lint
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: forge-ci/ci.yml
+          repository: zackees/ci.yml
           ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
           path: .ci-lint
           persist-credentials: false
@@ -1196,3 +1200,43 @@ jobs:
         run: >-
           uv run --no-project ci/prune_obsolete_cook_caches.py
           --version "${SOLDR_VERSION}" --apply
+
+  # GEN-022 (forge-ci/ci.yml#405): every queue run and main push ends with the
+  # ci-lint cache janitor. It runs after every other job, even failed ones, so
+  # the repository stays under [cache].budget by our LRU order instead of
+  # GitHub's, which can evict a seed a required job restores. The queue
+  # serializes default-branch cache writes; the non-cancelling group keeps one
+  # sweep at a time across runs.
+  cache-janitor:
+    name: Cache janitor
+    needs: [verify, linux, build, test, dylints, full-coverage, cache-retention]
+    if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: cache-janitor
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Checkout pinned ci-lint
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: zackees/ci.yml
+          ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
+          path: .ci-lint
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          save-cache: false
+      - name: Evict down to the cache budget
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONPATH: .ci-lint
+        # --default-branch: ci-lint's inference builds a relative API URL.
+        run: uv run --no-project --python 3.12 python -m ci_lint cache janitor --repo . --default-branch main

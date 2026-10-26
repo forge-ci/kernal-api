@@ -35,6 +35,8 @@ EXPECTED_JOBS = {
     "dylints",
     "full-coverage",
     "cache-retention",
+    # GEN-022: must follow every other job, failed ones included -- no step can.
+    "cache-janitor",
 }
 # `cargo-nextest` is the replay driver, not a compiler: it runs binaries out of
 # a prebuilt archive. `.cargo/bin` is a path. Everything else named here would
@@ -87,6 +89,16 @@ class NativeProofJobsTests(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", job)
         self.assertIn("github.ref == 'refs/heads/main'", job)
         self.assertIn("actions: write", job)
+
+    def test_cache_janitor_ends_every_queue_run_and_main_push(self):
+        """GEN-022: the janitor follows every job, even failed ones, one sweep at a time."""
+        job = self.job("cache-janitor")
+        others = EXPECTED_JOBS - {"cache-janitor"}
+        needs = set(re.search(r"needs: \[(.*)\]", job).group(1).split(", "))
+        self.assertEqual(needs, others)
+        self.assertIn("if: always() && github.event_name != 'pull_request'", job)
+        self.assertIn("group: cache-janitor\n      cancel-in-progress: false", job)
+        self.assertIn("ci_lint cache janitor", job)
 
     def test_only_python_310_is_tested(self):
         """The package is tested on its supported floor alone."""

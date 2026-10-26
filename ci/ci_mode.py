@@ -16,7 +16,8 @@ def _sha(value):
 def select(event_name, event, github_sha):
     if event_name == "workflow_dispatch":
         return "full", _sha(event.get("inputs", {}).get("candidate_sha"))
-    if event_name == "push":
+    if event_name in ("push", "merge_group"):
+        # A queue run validates the exact merge commit at the push tier.
         return "minimal", _sha(github_sha)
     if event_name == "pull_request":
         pr = event["pull_request"]

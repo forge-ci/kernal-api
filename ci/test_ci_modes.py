@@ -21,6 +21,7 @@ class ModeTests(unittest.TestCase):
         pr["pull_request"]["labels"] = []
         self.assertEqual(ci_mode.select("pull_request", pr, "b" * 40), ("minimal", sha))
         self.assertEqual(ci_mode.select("push", {}, sha), ("minimal", sha))
+        self.assertEqual(ci_mode.select("merge_group", {}, sha), ("minimal", sha))
         self.assertEqual(
             ci_mode.select(
                 "workflow_dispatch", {"inputs": {"candidate_sha": sha}}, "b" * 40
@@ -45,6 +46,7 @@ class ModeTests(unittest.TestCase):
             text,
         )
         self.assertIn("candidate_sha:", text)
+        self.assertIn("merge_group:\n    types: [checks_requested]", text)
         self.assertIn("python 3.12 ci/ci_mode.py", text)
         self.assertIn("mode: ${{ steps.mode.outputs.mode }}", text)
         self.assertIn(
