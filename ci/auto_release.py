@@ -23,7 +23,7 @@ def should_release(tag: str, previous_tag: str | None, manual: bool) -> bool:
 
 
 def main() -> None:
-    tag = release_tag(Path("Cargo.toml").read_text())
+    tag = release_tag(Path("Cargo.toml").read_text(encoding="utf-8"))
     if sys.argv[1:] == ["--verify-source"]:
         if os.environ["RELEASE_TAG"] != tag:
             raise ValueError("release tag does not match Cargo.toml")
@@ -32,9 +32,7 @@ def main() -> None:
             raise ValueError("release source must be the candidate commit")
         tags = subprocess.check_output(["git", "tag", "--list", tag], text=True)
         if tags.strip():
-            tagged = subprocess.check_output(
-                ["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], text=True
-            ).strip()
+            tagged = subprocess.check_output(["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], text=True).strip()
             if tagged != head:
                 raise ValueError("existing release tag points to a different commit")
         return
@@ -46,9 +44,7 @@ def main() -> None:
         before = os.environ["RELEASE_BEFORE"]
         if not re.fullmatch(r"[0-9a-f]{40}", before) or set(before) == {"0"}:
             raise ValueError("automatic release requires a valid previous commit")
-        previous = subprocess.check_output(
-            ["git", "show", f"{before}:Cargo.toml"], text=True
-        )
+        previous = subprocess.check_output(["git", "show", f"{before}:Cargo.toml"], text=True)
         # The first usable release may follow the namespace reservation.
         previous_tag = "v" + tomllib.loads(previous)["package"]["version"]
     proceed = should_release(tag, previous_tag, manual)
@@ -65,7 +61,7 @@ def main() -> None:
             text=True,
         ).splitlines()
         proceed = tag not in existing
-    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"tag={tag}\nshould_release={str(proceed).lower()}\n")
     print(f"{tag}: {'verify release' if proceed else 'no new release'}")
 

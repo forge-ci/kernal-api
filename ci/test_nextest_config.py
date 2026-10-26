@@ -24,9 +24,7 @@ def filters() -> list[str]:
 
 def test_targets() -> set[str]:
     """Every test binary name: a top-level file, or a category directory."""
-    return {path.stem for path in ROOT.glob("tests/*.rs")} | {
-        path.parent.name for path in ROOT.glob("tests/*/main.rs")
-    }
+    return {path.stem for path in ROOT.glob("tests/*.rs")} | {path.parent.name for path in ROOT.glob("tests/*/main.rs")}
 
 
 def defined_functions() -> set[str]:

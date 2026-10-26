@@ -18,7 +18,10 @@ GENERATED = {"src/wasm/generated/v1/guest/Cargo.toml"}
 def manifests() -> list[str]:
     tracked = subprocess.run(
         ["git", "ls-files", "*Cargo.toml"],
-        cwd=ROOT, check=True, capture_output=True, text=True,
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.split()
     return [path for path in tracked if path not in GENERATED]
 

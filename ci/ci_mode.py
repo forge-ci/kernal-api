@@ -22,21 +22,13 @@ def select(event_name, event, github_sha):
     if event_name == "pull_request":
         pr = event["pull_request"]
         labels = {label["name"] for label in pr.get("labels", [])}
-        mode = (
-            "full"
-            if "ci-full" in labels
-            else "test"
-            if "ci-test" in labels
-            else "minimal"
-        )
+        mode = "full" if "ci-full" in labels else "test" if "ci-test" in labels else "minimal"
         return mode, _sha(pr["head"]["sha"])
     raise ValueError(f"unsupported CI event: {event_name}")
 
 
 def main():
-    event = json.loads(
-        Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8")
-    )
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     mode, sha = select(os.environ["GITHUB_EVENT_NAME"], event, os.environ["GITHUB_SHA"])
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"mode={mode}\nsha={sha}\n")

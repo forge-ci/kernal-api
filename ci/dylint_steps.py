@@ -79,10 +79,10 @@ def lint_libs_decision(mode: str) -> int:
 
 def lanes_to_run() -> list[Lane]:
     toolchain = os.environ["DYLINT_TOOLCHAIN"]
-    lanes = []
+    selected = []
     if os.environ.get("RUN_LINT_LIBRARY_TESTS") == "true":
         # Run from each crate so its .cargo/config.toml applies (RUST-016).
-        lanes += [
+        selected += [
             Lane(
                 "facade-boundary-tests",
                 ("soldr", "rustup", "run", toolchain, "cargo", "test"),
@@ -94,13 +94,13 @@ def lanes_to_run() -> list[Lane]:
                 "dylints/kernal_api_platform_boundary",
             ),
         ]
-    lanes.append(
+    selected.append(
         Lane(
             "workspace-dylint",
             ("soldr", "cargo", "dylint", "--all", "--workspace", "--", "--all-features", "--all-targets"),
         )
     )
-    return lanes
+    return selected
 
 
 def lanes() -> int:

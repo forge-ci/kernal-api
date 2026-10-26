@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from measure_compiler_policy import edit_source
+from measure_compiler_policy import edit_source  # pylint: disable=wrong-import-position
 
 
 class SharedPolicyEditTests(unittest.TestCase):
@@ -17,6 +17,6 @@ class SharedPolicyEditTests(unittest.TestCase):
     def test_rejects_missing_or_ambiguous_anchor(self):
         with self.assertRaises(ValueError):
             edit_source("", 0, 1)
-        source = ('let raw = ["-MD", "-MF-", "source.c"].map(String::from);\n' * 2)
+        source = 'let raw = ["-MD", "-MF-", "source.c"].map(String::from);\n' * 2
         with self.assertRaises(ValueError):
             edit_source(source, 0, 1)

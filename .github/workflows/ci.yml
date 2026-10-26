@@ -115,6 +115,38 @@ jobs:
           --max-age-hours 24
           --required-job "linux"
           --required-job "Dylint workspace"
+          --required-job "Python lint"
+
+  # GEN-004: Ruff check, Ruff format --check and Pylint over every tracked
+  # Python file, on one small runner beside `linux`. Compiles nothing.
+  fast:
+    name: Python lint
+    needs: verify
+    # A verified byte-identical main merge (GEN-021) was already linted on its PR.
+    if: needs.verify.outputs.reuse != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          # Only a main push saves (ci.toml [cache].write-on); PR keys carry pr-<N>.
+          save-cache: ${{ github.event_name == 'push' }}
+          cache-suffix: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || '' }}
+      - name: Ruff check
+        run: uv run --no-project --with ruff==0.16.7 ruff check .
+      - name: Ruff format check
+        run: uv run --no-project --with ruff==0.16.7 ruff format --check .
+      - name: Pylint
+        env:
+          # `from ci import ...` resolves against the checkout root.
+          PYTHONPATH: .
+        run: uv run --no-project --with pylint==4.0.9 pylint --recursive=y .
 
   # Four work jobs set up once and do everything that belongs on each runner.
   # Full mode adds one small coverage sentinel after those jobs finish.
@@ -919,7 +951,7 @@ jobs:
   # sweep at a time across runs.
   cache-janitor:
     name: Cache janitor
-    needs: [verify, linux, build, test, dylints, full-coverage, cache-retention]
+    needs: [verify, fast, linux, build, test, dylints, full-coverage, cache-retention]
     if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

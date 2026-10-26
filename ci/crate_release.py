@@ -54,9 +54,9 @@ def run(arguments: list[str]) -> None:
 
 
 def tracked_files() -> set[str]:
-    listing = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=REPO, check=True, capture_output=True
-    ).stdout.decode("utf-8")
+    listing = subprocess.run(["git", "ls-files", "-z"], cwd=REPO, check=True, capture_output=True).stdout.decode(
+        "utf-8"
+    )
     return {path for path in listing.split("\0") if path}
 
 
@@ -74,7 +74,7 @@ def crate_problems(crate: Path, tracked: set[str], ver: str) -> list[str]:
             if not member.name.startswith(prefix):
                 problems.append(f"{member.name} is outside {prefix}")
                 continue
-            relative = member.name[len(prefix):]
+            relative = member.name[len(prefix) :]
             if relative not in tracked and relative not in GENERATED:
                 problems.append(f"{relative} ({member.size:,} bytes) is not tracked by git")
     return problems

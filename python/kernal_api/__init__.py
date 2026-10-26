@@ -27,18 +27,12 @@ class Compatibility:
     python: tuple[int, int]
 
 
-def _compatibility_for(
-    system: str, machine: str, python: tuple[int, int]
-) -> Compatibility:
+def _compatibility_for(system: str, machine: str, python: tuple[int, int]) -> Compatibility:
     """Evaluate explicit values; kept separate so every release target is tested."""
 
     normalized_machine = machine.casefold()
     return Compatibility(
-        supported=(
-            python >= (3, 10)
-            and system in SUPPORTED_SYSTEMS
-            and normalized_machine in SUPPORTED_MACHINES
-        ),
+        supported=(python >= (3, 10) and system in SUPPORTED_SYSTEMS and normalized_machine in SUPPORTED_MACHINES),
         system=system,
         machine=machine,
         python=python,

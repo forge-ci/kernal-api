@@ -27,11 +27,7 @@ class ReleaseCIGateTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertTrue(failures(run | change, jobs, sha, "123"))
         self.assertTrue(failures(run, [], sha, "123"))
-        self.assertTrue(
-            failures(
-                run, [{"name": "Full coverage", "conclusion": "skipped"}], sha, "123"
-            )
-        )
+        self.assertTrue(failures(run, [{"name": "Full coverage", "conclusion": "skipped"}], sha, "123"))
 
 
 if __name__ == "__main__":

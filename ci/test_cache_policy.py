@@ -31,12 +31,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 WRAPPER = ROOT / ".github/actions/soldr/action.yml"
-DIRECT_SETUP_SOLDR = re.compile(
-    r"^(?P<indent> *)(?P<marker>- )?uses: zackees/setup-soldr@(?P<ref>\S+)(?P<comment>.*)$"
-)
-SETUP_SOLDR = re.compile(
-    r"^(?P<indent> *)(?P<marker>- )?uses: \./\.github/actions/soldr(?P<comment>.*)$"
-)
+DIRECT_SETUP_SOLDR = re.compile(r"^(?P<indent> *)(?P<marker>- )?uses: zackees/setup-soldr@(?P<ref>\S+)(?P<comment>.*)$")
+SETUP_SOLDR = re.compile(r"^(?P<indent> *)(?P<marker>- )?uses: \./\.github/actions/soldr(?P<comment>.*)$")
 
 # The Soldr runtime is setup-soldr's default -- the one soldr pin -- so no
 # step passes `version:`. `@v0` moves only through setup-soldr's gated
@@ -122,11 +118,7 @@ def action_step_indent(match):
 def wrapper_call():
     """The wrapper's one setup-soldr step: its ref, pin comment and fixed inputs."""
     lines = WRAPPER.read_text(encoding="utf-8").splitlines()
-    calls = [
-        (index, match)
-        for index, line in enumerate(lines)
-        if (match := DIRECT_SETUP_SOLDR.match(line))
-    ]
+    calls = [(index, match) for index, line in enumerate(lines) if (match := DIRECT_SETUP_SOLDR.match(line))]
     assert len(calls) == 1, "the wrapper calls setup-soldr exactly once"
     index, match = calls[0]
     fixed = {
@@ -148,9 +140,7 @@ def setup_soldr_steps():
         job = None
         for index, line in enumerate(lines):
             header = re.match(r"^  ([\w-]+):\s*$", line)
-            if header and text.find("\njobs:\n") < sum(
-                len(x) + 1 for x in lines[:index]
-            ):
+            if header and text.find("\njobs:\n") < sum(len(x) + 1 for x in lines[:index]):
                 job = header.group(1)
             match = SETUP_SOLDR.match(line)
             if not match:
@@ -171,10 +161,7 @@ def setup_soldr_steps():
 
 def cooks(step):
     inputs = step["inputs"]
-    return (
-        inputs.get("cache", "true") != "false"
-        and inputs.get("prebuild-deps", "") != "none"
-    )
+    return inputs.get("cache", "true") != "false" and inputs.get("prebuild-deps", "") != "none"
 
 
 def pin_version(step):
@@ -185,10 +172,7 @@ def pin_version(step):
 def saves_on_pull_request(step):
     """Whether the step would upload durable caches from a pull request."""
     inputs = step["inputs"]
-    if all(
-        inputs.get(name, "true") == "false"
-        for name in ("cache", "build-cache", "solo-toolchain-cache")
-    ):
+    if all(inputs.get(name, "true") == "false" for name in ("cache", "build-cache", "solo-toolchain-cache")):
         return False
     version = pin_version(step)
     if version is None or version < SAVE_POLICY_MIN_VERSION:
@@ -212,15 +196,11 @@ class CachePolicyTests(unittest.TestCase):
         for step in steps:
             with self.subTest(job=step["job"]):
                 self.assertNotIn("save-cache", step["inputs"])
-                self.assertIn(
-                    step["inputs"].get("save-cache-remote"), PUSH_ONLY_SAVE_POLICIES
-                )
+                self.assertIn(step["inputs"].get("save-cache-remote"), PUSH_ONLY_SAVE_POLICIES)
         wrapper = WRAPPER.read_text(encoding="utf-8")
         self.assertIn("save-cache: ${{ inputs.save-cache }}", wrapper)
         self.assertIn("save-cache-remote: ${{ inputs.save-cache-remote }}", wrapper)
-        global_input = wrapper.split("  save-cache:\n", 1)[1].split(
-            "  save-cache-remote:\n", 1
-        )[0]
+        global_input = wrapper.split("  save-cache:\n", 1)[1].split("  save-cache-remote:\n", 1)[0]
         self.assertIn('default: "auto"', global_input)
 
     def steps(self):
@@ -238,11 +218,7 @@ class CachePolicyTests(unittest.TestCase):
         for path in sorted(WORKFLOWS.glob("*.yml")):
             with self.subTest(workflow=path.name):
                 self.assertFalse(
-                    [
-                        line
-                        for line in path.read_text(encoding="utf-8").splitlines()
-                        if DIRECT_SETUP_SOLDR.match(line)
-                    ],
+                    [line for line in path.read_text(encoding="utf-8").splitlines() if DIRECT_SETUP_SOLDR.match(line)],
                     "call ./.github/actions/soldr instead of zackees/setup-soldr",
                 )
 
@@ -268,9 +244,7 @@ class CachePolicyTests(unittest.TestCase):
             target, profile = COOK_SHAPES[(step["workflow"], step["job"])]
             with self.subTest(workflow=step["workflow"], job=step["job"]):
                 if profile == "none":
-                    self.assertFalse(
-                        cooks(step), "classified as not cooking, but cooks"
-                    )
+                    self.assertFalse(cooks(step), "classified as not cooking, but cooks")
                     continue
                 self.assertTrue(cooks(step), "classified as cooking, but does not")
                 flags = step["inputs"].get("prebuild-deps-flags", DEFAULT_COOK_FLAGS)
@@ -303,16 +277,14 @@ class CachePolicyTests(unittest.TestCase):
             if not cooks(step) or target == "matrix":
                 continue
             key = (target, profile, step["inputs"].get("toolchain", ""))
-            suffixes.setdefault(key, {}).setdefault(
-                step["inputs"].get("cache-key-suffix", ""), []
-            ).append(f"{step['workflow']}:{step['job']}")
+            suffixes.setdefault(key, {}).setdefault(step["inputs"].get("cache-key-suffix", ""), []).append(
+                f"{step['workflow']}:{step['job']}"
+            )
         for (target, profile, _), by_suffix in suffixes.items():
             if (target, profile) in JUSTIFIED_SPLITS:
                 continue
             with self.subTest(target=target, profile=profile):
-                self.assertEqual(
-                    len(by_suffix), 1, f"one graph, several suffixes: {by_suffix}"
-                )
+                self.assertEqual(len(by_suffix), 1, f"one graph, several suffixes: {by_suffix}")
 
     def test_justified_splits_are_live(self):
         for pair, reason in JUSTIFIED_SPLITS.items():
@@ -322,9 +294,7 @@ class CachePolicyTests(unittest.TestCase):
     def test_no_step_saves_on_pull_request(self):
         """A pull-request cache is restorable only by that pull request."""
         for step in self.steps():
-            if "pull_request" not in step["triggers"] or not saves_on_pull_request(
-                step
-            ):
+            if "pull_request" not in step["triggers"] or not saves_on_pull_request(step):
                 continue
             where = (step["workflow"], step["job"])
             with self.subTest(workflow=where[0], job=where[1]):
@@ -349,10 +319,7 @@ class CachePolicyTests(unittest.TestCase):
     def test_release_validation_restores_without_racing_main_retention(self):
         """Separate release runs may restore, but cannot save stale lock keys."""
         steps = [
-            step
-            for step in self.steps()
-            if (step["workflow"], step["job"])
-            == ("release.yml", "validate-and-package")
+            step for step in self.steps() if (step["workflow"], step["job"]) == ("release.yml", "validate-and-package")
         ]
         self.assertEqual(len(steps), 1)
         self.assertEqual(steps[0]["inputs"].get("save-cache"), "false")
@@ -386,9 +353,7 @@ class CachePolicyTests(unittest.TestCase):
                 continue
             with self.subTest(workflow=step["workflow"], job=step["job"]):
                 self.assertEqual(step["workflow"], "ci.yml")
-                body = re.search(
-                    rf"(?ms)^  {step['job']}:\n(.*?)(?=^  [\w-]+:\n|\Z)", text
-                ).group(1)
+                body = re.search(rf"(?ms)^  {step['job']}:\n(.*?)(?=^  [\w-]+:\n|\Z)", text).group(1)
                 if step["job"] in {"linux", "dylints"}:
                     self.assertRegex(body, r"(?m)^    runs-on: ubuntu-24\.04$")
                 else:

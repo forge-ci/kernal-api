@@ -55,7 +55,7 @@ def check_input(path: Path) -> None:
 
 def pack(stage: Path, archive: Path, epoch: str) -> None:
     """`tar ... | zstd -19 -T1`, byte-identical to the former shell pipeline."""
-    tar = subprocess.Popen(
+    with subprocess.Popen(
         [
             "tar",
             "--sort=name",
@@ -70,11 +70,11 @@ def pack(stage: Path, archive: Path, epoch: str) -> None:
             ".",
         ],
         stdout=subprocess.PIPE,
-    )
-    assert tar.stdout is not None
-    zstd = subprocess.run(["zstd", "-q", "-19", "-T1", "-f", "-o", str(archive)], stdin=tar.stdout, check=False)
-    tar.stdout.close()
-    if tar.wait() != 0 or zstd.returncode != 0:
+    ) as tar:
+        assert tar.stdout is not None
+        zstd = subprocess.run(["zstd", "-q", "-19", "-T1", "-f", "-o", str(archive)], stdin=tar.stdout, check=False)
+        tar.stdout.close()
+    if tar.returncode != 0 or zstd.returncode != 0:
         raise AssetError(f"packing {archive} failed (tar {tar.returncode}, zstd {zstd.returncode})")
 
 

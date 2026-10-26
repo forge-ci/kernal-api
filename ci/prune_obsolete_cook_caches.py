@@ -92,16 +92,10 @@ def lock_generation_shape(cache: Cache) -> tuple[str, str, str] | None:
         parts = key.split("-")
         if len(parts) < 8 or parts[:3] != ["setup", "soldr", "cargoregistry"]:
             return None
-        if not re.fullmatch(r"v[12]", parts[3]) or not LOCK_HASH_RE.fullmatch(
-            parts[-1]
-        ):
+        if not re.fullmatch(r"v[12]", parts[3]) or not LOCK_HASH_RE.fullmatch(parts[-1]):
             return None
         lock_index = next(
-            (
-                index
-                for index in range(6, len(parts) - 1)
-                if LOCK_HASH_RE.fullmatch(parts[index])
-            ),
+            (index for index in range(6, len(parts) - 1) if LOCK_HASH_RE.fullmatch(parts[index])),
             None,
         )
         if lock_index is None:
@@ -122,9 +116,7 @@ def checked_out_lock_hash() -> str:
     return hashlib.sha256(contents).hexdigest()[:16]
 
 
-def superseded_lock_generation_caches(
-    caches: list[Cache], current_lock_hash: str
-) -> list[Cache]:
+def superseded_lock_generation_caches(caches: list[Cache], current_lock_hash: str) -> list[Cache]:
     """Retire non-current generations only when this checkout's exact shape exists.
 
     Cache IDs do not identify the current lock generation: a delayed producer
@@ -144,16 +136,10 @@ def superseded_lock_generation_caches(
 
     candidates = []
     for entries in groups.values():
-        current = [
-            cache
-            for lock_hash, cache in entries
-            if lock_hash == current_lock_hash and cache.size > 0
-        ]
+        current = [cache for lock_hash, cache in entries if lock_hash == current_lock_hash and cache.size > 0]
         if not current:
             continue
-        candidates.extend(
-            cache for lock_hash, cache in entries if lock_hash != current_lock_hash
-        )
+        candidates.extend(cache for lock_hash, cache in entries if lock_hash != current_lock_hash)
     return sorted(candidates, key=lambda cache: cache.cache_id)
 
 
@@ -224,10 +210,7 @@ def retired_old_dylint_outputs(
         match = pattern.fullmatch(cache.key)
         if cache.ref != MAIN_REF or match is None:
             continue
-        if (
-            match.group("lock") == current_lock_hash
-            or match.group("arch") not in anchored_arches
-        ):
+        if match.group("lock") == current_lock_hash or match.group("arch") not in anchored_arches:
             continue
         try:
             created = datetime.fromisoformat(cache.created_at.replace("Z", "+00:00"))
@@ -245,9 +228,7 @@ def retired_old_dylint_outputs(
     return retired
 
 
-def require_lock_generations_retired(
-    caches: list[Cache], current_lock_hash: str
-) -> None:
+def require_lock_generations_retired(caches: list[Cache], current_lock_hash: str) -> None:
     groups: dict[tuple[str, str, str], list[tuple[str, Cache]]] = {}
     for cache in caches:
         if cache.ref != MAIN_REF:
@@ -259,12 +240,8 @@ def require_lock_generations_retired(
         groups.setdefault((cache.ref, family, shape), []).append((lock_hash, cache))
 
     for entries in groups.values():
-        current_rows = [
-            cache for lock_hash, cache in entries if lock_hash == current_lock_hash
-        ]
-        stale = [
-            cache for lock_hash, cache in entries if lock_hash != current_lock_hash
-        ]
+        current_rows = [cache for lock_hash, cache in entries if lock_hash == current_lock_hash]
+        stale = [cache for lock_hash, cache in entries if lock_hash != current_lock_hash]
         if not stale or not current_rows:
             continue
         current = [cache for cache in current_rows if cache.size > 0]
@@ -298,18 +275,14 @@ def stale_cook_bases(caches: list[Cache], current_version: str) -> list[Cache]:
             continue
         found = cache_version(cache.key)
         if found is None:
-            raise ValueError(
-                f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}"
-            )
+            raise ValueError(f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}")
         version = version_tuple(found)
         if version < current:
             candidates.append(cache)
     return candidates
 
 
-def retired_cross_target_cook_bases(
-    caches: list[Cache], current_version: str
-) -> list[Cache]:
+def retired_cross_target_cook_bases(caches: list[Cache], current_version: str) -> list[Cache]:
     """Select only current-version main cook shapes whose producer opted out."""
     current = version_tuple(current_version)
     candidates = []
@@ -318,21 +291,15 @@ def retired_cross_target_cook_bases(
             continue
         found = cache_version(cache.key)
         if found is None:
-            raise ValueError(
-                f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}"
-            )
+            raise ValueError(f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}")
         if version_tuple(found) != current:
             continue
-        if any(
-            cache.key.endswith(f"-xbuild-{target}") for target in DISABLED_CROSS_TARGETS
-        ):
+        if any(cache.key.endswith(f"-xbuild-{target}") for target in DISABLED_CROSS_TARGETS):
             candidates.append(cache)
     return candidates
 
 
-def require_current_generation_present(
-    caches: list[Cache], current_version: str
-) -> None:
+def require_current_generation_present(caches: list[Cache], current_version: str) -> None:
     """Permit old-generation pruning only when a usable current generation exists."""
     current = version_tuple(current_version)
     versions = set()
@@ -341,43 +308,29 @@ def require_current_generation_present(
             continue
         found = cache_version(cache.key)
         if found is None:
-            raise ValueError(
-                f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}"
-            )
+            raise ValueError(f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}")
         parsed = version_tuple(found)
         if parsed > current:
-            raise ValueError(
-                f"future Soldr cook-base generation {found} exceeds current {current_version}"
-            )
+            raise ValueError(f"future Soldr cook-base generation {found} exceeds current {current_version}")
         versions.add(parsed)
     if current not in versions:
-        raise ValueError(
-            f"refusing to prune old cook bases: no main cook-base exists for Soldr {current_version}"
-        )
+        raise ValueError(f"refusing to prune old cook bases: no main cook-base exists for Soldr {current_version}")
 
 
-def require_single_current_generation(
-    caches: list[Cache], current_version: str
-) -> None:
+def require_single_current_generation(caches: list[Cache], current_version: str) -> None:
     current = version_tuple(current_version)
     versions = {
-        cache_version(cache.key)
-        for cache in caches
-        if cache.ref == MAIN_REF and cache.key.startswith(COOK_BASE_PREFIX)
+        cache_version(cache.key) for cache in caches if cache.ref == MAIN_REF and cache.key.startswith(COOK_BASE_PREFIX)
     }
     if None in versions:
         raise ValueError("an unparseable main cook-base key remains")
     parsed = {version_tuple(value) for value in versions if value is not None}
     if parsed != {current}:
         actual = sorted(".".join(map(str, version)) for version in parsed)
-        raise ValueError(
-            f"main cook-base generations are {actual}, expected only {current_version}"
-        )
+        raise ValueError(f"main cook-base generations are {actual}, expected only {current_version}")
 
 
-def require_retained_native_cook_base(
-    caches: list[Cache], current_version: str, candidates: list[Cache]
-) -> None:
+def require_retained_native_cook_base(caches: list[Cache], current_version: str, candidates: list[Cache]) -> None:
     """Prove a current native Linux producer remains before deleting any cache."""
     current = version_tuple(current_version)
     candidate_ids = {cache.cache_id for cache in candidates}
@@ -388,29 +341,19 @@ def require_retained_native_cook_base(
             continue
         found = cache_version(cache.key)
         if found is None:
-            raise ValueError(
-                f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}"
-            )
-        if (
-            version_tuple(found) == current
-            and cache.key.endswith("-xlinux")
-            and cache.size > 0
-        ):
+            raise ValueError(f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}")
+        if version_tuple(found) == current and cache.key.endswith("-xlinux") and cache.size > 0:
             return
     raise ValueError(
         f"refusing to prune cook bases: no retained native xlinux cook base exists for Soldr {current_version}"
     )
 
 
-def require_disabled_cross_cooks_retired(
-    caches: list[Cache], current_version: str
-) -> None:
+def require_disabled_cross_cooks_retired(caches: list[Cache], current_version: str) -> None:
     remaining = retired_cross_target_cook_bases(caches, current_version)
     if remaining:
         details = ", ".join(f"{cache.cache_id}:{cache.key}" for cache in remaining)
-        raise ValueError(
-            f"disabled cross-target cook bases remain in inventory: {details}"
-        )
+        raise ValueError(f"disabled cross-target cook bases remain in inventory: {details}")
 
 
 class GitHub:
@@ -529,13 +472,9 @@ def prune(
             + superseded_lock_generation_caches(before, current_lock_hash)
         )
     }
-    for cache in over_budget_orphaned_lock_caches(
-        before, current_lock_hash, set(candidates_by_id)
-    ):
+    for cache in over_budget_orphaned_lock_caches(before, current_lock_hash, set(candidates_by_id)):
         candidates_by_id[cache.cache_id] = cache
-    for cache in retired_old_dylint_outputs(
-        before, current_lock_hash, set(candidates_by_id)
-    ):
+    for cache in retired_old_dylint_outputs(before, current_lock_hash, set(candidates_by_id)):
         candidates_by_id[cache.cache_id] = cache
     candidates = sorted(candidates_by_id.values(), key=lambda cache: cache.cache_id)
     require_retained_native_cook_base(before, current_version, candidates)
@@ -546,10 +485,7 @@ def prune(
             state = "deleted" if deleted else "already absent"
         else:
             state = "would delete"
-        print(
-            f"{state} id={cache.cache_id} ref={cache.ref} "
-            f"size={cache.size} key={cache.key}"
-        )
+        print(f"{state} id={cache.cache_id} ref={cache.ref} size={cache.size} key={cache.key}")
 
     if apply:
         usage, endpoint, listed = settled_usage(api, current_version, current_lock_hash)
@@ -563,28 +499,21 @@ def prune(
         listed = sum(cache.size for cache in before)
         usage = max(endpoint - reclaimed, listed - reclaimed)
         print(
-            f"dry-run current: max(endpoint={endpoint}, listed={listed}) bytes; "
-            f"projected after deletion={usage} bytes"
+            f"dry-run current: max(endpoint={endpoint}, listed={listed}) bytes; projected after deletion={usage} bytes"
         )
     print(
         f"cache budget: max(endpoint={endpoint}, listed={listed})={usage} bytes; "
         f"limit={BUDGET_BYTES} bytes; retired={len(candidates)} entries/{reclaimed} bytes"
     )
     if usage > BUDGET_BYTES:
-        raise RuntimeError(
-            f"Actions cache usage {usage} exceeds {BUDGET_BYTES}-byte budget"
-        )
+        raise RuntimeError(f"Actions cache usage {usage} exceeds {BUDGET_BYTES}-byte budget")
     return len(candidates), reclaimed
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--version", required=True, help="Soldr version from the producer action output"
-    )
-    parser.add_argument(
-        "--apply", action="store_true", help="delete superseded main cache entries"
-    )
+    parser.add_argument("--version", required=True, help="Soldr version from the producer action output")
+    parser.add_argument("--apply", action="store_true", help="delete superseded main cache entries")
     args = parser.parse_args()
     token = os.environ.get("GITHUB_TOKEN", "")
     repository = os.environ.get("GITHUB_REPOSITORY", "")

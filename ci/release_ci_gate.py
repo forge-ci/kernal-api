@@ -15,9 +15,9 @@ def failures(run, jobs, candidate_sha, run_id):
         errors.append("CI run ID mismatch")
     if run.get("head_sha", "").lower() != candidate_sha.lower():
         errors.append("CI run tested a different SHA")
-    if run.get("event") != "workflow_dispatch" or not run.get("path", "").split("@", 1)[
-        0
-    ].endswith(".github/workflows/ci.yml"):
+    if run.get("event") != "workflow_dispatch" or not run.get("path", "").split("@", 1)[0].endswith(
+        ".github/workflows/ci.yml"
+    ):
         errors.append("CI run is not an explicit full candidate dispatch")
     if run.get("status") != "completed" or run.get("conclusion") != "success":
         errors.append("CI run did not complete successfully")

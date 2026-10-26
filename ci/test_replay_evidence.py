@@ -14,22 +14,55 @@ def report(job: str) -> dict[str, JsonValue]:
     """Construct a JSON boundary matching the original runner report shape."""
     checks = LINUX if job == "linux" else DYLINT
     return {
-        "schema_version": 1, "provider": "github", "repository": "zackees/kernal-api",
-        "engine": "act", "workspace": "/repo", "sha": "a" * 40,
-        "git_tree": "b" * 40, "dirty": None, "tree_digest": "c" * 64,
-        "workflow": ".github/workflows/ci.yml", "job": job,
-        "trigger": "pr", "event": "pull_request", "mode": "minimal",
-        "state": "done", "conclusion": "success", "exit_code": 0,
-        "act_exit_code": 0, "cleanup": "removed", "act_version": "0.2.89-act2.4",
-        "tree": {"malformed_lines": 0, "groups": [{"jobs": [
-            {"key": expected.key, "job_id": expected.identity[-1].job_id, "matrix": {},
-             "identity": [{"jobID": part.job_id, "matrix": None} for part in expected.identity],
-             "status": "completed", "conclusion": "success",
-             "sections": [{"name": name, "stage": "Main", "status": "completed",
-                           "conclusion": "success", "first_seq": 1, "last_seq": 2}
-                          for name in expected.steps]}
-            for expected in (VERIFY, checks)
-        ]}]},
+        "schema_version": 1,
+        "provider": "github",
+        "repository": "zackees/kernal-api",
+        "engine": "act",
+        "workspace": "/repo",
+        "sha": "a" * 40,
+        "git_tree": "b" * 40,
+        "dirty": None,
+        "tree_digest": "c" * 64,
+        "workflow": ".github/workflows/ci.yml",
+        "job": job,
+        "trigger": "pr",
+        "event": "pull_request",
+        "mode": "minimal",
+        "state": "done",
+        "conclusion": "success",
+        "exit_code": 0,
+        "act_exit_code": 0,
+        "cleanup": "removed",
+        "act_version": "0.2.89-act2.4",
+        "tree": {
+            "malformed_lines": 0,
+            "groups": [
+                {
+                    "jobs": [
+                        {
+                            "key": expected.key,
+                            "job_id": expected.identity[-1].job_id,
+                            "matrix": {},
+                            "identity": [{"jobID": part.job_id, "matrix": None} for part in expected.identity],
+                            "status": "completed",
+                            "conclusion": "success",
+                            "sections": [
+                                {
+                                    "name": name,
+                                    "stage": "Main",
+                                    "status": "completed",
+                                    "conclusion": "success",
+                                    "first_seq": 1,
+                                    "last_seq": 2,
+                                }
+                                for name in expected.steps
+                            ],
+                        }
+                        for expected in (VERIFY, checks)
+                    ]
+                }
+            ],
+        },
     }
 
 
@@ -111,10 +144,15 @@ class ExecutedChecksTests(unittest.TestCase):
                 # GEN-021's `reuse` conjunct is exactly 'true' only on a
                 # verified main push; a PR (and so the replay) always runs it.
                 reuse = "needs.verify.outputs.reuse != 'true'"
-                self.assertIn(condition, (
-                    None, "steps.mode.outputs.mode != 'full'",
-                    reuse, f"{reuse} && steps.mode.outputs.mode != 'full'",
-                ))
+                self.assertIn(
+                    condition,
+                    (
+                        None,
+                        "steps.mode.outputs.mode != 'full'",
+                        reuse,
+                        f"{reuse} && steps.mode.outputs.mode != 'full'",
+                    ),
+                )
                 required.append(step.get("name"))
             with self.subTest(job=job_id):
                 self.assertEqual(tuple(required), expected.steps)

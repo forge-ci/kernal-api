@@ -16,18 +16,13 @@ class ComponentMeasurementTests(unittest.TestCase):
     def test_recorded_diagnostic_has_ten_distinct_compiled_edits(self):
         for profile in ("debug", "release", "release-rss"):
             with self.subTest(profile=profile):
-                path = (
-                    Path(__file__).parent
-                    / f"results/component-{profile}-diagnostic.json"
-                )
+                path = Path(__file__).parent / f"results/component-{profile}-diagnostic.json"
                 record = json.loads(path.read_text(encoding="utf-8"))
                 self.assertEqual(record["status"], "complete-diagnostic-only")
                 if profile != "release-rss":
                     self.assertEqual(record["encoder_profile"], profile)
                 self.assertEqual(len(record["samples"]), 12)
-                self.assertEqual(
-                    edit_summary(record["samples"][2:]), record["edit_summary"]
-                )
+                self.assertEqual(edit_summary(record["samples"][2:]), record["edit_summary"])
                 for sample in record["samples"]:
                     self.assertGreater(sample["module_bytes"], 0)
                     self.assertGreater(sample["encode_and_compile_command_ns"], 0)

@@ -29,21 +29,15 @@ REQUIRED_TEST_STEPS = (
 )
 
 
-def failures(expected_sha, checked_out_sha, needs, jobs):  # noqa: C901 -- Existing full-coverage aggregation; ratchet complexity 13.
+def failures(expected_sha, checked_out, needs, jobs):  # noqa: C901 -- Existing full-coverage aggregation; ratchet complexity 13.
     errors = []
     if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_sha):
         errors.append("source SHA is missing or invalid")
-    if checked_out_sha.lower() != expected_sha.lower():
-        errors.append(
-            f"source SHA mismatch: checked out {checked_out_sha}, expected {expected_sha}"
-        )
+    if checked_out.lower() != expected_sha.lower():
+        errors.append(f"source SHA mismatch: checked out {checked_out}, expected {expected_sha}")
     for name in REQUIRED_NEEDS:
         dependency = needs.get(name)
-        result = (
-            dependency.get("result", "missing")
-            if isinstance(dependency, dict)
-            else "missing"
-        )
+        result = dependency.get("result", "missing") if isinstance(dependency, dict) else "missing"
         if result != "success":
             errors.append(f"{name}: {result}")
     by_name = {}
@@ -58,15 +52,10 @@ def failures(expected_sha, checked_out_sha, needs, jobs):  # noqa: C901 -- Exist
         elif results[0].get("conclusion") != "success":
             errors.append(f"{name}: {results[0].get('conclusion') or 'pending'}")
         elif name.startswith("Test ("):
-            steps = {
-                step.get("name"): step.get("conclusion")
-                for step in results[0].get("steps", [])
-            }
+            steps = {step.get("name"): step.get("conclusion") for step in results[0].get("steps", [])}
             for required in REQUIRED_TEST_STEPS:
                 if steps.get(required) != "success":
-                    errors.append(
-                        f"{name}: {required}: {steps.get(required) or 'missing'}"
-                    )
+                    errors.append(f"{name}: {required}: {steps.get(required) or 'missing'}")
     return errors
 
 
@@ -115,9 +104,7 @@ def main():
         print(f"::error::full CI coverage incomplete: {error}")
     if errors:
         return 1
-    print(
-        f"Full CI coverage complete at {os.environ['EXPECTED_SHA']}: {len(REQUIRED_JOBS)} jobs"
-    )
+    print(f"Full CI coverage complete at {os.environ['EXPECTED_SHA']}: {len(REQUIRED_JOBS)} jobs")
     return 0
 
 

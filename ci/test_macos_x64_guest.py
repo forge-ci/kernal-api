@@ -37,9 +37,7 @@ def code_only(text: str) -> str:
     from, and those explanations name the removed scripts. Only executable text
     may be checked for reintroducing them.
     """
-    return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
-    )
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
 def load_verify_module():
@@ -224,7 +222,7 @@ class StageGuestShareTests(unittest.TestCase):
         `...-universal-apple-darwin.tar.gz.sha256`, which does not exist --
         a 404 that reads like a missing release rather than a bad URL.
         """
-        self.assertNotIn('.tar.gz.sha256', self.text)
+        self.assertNotIn(".tar.gz.sha256", self.text)
         self.assertIn("{self.stem}.sha256", self.text)
 
     def test_verifies_the_download_before_staging_it(self):
@@ -246,16 +244,13 @@ class VerifyGuestResultsTests(unittest.TestCase):
 
     def setUp(self):
         self.module = load_verify_module()
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
         self.addCleanup(self._tmp.cleanup)
         self.collected = Path(self._tmp.name)
 
     def write_log(self, *, total=100, passed=100, skipped=0, tests=(), extra=""):
         body = "\n".join(tests)
-        log = (
-            f"{body}\n{extra}"
-            f"\n     Summary [   1.234s] {total} tests run: {passed} passed, {skipped} skipped\n"
-        )
+        log = f"{body}\n{extra}\n     Summary [   1.234s] {total} tests run: {passed} passed, {skipped} skipped\n"
         (self.collected / "nextest.log").write_text(log, encoding="utf-8")
 
     # Above the collapse floor, so these fixtures exercise the coverage and
@@ -263,8 +258,10 @@ class VerifyGuestResultsTests(unittest.TestCase):
     REALISTIC_TOTAL = 950
 
     def passing_log(self):
-        tests = [f"PASS [ 0.1s] kernal-api::snapshot::unwind::frame_pointer_tests::{name}"
-                 for name in self.module.REQUIRED_X86_64_ONLY_TESTS]
+        tests = [
+            f"PASS [ 0.1s] kernal-api::snapshot::unwind::frame_pointer_tests::{name}"
+            for name in self.module.REQUIRED_X86_64_ONLY_TESTS
+        ]
         tests.append("PASS [ 0.1s] kernal-api::crash::tests::off_policy_is_inert")
         self.write_log(total=self.REALISTIC_TOTAL, passed=self.REALISTIC_TOTAL, tests=tests)
 
@@ -279,8 +276,7 @@ class VerifyGuestResultsTests(unittest.TestCase):
         self.write_log(
             total=self.REALISTIC_TOTAL,
             passed=self.REALISTIC_TOTAL,
-            tests=["PASS [ 0.1s] kernal-api::fs::tests::some_test",
-                   "PASS [ 0.1s] kernal-api::crash::tests::x"],
+            tests=["PASS [ 0.1s] kernal-api::fs::tests::some_test", "PASS [ 0.1s] kernal-api::crash::tests::x"],
         )
         (self.collected / "nextest.rc").write_text("0\n", encoding="utf-8")
         ok, report = self.module.evaluate(self.collected)
@@ -295,8 +291,10 @@ class VerifyGuestResultsTests(unittest.TestCase):
         self.assertIn("nextest exited 100", report)
 
     def test_rejects_a_collapsed_partition(self):
-        tests = [f"PASS [ 0.1s] kernal-api::snapshot::unwind::frame_pointer_tests::{name}"
-                 for name in self.module.REQUIRED_X86_64_ONLY_TESTS]
+        tests = [
+            f"PASS [ 0.1s] kernal-api::snapshot::unwind::frame_pointer_tests::{name}"
+            for name in self.module.REQUIRED_X86_64_ONLY_TESTS
+        ]
         tests.append("PASS [ 0.1s] kernal-api::crash::tests::off_policy_is_inert")
         self.write_log(total=6, passed=6, tests=tests)
         (self.collected / "nextest.rc").write_text("0\n", encoding="utf-8")
