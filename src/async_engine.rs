@@ -164,7 +164,7 @@ impl<T> Task<T> {
     }
 }
 
-/// A bounded [`Task`] or [`TaskGroup`] join expired before a result arrived.
+/// A bounded [`Task`], [`TaskGroup`] or [`join_within`] join expired before a result arrived.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("no kernal-api task result arrived before the timeout")]
 pub struct JoinTimedOut;
@@ -475,6 +475,26 @@ where
     B: Future,
 {
     tokio::join!(first, second)
+}
+
+/// [`join`] with a deadline: run both futures concurrently and return both
+/// outputs, or [`JoinTimedOut`] once `timeout` elapses first.
+///
+/// On expiry both futures are dropped, cancelling whatever work they had not
+/// finished; results that one of them already produced are discarded with
+/// it.
+pub async fn join_within<A, B>(
+    first: A,
+    second: B,
+    timeout: Duration,
+) -> Result<(A::Output, B::Output), JoinTimedOut>
+where
+    A: Future,
+    B: Future,
+{
+    self::timeout(timeout, join(first, second))
+        .await
+        .map_err(|_| JoinTimedOut)
 }
 
 /// A dynamically growing collection of same-output tasks, joined as each one

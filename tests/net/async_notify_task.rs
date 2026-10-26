@@ -212,3 +212,28 @@ async fn bounded_joins_time_out_and_keep_the_task() {
         .unwrap()
         .is_none());
 }
+
+#[tokio::test(start_paused = true)]
+async fn bounded_pair_join_times_out_or_returns_both_outputs() {
+    use kernal_api::async_engine::JoinTimedOut;
+
+    let start = tokio::time::Instant::now();
+    let fast = async { 1_u8 };
+    let slow = async_engine::sleep(Duration::from_secs(10));
+    assert!(matches!(
+        async_engine::join_within(fast, slow, Duration::from_secs(3)).await,
+        Err(JoinTimedOut)
+    ));
+    assert_eq!(start.elapsed(), Duration::from_secs(3));
+
+    let both = async_engine::join_within(
+        async { 2_u8 },
+        async {
+            async_engine::sleep(Duration::from_secs(1)).await;
+            "done"
+        },
+        Duration::from_secs(60),
+    )
+    .await;
+    assert_eq!(both, Ok((2, "done")));
+}

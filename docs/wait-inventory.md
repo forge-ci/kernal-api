@@ -18,7 +18,7 @@ Status key:
 | API | Blocks a native thread | Status | Required result |
 | --- | --- | --- | --- |
 | `Runtime::run` | yes (`block_on`) | unbounded | A deadline or service-lifetime policy on the root future. |
-| `Task<T>: Future`, `join`, `TaskGroup::join_next` | no | unbounded; bounded `Task::join_within` (task keeps running on expiry) and `TaskGroup::join_next_within` (`JoinTimedOut`, no result lost) exist; `join` still unbounded | Bound `join`, migrate callers, then remove unbounded awaiting. |
+| `Task<T>: Future`, `join`, `TaskGroup::join_next` | no | unbounded; bounded `Task::join_within` (task keeps running on expiry) and `TaskGroup::join_next_within` (`JoinTimedOut`, no result lost) and `join_within` (drops both futures on expiry) exist | Migrate callers, then remove unbounded awaiting. |
 | `launch_blocking` / `RuntimeHandle::launch_blocking` | lane thread | unbounded | Timing out the await cannot stop the closure. Document that, and bound the closures callers pass. |
 | `Semaphore::acquire`, `acquire_many` | no | unbounded; bounded `acquire_within` / `acquire_many_within(.., timeout)` exist (`SemaphoreAcquireTimedOut`, an expired waiter holds no permits) | Migrate zccache (`cache_system.rs`, `handle_compile_multi.rs`, `handle_link.rs`, `compile_progress.rs`), then remove the unbounded forms. |
 | `Sender::send`, `Receiver::recv` (bounded channel) | no | unbounded; bounded `send_within` (`SendTimeoutError` returns the value, no reservation kept) and `recv_within` (`RecvTimeoutError::{TimedOut, Disconnected}`) exist | Migrate callers, then remove the unbounded forms. |
