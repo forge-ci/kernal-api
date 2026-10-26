@@ -207,6 +207,13 @@ generation.
   closing the view. `wait_until_loaded` afterwards waits for the navigated
   page.
 
+`ExternalWebviewClient::monitors()` is the read-only placement query: each
+monitor's `bounds` and `work_area` (minus taskbar, Dock, menu bar and panels)
+as `WebviewLogicalRect`s, its `scale_factor`, and exactly one `primary`. The
+toolkit's own work area is used; one it leaves empty or outside the monitor
+falls back to the bounds. Where position is `Unsupported` (Wayland) it
+returns `Ok(None)` without a native effect.
+
 ### Per host
 
 "Toolkit" means the request reaches the native toolkit; the compositor or
@@ -220,6 +227,7 @@ window manager can still refuse it.
 | `always_on_top(true)` | `Unsupported`; use a KWin rule | honoured by an EWMH window manager | `HWND_TOPMOST` | floating window level |
 | `skip_taskbar(true)` | `Unsupported`; use a KWin rule | `_NET_WM_STATE_SKIP_TASKBAR` | `WS_EX_TOOLWINDOW` (also off Alt+Tab) plus `ITaskbarList` tab removal, re-asserted on show | accessory activation policy: no Dock icon or menu bar, for the whole process until it exits |
 | `initial_position` / `set_position` | `Unsupported`, not sent | applied; a WM may adjust | applied | applied |
+| `monitors()` | `None`, no native effect | GDK work area (`_NET_WORKAREA`) | `rcWork` | `visibleFrame` |
 | `set_size` | toolkit (see below) | applied | applied | applied |
 | `show` / `hide` | applied (hide unmaps the toplevel) | applied | applied | applied |
 | `focus` | the compositor may refuse | WM focus-stealing policy applies | foreground rules apply | applied |
