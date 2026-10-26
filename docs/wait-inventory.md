@@ -22,7 +22,7 @@ Status key:
 | `launch_blocking` / `RuntimeHandle::launch_blocking` | lane thread | unbounded | Timing out the await cannot stop the closure. Document that, and bound the closures callers pass. |
 | `Semaphore::acquire`, `acquire_many` | no | unbounded | Acquisition budget; `try_acquire` is already non-blocking. |
 | `Sender::send`, `Receiver::recv` (bounded channel) | no | unbounded | A budget that hands back the unsent value on expiry. |
-| `Sender::blocking_send` | yes | unbounded | A timeout parameter that returns the value on expiry. |
+| `Sender::blocking_send` | yes | **fixed**: required `timeout`; `TimedOut(value)` returns the unsent value and keeps no reservation | none |
 | `UnboundedReceiver::recv`, `BroadcastReceiver::recv`, `OneshotReceiver: Future` | no | unbounded | Bounded receive or an owner lifetime. |
 | `Notify::notified`, `owned_notified` | no | unbounded | Bounded wait. |
 | `Mutex::lock`, `lock_owned` (`mutex.rs`) | no | unbounded; hands out guards that cross `.await` | State callbacks returning owned data, plus opaque permits for exclusion across `.await`. |
