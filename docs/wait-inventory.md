@@ -42,8 +42,8 @@ Status key:
 | `PlatformChild::wait_with_output_bounded` | no | output bounded, time unbounded (waits for natural exit and EOF); bounded `wait_with_output_bounded_within` (kills the direct child on expiry, `TimedOut`) exists | Descendant-held-pipe policy; migrate callers, then remove the unbounded form. |
 | `ProcessSession` post-exit drain | no | optional (`ProcessPostExitDrain::WaitForEof` vs `AbandonAfter`) | Remove the unbounded default from ordinary product use. |
 | `platform::process::DaemonChild::wait`, `SpawnedChild::wait` | yes | unbounded; bounded `wait_within` (polls `try_wait`, `TimedOut`, child left running) exists | Migrate callers, then remove the unbounded form. |
-| `sync_spawn_group::SpawnedInner::wait` (Unix) | yes | unbounded, but the child lock is no longer held while blocked | **fixed** (#448): `kill` is no longer blocked by a concurrent `wait`. A time budget is still required. |
-| `platform_win::sync_spawn` `wait` | yes | unbounded | Bounded wait. |
+| `sync_spawn_group::SpawnedInner::wait` (Unix) | yes | unbounded, but the child lock is no longer held while blocked; callers bound it through `DaemonChild`/`SpawnedChild::wait_within`, which polls `try_wait` (#476) | **fixed** (#448): `kill` is no longer blocked by a concurrent `wait`. Remove the unbounded facade `wait` once callers migrate. |
+| `platform_win::sync_spawn` `wait` | yes | unbounded; callers bound it through `DaemonChild`/`SpawnedChild::wait_within`, which polls `try_wait` (#476) | Remove the unbounded facade `wait` once callers migrate. |
 | `SpawnHandle::wait(timeout, cancelled)` (`independent_spawn.rs`) | yes | bounded | none |
 
 ## File locks (`src/platform/fs.rs`)
@@ -58,7 +58,7 @@ Status key:
 | API | Blocks a native thread | Status | Required result |
 | --- | --- | --- | --- |
 | `WebviewHandle::wait_until_loaded`, `wait_until_terminal` | no | bounded (required `Duration`) | none |
-| `WebviewHandle::wait_for_terminal` | no | unbounded | Bounded or classified as an owner-lifetime listener. |
+| `WebviewHandle::wait_for_terminal` | no | unbounded; bounded `wait_until_terminal(timeout)` already exists | Migrate callers, or classify the unbounded form as an owner-lifetime listener. |
 | `ExternalWebviewHost::run` | UI thread | unbounded by design | Event-loop owner; classify as a service-lifetime exception. |
 
 ## Internal waits
