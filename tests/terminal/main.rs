@@ -5,6 +5,7 @@
 //! crate's whole graph. Test IDs are now `terminal::<module>::<test>`.
 //! See AGENTS.md for the rule.
 
+mod bounded_terminal_input;
 mod terminal_input_ownership;
 mod terminal_input_windows;
 mod terminal_keys;

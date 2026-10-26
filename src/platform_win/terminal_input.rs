@@ -775,6 +775,15 @@ impl TerminalInputCore {
     }
 
     /// Blocks until an input event, closure, or optional timeout.
+    /// Wait at most `timeout` for the next event, returning
+    /// [`TerminalInputError::Timeout`] on expiry.
+    pub fn wait_for_event_within(
+        &self,
+        timeout: Duration,
+    ) -> Result<TerminalInputEventRecord, TerminalInputError> {
+        self.wait_for_event(Some(timeout.as_secs_f64()))
+    }
+
     pub fn wait_for_event(
         &self,
         timeout: Option<f64>,

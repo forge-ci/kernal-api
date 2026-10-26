@@ -65,7 +65,7 @@ Status key:
 
 | Site | Status | Required result |
 | --- | --- | --- |
-| `platform::terminal_input::wait_for_terminal_input_event` | optional (`timeout: Option<Duration>`) | A required budget, or a documented listener exception. |
+| `platform::terminal_input::wait_for_terminal_input_event` | optional (`timeout: Option<Duration>`); bounded `TerminalInputCore::wait_for_event_within` (`Timeout`) exists | Migrate callers, then require a budget or document the listener exception. |
 | `platform::ipc` and `broker_*` | not yet audited | Inventory the endpoint accept, connect, read and write waits. |
 
 ## Enforcement
