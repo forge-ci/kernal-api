@@ -91,7 +91,11 @@ def apt_start(packages: list[str]) -> int:
     )
     log = (temp / APT_LOG).open("w")
     subprocess.Popen(  # pylint: disable=consider-using-with
-        [sys.executable, "-c", child], stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+        [sys.executable, "-c", child],
+        stdin=subprocess.DEVNULL,  # as bash does for `( ... ) &`: never hold the step's stdin
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
     print(f"webview package install started in the background; log: {temp / APT_LOG}")
     return 0
