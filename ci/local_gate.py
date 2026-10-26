@@ -28,7 +28,7 @@ WORKFLOW = ".github/workflows/ci.yml"
 # bosn names the repository after the checkout's origin URL. The repository
 # moved to forge-ci; checkouts made before the move still say zackees (#436).
 REPOSITORIES = frozenset({"forge-ci/kernal-api", "zackees/kernal-api"})
-CI_LINT = "ci-lint @ git+https://github.com/forge-ci/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b"
+CI_LINT = "ci-lint @ git+https://github.com/forge-ci/ci.yml@d563250177f548742fcdf74c751eae11d83e288f"
 
 
 def bosn_command(*arguments: str) -> list[str]:

@@ -5,7 +5,7 @@
 # yet meet this contract are tracked in zackees/ci.yml, not silenced here.
 schema  = 3
 profile = "rust-library"                          # a Rust facade crate + a hatchling Python package; not a native-CLI PyPI app
-linter  = "zackees/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b"
+linter  = "zackees/ci.yml@d563250177f548742fcdf74c751eae11d83e288f"
 
 # -- Platforms: the six hosts `linux` + `test` (x5) run on --------------------
 [platforms]
@@ -142,16 +142,16 @@ cache  = "machine"
 # First rollout lane: the exact remote minimal Linux job in bosn/act2.
 # Remote jobs keep running until verifier wiring and coverage are validated.
 [local.gate]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b", "--python", "3.12", "python", "ci/local_gate.py"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@d563250177f548742fcdf74c751eae11d83e288f", "--python", "3.12", "python", "ci/local_gate.py"]
 mode = "enforce"
 verify = "ci.yml:verify"
 
 [local.gate.lanes.linux-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b", "--python", "3.12", "python", "ci/local_gate.py"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@d563250177f548742fcdf74c751eae11d83e288f", "--python", "3.12", "python", "ci/local_gate.py"]
 tools = ["bosn", "uv"]
 
 [local.gate.lanes.dylint-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@d563250177f548742fcdf74c751eae11d83e288f", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
 tools = ["bosn", "uv"]
 
 # Eligible attested minimal PRs reuse both source-bound workflow lanes.
@@ -271,6 +271,19 @@ path    = "ci/macos-x64/recovery-guest.sh"
 reason  = "executed inside a macOS Recovery guest (bash 3.2, no Python interpreter), not on a runner"
 issue   = "https://github.com/forge-ci/ci.yml/issues/94"
 expires = "2027-06-30"
+
+# -- GEN-022 step 5 -> 6 transition (forge-ci/ci.yml#432) ---------------------
+# Step 5 adds push-only writers that share `linux`'s/`dylints`' keys while both
+# validation jobs still run on push. On a push they compile nothing (GEN-021
+# reuse skips their steps), so the writer's save is the only new one. Step 6
+# gates both validation jobs `github.event_name != 'push'`, which makes the
+# pairs event-disjoint (ci.yml#488) and deletes this exception.
+[[exceptions]]
+rule    = "CACHE-038"
+path    = ".github/workflows/ci.yml"
+reason  = "GEN-022 step 5: push-only writers beside push-reusing validators until step 6 makes them event-disjoint"
+issue   = "https://github.com/forge-ci/ci.yml/issues/432"
+expires = "2026-11-15"
 
 # -- LAYOUT-001 migration debt (zackees/ci.yml#95, policy-rust.md) ----------------
 # One entry per file still in dylints/kernal_api_platform_boundary/src/baseline.txt

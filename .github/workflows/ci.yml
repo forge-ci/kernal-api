@@ -73,7 +73,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 254e16d0a503b0f0bfe67992964219c4833e5e8b
+          ref: d563250177f548742fcdf74c751eae11d83e288f
           path: .ci-lint
           persist-credentials: false
       - name: Set up uv
@@ -212,7 +212,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 254e16d0a503b0f0bfe67992964219c4833e5e8b
+          ref: d563250177f548742fcdf74c751eae11d83e288f
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -799,7 +799,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 254e16d0a503b0f0bfe67992964219c4833e5e8b
+          ref: d563250177f548742fcdf74c751eae11d83e288f
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -883,6 +883,147 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
 
+  # GEN-022 step 5 (forge-ci/ci.yml#432): push-only cache writers. The merge
+  # queue already validated the tree that lands, so these compile without
+  # gating anything and are never required checks. They save the same keys
+  # PR runs of `linux` and `dylints` restore: identical setup-soldr inputs
+  # (suffix, ci-tests, cook flags, Dylint toolchain). Main is the only remote
+  # writer (ci.toml [cache].write-on), and main pushes never cancel
+  # (CACHE-016), so a writer's save is not lost to a newer push.
+  linux-cache-writer:
+    name: Cache writer (linux)
+    needs: verify
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      soldr_version: ${{ steps.setup_soldr.outputs.soldr-version }}
+      cache_save: ${{ steps.plan.outputs.cache_save }}
+      cache_key_pr: ${{ steps.plan.outputs.cache_key_pr }}
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Checkout candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          lfs: true
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          save-cache: ${{ github.event_name == 'push' }}
+          cache-suffix: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || '' }}
+      - name: Select CI mode and verify the checked-out commit
+        id: mode
+        run: uv run --no-project --python 3.12 ci/ci_mode.py
+      - name: Checkout pinned ci-lint
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: zackees/ci.yml
+          ref: d563250177f548742fcdf74c751eae11d83e288f
+          path: .ci-lint
+          persist-credentials: false
+      - name: Plan this run with the pinned ci-lint
+        id: plan
+        env:
+          PYTHONPATH: .ci-lint
+        run: >-
+          uv run --no-project python -m ci_lint plan --repo .
+          --event-name "${GITHUB_EVENT_NAME}" --sha "${{ steps.mode.outputs.sha }}" --github-output
+      - name: Set up soldr
+        uses: ./.github/actions/soldr # the one setup-soldr call site
+        id: setup_soldr
+        with:
+          # Same inputs as `linux`, so PRs restore what this job saves.
+          save-cache-remote: ${{ steps.plan.outputs.cache_save }}
+          cache-key-pr: ${{ steps.plan.outputs.cache_key_pr }}
+          ci-tests: true
+          cache-key-suffix: linux
+          prebuild-deps-flags: ""
+          cargo-registry-cache: false
+      - name: Restore native pkg-config search path
+        run: python3 ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
+      # Build-only: the default facade's clippy pass and its test binaries,
+      # compiled not run -- the compile surface every minimal PR `linux` run
+      # restores. Execution is validation, which stays with the queue.
+      - name: Compile the default facade lint
+        run: soldr cargo clippy --locked --lib -- --deny warnings
+      - name: Compile the default facade tests without running them
+        run: soldr cargo test --locked --lib --no-run
+
+  # The Dylint output cache's only writer is main (CACHE-016), and a Dylint
+  # output is produced only by a full pass, so this writer runs the same
+  # lanes as `dylints`.
+  dylint-cache-writer:
+    name: Cache writer (Dylint)
+    needs: verify
+    if: github.event_name == 'push'
+    env:
+      DYLINT_TOOLCHAIN: nightly-2026-05-28
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Start installing native webview development packages
+        run: python3 ci/runner_setup.py apt-start libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          save-cache: ${{ github.event_name == 'push' }}
+          cache-suffix: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || '' }}
+      - name: Select CI mode and verify the checked-out commit
+        id: mode
+        run: uv run --no-project --python 3.12 ci/ci_mode.py
+      - name: Checkout pinned ci-lint
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: zackees/ci.yml
+          ref: d563250177f548742fcdf74c751eae11d83e288f
+          path: .ci-lint
+          persist-credentials: false
+      - name: Plan this run with the pinned ci-lint
+        id: plan
+        env:
+          PYTHONPATH: .ci-lint
+        run: >-
+          uv run --no-project python -m ci_lint plan --repo .
+          --event-name "${GITHUB_EVENT_NAME}" --sha "${{ steps.mode.outputs.sha }}" --github-output
+      - name: Set up soldr
+        uses: ./.github/actions/soldr # the one setup-soldr call site
+        with:
+          # Same inputs as `dylints`, so PRs restore what this job saves.
+          save-cache-remote: ${{ steps.plan.outputs.cache_save }}
+          cache-key-pr: ${{ steps.plan.outputs.cache_key_pr }}
+          toolchain: 1.95.0
+          cache: true
+          build-cache: false
+          prebuild-deps: none
+          dylint: true
+          cargo-registry-cache: false
+          dylint-toolchain: ${{ env.DYLINT_TOOLCHAIN }}
+          cargo-dylint-version: 6.0.3
+          dylint-link-version: 6.0.3
+      - name: Restore native pkg-config search path
+        run: python3 ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
+      - name: Select the pinned Dylint compiler
+        run: python3 ci/dylint_steps.py select-compiler
+      - name: Decide whether the lint libraries need their own tests
+        id: lint_libs
+        run: python3 ci/dylint_steps.py lint-libs-decision --mode "${{ steps.mode.outputs.mode }}"
+      - name: Finish installing native webview development packages
+        timeout-minutes: 10
+        run: python3 ci/runner_setup.py apt-finish
+      - name: Lint every client-style target
+        env:
+          CARGO_HOME: ${{ runner.temp }}/kernal-dylint-cargo
+          RUN_LINT_LIBRARY_TESTS: ${{ steps.lint_libs.outputs.run }}
+        run: python3 ci/dylint_steps.py lanes
+
   full-coverage:
     name: Full coverage
     needs: [linux, build, test, dylints]
@@ -917,13 +1058,15 @@ jobs:
   # outputs and a nonempty current-lock anchor on the same architecture.
   cache-retention:
     name: Retire superseded and disabled cache generations
-    needs: [linux, build, test, dylints, full-coverage]
+    needs: [linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer]
     if: >-
       ${{
         always() &&
         github.event_name == 'push' &&
         github.ref == 'refs/heads/main' &&
-        needs.linux.result == 'success' &&
+        needs['linux-cache-writer'].result == 'success' &&
+        needs['dylint-cache-writer'].result == 'success' &&
+        (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
         (needs.build.result == 'success' || needs.build.result == 'skipped') &&
         (needs.test.result == 'success' || needs.test.result == 'skipped') &&
         (needs.dylints.result == 'success' || needs.dylints.result == 'skipped') &&
@@ -941,12 +1084,12 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
-          save-cache: ${{ needs.linux.outputs.cache_save }}
-          cache-suffix: ${{ needs.linux.outputs.cache_key_pr }}
+          save-cache: ${{ needs['linux-cache-writer'].outputs.cache_save }}
+          cache-suffix: ${{ needs['linux-cache-writer'].outputs.cache_key_pr }}
       - name: Retire obsolete or disabled cook bases and enforce the live cache budget
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SOLDR_VERSION: ${{ needs.linux.outputs.soldr_version }}
+          SOLDR_VERSION: ${{ needs['linux-cache-writer'].outputs.soldr_version }}
         run: >-
           uv run --no-project ci/prune_obsolete_cook_caches.py
           --version "${SOLDR_VERSION}" --apply
@@ -959,7 +1102,7 @@ jobs:
   # sweep at a time across runs.
   cache-janitor:
     name: Cache janitor
-    needs: [verify, fast, linux, build, test, dylints, full-coverage, cache-retention]
+    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention]
     if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -978,7 +1121,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 254e16d0a503b0f0bfe67992964219c4833e5e8b
+          ref: d563250177f548742fcdf74c751eae11d83e288f
           path: .ci-lint
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6

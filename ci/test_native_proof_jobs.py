@@ -35,6 +35,9 @@ EXPECTED_JOBS = {
     "build",
     "test",
     "dylints",
+    # GEN-022 step 5 (forge-ci/ci.yml#432): push-only, build-only cache writers.
+    "linux-cache-writer",
+    "dylint-cache-writer",
     "full-coverage",
     "cache-retention",
     # GEN-022: must follow every other job, failed ones included -- no step can.
@@ -91,10 +94,31 @@ class NativeProofJobsTests(unittest.TestCase):
     def test_cache_retention_is_an_after_producer_maintenance_job(self):
         """Cache deletion must wait for all producer post-steps and run only on main."""
         job = self.job("cache-retention")
-        self.assertIn("needs: [linux, build, test, dylints, full-coverage]", job)
+        self.assertIn(
+            "needs: [linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer]", job
+        )
+        # The writers own main's saves now; retention waits for both of them.
+        self.assertIn("needs['linux-cache-writer'].result == 'success'", job)
+        self.assertIn("needs['dylint-cache-writer'].result == 'success'", job)
+        self.assertIn("needs['linux-cache-writer'].outputs.soldr_version", job)
         self.assertIn("github.event_name == 'push'", job)
         self.assertIn("github.ref == 'refs/heads/main'", job)
         self.assertIn("actions: write", job)
+
+    def test_cache_writers_are_push_only_and_build_only(self):
+        """GEN-022 step 5: main's remote saves come from writers that gate nothing."""
+        for name in ("linux-cache-writer", "dylint-cache-writer"):
+            with self.subTest(job=name):
+                head = self.job(name).split("steps:", 1)[0]
+                self.assertIn("needs: verify", head)
+                self.assertIn("if: github.event_name == 'push'", head)
+                self.assertRegex(head, r"(?m)^    timeout-minutes: \d+$")
+                self.assertNotIn("actions: write", self.job(name))
+        writer = self.job("linux-cache-writer")
+        self.assertIn("soldr cargo clippy --locked --lib -- --deny warnings", writer)
+        self.assertIn("soldr cargo test --locked --lib --no-run", writer)
+        self.assertNotRegex(writer, r"cargo test (?!--locked --lib --no-run)")
+        self.assertIn("ci/dylint_steps.py lanes", self.job("dylint-cache-writer"))
 
     def test_cache_janitor_ends_every_queue_run_and_main_push(self):
         """GEN-022: the janitor follows every job, even failed ones, one sweep at a time."""
