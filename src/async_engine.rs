@@ -259,6 +259,21 @@ impl Runtime {
         self.inner.block_on(future)
     }
 
+    /// [`Self::run`] with a deadline: block until `future` completes or
+    /// `timeout` elapses, returning [`DeadlineElapsed`] on expiry.
+    ///
+    /// On expiry `future` is dropped, cancelling whatever it had not
+    /// finished. Tasks it launched keep running on this runtime. Requires a
+    /// runtime built with [`RuntimeBuilder::enable_all`]; without the timer
+    /// driver the deadline cannot be armed and this panics.
+    pub fn run_within<F: Future>(
+        &self,
+        future: F,
+        timeout: Duration,
+    ) -> Result<F::Output, DeadlineElapsed> {
+        self.inner.block_on(self::timeout(timeout, future))
+    }
+
     /// Obtain a clonable handle for this runtime.
     pub fn handle(&self) -> RuntimeHandle {
         RuntimeHandle {

@@ -237,3 +237,23 @@ async fn bounded_pair_join_times_out_or_returns_both_outputs() {
     .await;
     assert_eq!(both, Ok((2, "done")));
 }
+
+#[test]
+fn bounded_runtime_run_times_out_or_returns_the_output() {
+    use kernal_api::async_engine::DeadlineElapsed;
+
+    let runtime = RuntimeBuilder::current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let start = std::time::Instant::now();
+    assert!(matches!(
+        runtime.run_within(std::future::pending::<()>(), Duration::from_millis(50)),
+        Err(DeadlineElapsed)
+    ));
+    assert!(start.elapsed() < Duration::from_secs(30));
+    assert!(matches!(
+        runtime.run_within(async { 3_u8 }, Duration::from_secs(60)),
+        Ok(3)
+    ));
+}
