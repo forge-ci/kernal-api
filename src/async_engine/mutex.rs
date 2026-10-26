@@ -130,6 +130,31 @@ impl<T> Mutex<T> {
             inner: self.inner.blocking_lock(),
         }
     }
+
+    /// Block this thread until a borrowed guard is available or `timeout`
+    /// elapses.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`super::LockTimedOut`] if the guard is not available within
+    /// `timeout`; no guard or queue position is kept.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called from inside an asynchronous execution context, like
+    /// the unbounded form.
+    pub fn blocking_lock_within(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<MutexGuard<'_, T>, super::LockTimedOut> {
+        assert!(
+            super::RuntimeHandle::current().is_err(),
+            "a bounded blocking lock must not park an asynchronous execution context"
+        );
+        super::park_within(self.inner.lock(), timeout)
+            .map(|inner| MutexGuard { inner })
+            .ok_or(super::LockTimedOut)
+    }
 }
 
 impl<T: Default> Default for Mutex<T> {

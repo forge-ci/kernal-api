@@ -178,3 +178,40 @@ async fn bounded_owned_guards_time_out_against_the_opposite_holder() {
         2
     );
 }
+
+#[test]
+fn bounded_blocking_rw_guards_time_out_then_acquire_after_release() {
+    use kernal_api::async_engine::LockTimedOut;
+    use std::time::Instant;
+
+    let lock = Arc::new(RwLock::new(0_u8));
+    let writer = lock.blocking_write();
+    let started = Instant::now();
+    assert!(matches!(
+        lock.blocking_read_within(Duration::from_millis(100)),
+        Err(LockTimedOut)
+    ));
+    assert!(started.elapsed() >= Duration::from_millis(100));
+    drop(writer);
+
+    let reader = lock.blocking_read();
+    assert!(matches!(
+        lock.blocking_write_within(Duration::from_millis(100)),
+        Err(LockTimedOut)
+    ));
+    let waiter = {
+        let lock = Arc::clone(&lock);
+        std::thread::spawn(move || {
+            *lock
+                .blocking_write_within(Duration::from_secs(30))
+                .expect("acquired once the reader releases") += 1;
+        })
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    drop(reader);
+    waiter.join().unwrap();
+    assert_eq!(
+        *lock.blocking_read_within(Duration::from_secs(30)).unwrap(),
+        1
+    );
+}

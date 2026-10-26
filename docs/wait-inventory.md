@@ -26,9 +26,9 @@ Status key:
 | `UnboundedReceiver::recv`, `BroadcastReceiver::recv`, `OneshotReceiver: Future` | no | unbounded; bounded `UnboundedReceiver::recv_within` (`RecvTimeoutError`) and `BroadcastReceiver::recv_within` (`BroadcastRecvTimeoutError`, lag and closure kept) and `OneshotReceiver::recv_within` (`RecvTimeoutError`, reusable after expiry) exist | Remove the unbounded forms once callers migrate. |
 | `Notify::notified`, `owned_notified` | no | unbounded; bounded `Notified::wait_within` / `OwnedNotified::wait_within` (`NotifyTimedOut`) exist and keep the enable-before-unlock pattern | Migrate callers, then remove unbounded awaiting. |
 | `Mutex::lock`, `lock_owned` (`mutex.rs`) | no | unbounded; hands out guards that cross `.await`; bounded `lock_within` / `lock_owned_within` (`LockTimedOut`) exist | Acquisition budget done; still needed: state callbacks returning owned data, opaque permits for exclusion across `.await`, hold watchdog, removal of the unbounded forms. |
-| `Mutex::blocking_lock` | yes | unbounded | Same, with a hold watchdog. |
+| `Mutex::blocking_lock` | yes | unbounded; bounded `blocking_lock_within` (`LockTimedOut`) exists | Migrate callers; add a hold watchdog. |
 | `RwLock::read`, `write`, `read_owned`, `write_owned` (`rw_lock.rs`) | no | unbounded; hands out guards; bounded `read_within` / `write_within` / `read_owned_within` / `write_owned_within` (`LockTimedOut`) exist | As `Mutex`. |
-| `RwLock::blocking_read`, `blocking_write` | yes | unbounded | Same, with a hold watchdog. |
+| `RwLock::blocking_read`, `blocking_write` | yes | unbounded; bounded `blocking_read_within` / `blocking_write_within` (`LockTimedOut`) exist | Migrate callers; add a hold watchdog. |
 | `wait_for_interrupt`, `InterruptSignal::wait`, signal `recv` | no | unbounded by design | Classify as a service-lifetime listener. |
 | `sleep`, `sleep_until`, `Interval::tick` | no | bounded | none |
 | `timeout`, `timeout_at`, `Deadline`, `cancellable`, `connection_timeout`, `connection_until`, `progress_timeout` | no | bounded | Building blocks the bounded APIs above should use. |
