@@ -44,6 +44,36 @@ impl<T> RwLock<T> {
         }
     }
 
+    /// Acquire a shared borrowed guard, waiting at most `timeout`. An expired
+    /// wait leaves the queue without acquiring the lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`super::LockTimedOut`] if the lock was not acquired in time.
+    /// Requires a runtime with its timer enabled.
+    pub async fn read_within(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<RwLockReadGuard<'_, T>, super::LockTimedOut> {
+        super::timeout(timeout, self.read())
+            .await
+            .map_err(|_| super::LockTimedOut)
+    }
+
+    /// Acquire an exclusive borrowed guard, waiting at most `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::read_within`].
+    pub async fn write_within(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<RwLockWriteGuard<'_, T>, super::LockTimedOut> {
+        super::timeout(timeout, self.write())
+            .await
+            .map_err(|_| super::LockTimedOut)
+    }
+
     /// Acquire an owned shared guard that keeps the lock alive.
     ///
     /// Cancelling the pending acquisition removes its waiter.

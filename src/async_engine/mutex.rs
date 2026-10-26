@@ -56,6 +56,36 @@ impl<T> Mutex<T> {
         }
     }
 
+    /// Acquire a borrowed guard, waiting at most `timeout`. An expired wait
+    /// leaves the queue without acquiring the lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`super::LockTimedOut`] if the lock was not acquired in time.
+    /// Requires a runtime with its timer enabled.
+    pub async fn lock_within(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<MutexGuard<'_, T>, super::LockTimedOut> {
+        super::timeout(timeout, self.lock())
+            .await
+            .map_err(|_| super::LockTimedOut)
+    }
+
+    /// Acquire an owned guard, waiting at most `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::lock_within`].
+    pub async fn lock_owned_within(
+        self: Arc<Self>,
+        timeout: std::time::Duration,
+    ) -> Result<OwnedMutexGuard<T>, super::LockTimedOut> {
+        super::timeout(timeout, self.lock_owned())
+            .await
+            .map_err(|_| super::LockTimedOut)
+    }
+
     /// Acquire a borrowed guard without waiting.
     ///
     /// This never bypasses an already queued waiter.

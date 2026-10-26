@@ -115,3 +115,27 @@ fn blocking_guards_work_from_synchronous_threads() {
     });
     assert_eq!(*lock.blocking_read(), 3);
 }
+
+#[tokio::test(start_paused = true)]
+async fn bounded_read_and_write_time_out_against_the_opposite_holder() {
+    use kernal_api::async_engine::{LockTimedOut, RwLock};
+    use std::time::Duration;
+
+    let lock = RwLock::new(5_u32);
+    let reader = lock.read_within(Duration::from_secs(1)).await.unwrap();
+    let also = lock.read_within(Duration::ZERO).await.unwrap();
+    let start = tokio::time::Instant::now();
+    assert!(matches!(
+        lock.write_within(Duration::from_secs(2)).await,
+        Err(LockTimedOut)
+    ));
+    assert_eq!(start.elapsed(), Duration::from_secs(2));
+    drop((reader, also));
+    let writer = lock.write_within(Duration::ZERO).await.unwrap();
+    assert!(matches!(
+        lock.read_within(Duration::from_secs(1)).await,
+        Err(LockTimedOut)
+    ));
+    drop(writer);
+    assert_eq!(*lock.read_within(Duration::ZERO).await.unwrap(), 5);
+}
