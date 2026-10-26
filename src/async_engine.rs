@@ -1182,7 +1182,45 @@ impl Semaphore {
                 .expect("kernal-api semaphore is never closed"),
         }
     }
+
+    /// Acquire one permit, waiting at most `timeout`. An expired wait holds
+    /// no permits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SemaphoreAcquireTimedOut`] if no permit became available in
+    /// time. Requires a runtime with its timer enabled.
+    pub async fn acquire_within(
+        &self,
+        timeout: Duration,
+    ) -> Result<SemaphorePermit, SemaphoreAcquireTimedOut> {
+        self::timeout(timeout, self.acquire())
+            .await
+            .map_err(|_| SemaphoreAcquireTimedOut)
+    }
+
+    /// Acquire `permits` permits atomically, waiting at most `timeout`. An
+    /// expired wait holds none of them.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::acquire_within`].
+    pub async fn acquire_many_within(
+        &self,
+        permits: u32,
+        timeout: Duration,
+    ) -> Result<SemaphorePermit, SemaphoreAcquireTimedOut> {
+        self::timeout(timeout, self.acquire_many(permits))
+            .await
+            .map_err(|_| SemaphoreAcquireTimedOut)
+    }
 }
+
+/// A bounded [`Semaphore`] acquisition expired before enough permits were
+/// available.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the kernal-api semaphore had no permits before the acquisition timed out")]
+pub struct SemaphoreAcquireTimedOut;
 
 /// An RAII permit held against a [`Semaphore`]'s pool.
 ///

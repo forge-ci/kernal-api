@@ -1,4 +1,6 @@
-use kernal_api::async_engine::{self, Deadline, MissedTickBehavior, PeriodicTimer, Semaphore};
+use kernal_api::async_engine::{
+    self, Deadline, MissedTickBehavior, PeriodicTimer, Semaphore, SemaphoreAcquireTimedOut,
+};
 use std::time::Duration;
 
 #[test]
@@ -118,4 +120,47 @@ async fn unbounded_periodic_timer_accepts_legacy_long_periods() {
     assert_eq!(start.elapsed(), Duration::ZERO);
     timer.tick().await;
     assert_eq!(start.elapsed(), legacy);
+}
+
+#[tokio::test(start_paused = true)]
+async fn bounded_acquisition_times_out_without_leaking_capacity() {
+    let pool = Semaphore::new(2);
+    let held = pool.acquire_within(Duration::from_secs(1)).await.unwrap();
+    let start = tokio::time::Instant::now();
+    assert!(matches!(
+        pool.acquire_many_within(2, Duration::from_secs(3)).await,
+        Err(SemaphoreAcquireTimedOut)
+    ));
+    assert_eq!(start.elapsed(), Duration::from_secs(3));
+    assert_eq!(
+        pool.available_permits(),
+        1,
+        "an expired waiter must not keep permits"
+    );
+    drop(held);
+    let both = pool
+        .acquire_many_within(2, Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert!(matches!(
+        pool.acquire_within(Duration::ZERO).await,
+        Err(SemaphoreAcquireTimedOut)
+    ));
+    drop(both);
+    assert_eq!(pool.available_permits(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_released_permit_wakes_a_bounded_waiter_before_its_deadline() {
+    let pool = Semaphore::new(1);
+    let held = pool.try_acquire().unwrap();
+    let waiter = {
+        let pool = pool.clone();
+        tokio::spawn(async move { pool.acquire_within(Duration::from_secs(60)).await })
+    };
+    async_engine::sleep(Duration::from_secs(5)).await;
+    let start = tokio::time::Instant::now();
+    drop(held);
+    assert!(waiter.await.unwrap().is_ok());
+    assert!(start.elapsed() < Duration::from_secs(1));
 }
