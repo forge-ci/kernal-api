@@ -101,7 +101,13 @@ class ExecutedChecksTests(unittest.TestCase):
                 condition = step.get("if")
                 if condition in excluded:
                     continue
-                self.assertIn(condition, (None, "steps.mode.outputs.mode != 'full'"))
+                # GEN-021's `reuse` conjunct is exactly 'true' only on a
+                # verified main push; a PR (and so the replay) always runs it.
+                reuse = "needs.verify.outputs.reuse != 'true'"
+                self.assertIn(condition, (
+                    None, "steps.mode.outputs.mode != 'full'",
+                    reuse, f"{reuse} && steps.mode.outputs.mode != 'full'",
+                ))
                 required.append(step.get("name"))
             with self.subTest(job=job_id):
                 self.assertEqual(tuple(required), expected.steps)

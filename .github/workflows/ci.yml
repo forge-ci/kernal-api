@@ -47,12 +47,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      # Either mechanism may skip: a source-bound attestation on a PR
-      # (GATE-008/010), or a verified byte-identical merge on main
-      # (GEN-021). Both are fail-closed proofs, and neither is set unless
-      # its own check ran and passed.
-      skip_linux: ${{ steps.gate.outputs.skip_linux || steps.reuse.outputs.skip_linux }}
-      skip_dylints: ${{ steps.gate.outputs.skip_dylints || steps.reuse.outputs.skip_dylints }}
+      # A source-bound attestation on a PR (GATE-008/010) skips a whole job.
+      skip_linux: ${{ steps.gate.outputs.skip_linux }}
+      skip_dylints: ${{ steps.gate.outputs.skip_dylints }}
+      # A verified byte-identical merge on main (GEN-021) skips only the
+      # validation steps of `linux` and `dylints`: both jobs are this
+      # repository's cache writers, so they still run their setup and their
+      # cache save (zackees/ci.yml#162, design section 8 strategy i).
+      # `reuse-check` writes `reuse`, never `skip_<job>`; exactly 'true' or
+      # the steps run. A PR, a failed decision or an empty output all run.
+      reuse: ${{ steps.reuse.outputs.reuse }}
     steps:
       - name: Checkout candidate source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -76,11 +80,13 @@ jobs:
         run: uv run --no-project --python 3.12 python -m ci_lint local-gate verify --repo . --trust --github-output
 
       # zackees/ci.yml#162 (GEN-021): a push to `main` whose one merged PR
-      # already validated a byte-identical tree may skip `linux` and
-      # `dylints`. Asserts nothing unless exactly one PR is merged into
-      # main with `merge_commit_sha` equal to the pushed SHA, the trees are
-      # equal, and every --required-job is `success` in a fresh proving run.
-      # A squash-merge batch or a drifted tree leaves both jobs running.
+      # already validated a byte-identical tree may skip the validation
+      # steps of `linux` and `dylints`; the jobs and their cache saves still
+      # run (see the `reuse` output above). Asserts nothing unless exactly
+      # one PR is merged into main with `merge_commit_sha` equal to the
+      # pushed SHA, the trees are equal, and every --required-job is
+      # `success` in a fresh proving run. A squash-merge batch or a drifted
+      # tree leaves both jobs validating in full.
       # Unconditional on purpose. `reuse-check` refuses anything that is not
       # a push to the default branch at its first precondition, with no API
       # call, so a PR run costs a python start-up and proves nothing.
@@ -209,10 +215,13 @@ jobs:
           multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
           echo "PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu=/usr/lib/${multiarch}/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
       - name: Check workspace formatting
+        if: needs.verify.outputs.reuse != 'true'
         run: soldr cargo fmt --all -- --check
       - name: Check Python function complexity
+        if: needs.verify.outputs.reuse != 'true'
         run: uv run --no-project --with ruff==0.16.7 ruff check .
       - name: Check the CI guards and the guest build scripts
+        if: needs.verify.outputs.reuse != 'true'
         env:
           PYTHONPATH: .ci-lint
         run: |
@@ -230,6 +239,7 @@ jobs:
       # cheap enough to gate every mode; the `dylints` job adds the resolving
       # passes and the UI tests in full mode.
       - name: Scan the repository against the platform boundary
+        if: needs.verify.outputs.reuse != 'true'
         env:
           CARGO_HOME: ${{ runner.temp }}/kernal-boundary-scan-cargo
         # The lint's own rust-toolchain.toml is the one Dylint nightly pin.
@@ -242,22 +252,23 @@ jobs:
             --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml \
             --lib -- --skip ui
       - name: Check the Dylint libraries' formatting
+        if: needs.verify.outputs.reuse != 'true'
         run: |
           for manifest in dylints/*/Cargo.toml; do
             soldr cargo fmt --manifest-path "$manifest" --all -- --check
           done
       - name: Lint the default facade
-        if: steps.mode.outputs.mode != 'full'
+        if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'
         run: soldr cargo clippy --locked --lib -- --deny warnings
       - name: Test the default facade
-        if: steps.mode.outputs.mode != 'full'
+        if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'
         # The build-ID assertion depends on the CI linker's note settings;
         # the full Nextest lane retains it on its existing all-feature graph.
         run: >-
           soldr cargo test --locked --lib --
           --skip platform_linux::tests::current_executable_exposes_a_gnu_build_id
       - name: Test the Linux desktop status facade
-        if: steps.mode.outputs.mode != 'full'
+        if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'
         run: |
           soldr cargo test --locked --no-default-features --features system-tray --lib system_tray
           soldr cargo test --locked --no-default-features --features system-tray --test terminal system_tray
@@ -968,6 +979,7 @@ jobs:
       # ends) and wait for it before the lint step: it overlaps setup-soldr's
       # ~40 s instead of adding its own 22-46 s to the critical path.
       - name: Start installing native webview development packages
+        if: needs.verify.outputs.reuse != 'true'
         shell: bash
         run: |
           # The step shell runs with `-e`; record the status either way so the
@@ -1065,6 +1077,7 @@ jobs:
           echo "run=${run}" >> "${GITHUB_OUTPUT}"
           echo "lint-library tests: ${run}"
       - name: Finish installing native webview development packages
+        if: needs.verify.outputs.reuse != 'true'
         shell: bash
         timeout-minutes: 10
         run: |
@@ -1085,8 +1098,10 @@ jobs:
       # file, printed in a group once all three finish, and every failing
       # lane is named.
       - name: Verify nightly checksum invalidation
+        if: needs.verify.outputs.reuse != 'true'
         run: uv run --no-project --python 3.12 python ci/dylint_freshness.py
       - name: Lint every client-style target
+        if: needs.verify.outputs.reuse != 'true'
         env:
           # Do not trust a partially restored global crates.io source tree.
           CARGO_HOME: ${{ runner.temp }}/kernal-dylint-cargo

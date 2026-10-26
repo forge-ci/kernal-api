@@ -205,15 +205,18 @@ event = "pull_request"
 inputs = {}
 
 # ── Default-branch verified reuse (GEN-021, zackees/ci.yml#162) ─────────────
-# A push to `main` may skip `linux` and `dylints` when the one merged pull
-# request already validated a byte-identical tree: one merged PR,
+# A push to `main` may skip the validation steps of `linux` and `dylints`
+# when the one merged pull request already validated a byte-identical tree: one merged PR,
 # `merge_commit_sha` equal to the pushed SHA, the same tree, and a green,
 # fresh per-job proving run. Anything else -- a squash-merge batch, a drifted
 # tree, a failed or stale proving run -- leaves both jobs running.
 #
 # These two jobs are also the repository's only cache writers (`per = "none"`
-# everywhere, `write-on = ["main"]`), so a reused push does not refresh them.
-# Two things cover that, and neither is a nightly:
+# everywhere, `write-on = ["main"]`), so a reused push keeps both jobs, their
+# setup and their setup-soldr save, and skips only the validation steps
+# (design strategy i). Those steps were the compiles, so a reused push
+# re-saves what it restored rather than a fresh build. Two things cover that,
+# and neither is a nightly:
 #
 #   * every push reuse cannot prove still runs both jobs in full, and at this
 #     repository's measured ~89.5% reuse rate that is roughly one full cache
