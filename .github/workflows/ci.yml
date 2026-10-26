@@ -64,7 +64,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
+          ref: 81892aaffe35fce54355b02f70de647153c55e45
           path: .ci-lint
           persist-credentials: false
       - name: Set up uv
@@ -164,7 +164,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
+          ref: 81892aaffe35fce54355b02f70de647153c55e45
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -999,7 +999,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
+          ref: 81892aaffe35fce54355b02f70de647153c55e45
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -1228,7 +1228,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 6de2d6f84297e3dc16b4001da1a61a9459c38b18
+          ref: 81892aaffe35fce54355b02f70de647153c55e45
           path: .ci-lint
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
