@@ -6,10 +6,14 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from unittest.mock import patch
 
+import sys
+
 from ci.local_gate import (
+    CommandFailed,
     NativeHost,
     RunProof,
     main,
+    output,
     verify_native_host,
     verify_pr_base,
     verify_run,
@@ -164,3 +168,18 @@ class RunProofTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutputTests(unittest.TestCase):
+    def test_failure_reports_the_command_s_stderr_and_exit_code(self):
+        script = "import sys; print('daemon is bosn 0.1.15, client 0.1.13', file=sys.stderr); sys.exit(3)"
+        with patch("sys.stderr"), self.assertRaises(CommandFailed) as caught:
+            output([sys.executable, "-c", script])
+        self.assertIn("daemon is bosn 0.1.15, client 0.1.13", str(caught.exception))
+        self.assertIn("exited 3", str(caught.exception))
+        self.assertIn("BOSN_GATE_STATE_DIR", str(caught.exception))
+
+    def test_success_returns_stdout_only(self):
+        script = "import sys; print('noise', file=sys.stderr); print('{}')"
+        with patch("sys.stderr"):
+            self.assertEqual(output([sys.executable, "-c", script]).strip(), "{}")

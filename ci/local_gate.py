@@ -10,7 +10,9 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -175,10 +177,31 @@ def verify_run(
         raise ValueError("bosn run did not complete every selected job successfully")
 
 
+class CommandFailed(RuntimeError):
+    """A gate subprocess failed; carries what it said on stderr (#420)."""
+
+
 def output(argv: list[str]) -> str:
-    """Temporary-file capture avoids pipe-held EOF and capture-then-wait."""
-    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stream:
-        subprocess.run(argv, cwd=ROOT, stdout=stream, check=True)
+    """Temporary-file capture avoids pipe-held EOF and capture-then-wait.
+
+    stderr is captured too and replayed, so a failure reports bosn's own
+    reason (a daemon version mismatch, say) instead of a bare exit status.
+    """
+    with (
+        tempfile.TemporaryFile(mode="w+", encoding="utf-8") as stream,
+        tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors,
+    ):
+        completed = subprocess.run(argv, cwd=ROOT, stdout=stream, stderr=errors, check=False)
+        errors.seek(0)
+        said = errors.read()
+        sys.stderr.write(said)
+        if completed.returncode != 0:
+            tail = "\n".join(said.strip().splitlines()[-40:]) or "(no stderr)"
+            raise CommandFailed(
+                f"{shlex.join(argv)} exited {completed.returncode}:\n{tail}\n"
+                "If another session runs a different bosn release, set BOSN_GATE_STATE_DIR "
+                "to a private directory so this gate owns its daemon."
+            )
         stream.seek(0)
         return stream.read()
 
