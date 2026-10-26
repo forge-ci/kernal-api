@@ -211,6 +211,7 @@ pub mod webview {
         WebviewPermissions, WebviewSnapshot, WebviewSnapshotChunk, WebviewUrlGrant,
         WebviewWindowOptions, WebviewWindowSupport, WindowOptionsError,
     };
+    pub use crate::tauri::{WebviewLogicalRect, WebviewMonitor};
 }
 
 #[cfg(all(

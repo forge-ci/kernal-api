@@ -60,8 +60,10 @@ use crate::operations::{HubError, OpaqueToken, OperationHub, Terminal};
 pub(crate) mod capture;
 #[cfg(feature = "tauri-webview-test-support")]
 mod trace;
+mod monitors;
 mod window_control;
 mod window_options;
+pub use monitors::{WebviewLogicalRect, WebviewMonitor};
 pub use capture::{ViewportCaptureLimits, WebviewSnapshot, WebviewSnapshotChunk};
 #[cfg(feature = "tauri-webview-test-support")]
 pub(crate) use window_control::ExpectedPresentation;

@@ -70,6 +70,58 @@ fn at(presentation: &WebviewTestPresentation, (x, y): (i32, i32)) -> bool {
         && (presentation.logical_y - f64::from(y)).abs() <= 1.0
 }
 
+// Moves the 360x240 undecorated widget to the primary work area's
+// bottom-right corner and reads the position back, where position is honoured.
+async fn place_at_work_area_corner(
+    client: &ExternalWebviewClient,
+    webview: &WebviewHandle,
+    position: BestEffort,
+) -> Result<(), WebviewError> {
+    let monitors = client.monitors().await?;
+    let Some(monitors) = monitors else {
+        return if position == BestEffort::Unsupported {
+            Ok(())
+        } else {
+            Err(mismatch("monitors unavailable where position is honoured"))
+        };
+    };
+    if position == BestEffort::Unsupported {
+        return Err(mismatch(
+            "monitors reported where the compositor places windows",
+        ));
+    }
+    let mut primaries = monitors.iter().filter(|monitor| monitor.primary);
+    let (Some(primary), None) = (primaries.next(), primaries.next()) else {
+        return Err(mismatch(format!(
+            "not exactly one primary monitor: {monitors:?}"
+        )));
+    };
+    if let Some(monitor) = monitors
+        .iter()
+        .find(|monitor| !monitor.bounds.contains(&monitor.work_area))
+    {
+        return Err(mismatch(format!(
+            "work area outside its monitor: {monitor:?}"
+        )));
+    }
+    let area = primary.work_area;
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "work-area edges are bounded logical screen coordinates"
+    )]
+    let corner = (
+        (area.x + area.width - 360.0).floor() as i32,
+        (area.y + area.height - 240.0).floor() as i32,
+    );
+    webview.set_position(corner.0, corner.1).await?;
+    let placed = await_presentation(webview, "at the work area corner", |presentation| {
+        at(presentation, corner)
+    })
+    .await?;
+    eprintln!("widget placed at work area corner: {placed:?} in {primary:?}");
+    Ok(())
+}
+
 fn mismatch(message: impl Into<String>) -> WebviewError {
     WebviewError::HostFailure(message.into())
 }
@@ -103,6 +155,7 @@ pub async fn widget_controls(
         })
         .await?;
     }
+    place_at_work_area_corner(client, &webview, support.position).await?;
     if webview.set_size(0, 240).await
         != Err(WebviewError::InvalidWindowOptions(
             WindowOptionsError::InvalidSize,
