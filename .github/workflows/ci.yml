@@ -78,6 +78,11 @@ jobs:
           persist-credentials: false
       - name: Set up uv
         uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          # verify runs before any plan exists; save on main pushes only
+          # (CACHE-003) and tag PR keys pr-<N> for the janitor (CACHE-013).
+          save-cache: ${{ github.event_name == 'push' }}
+          cache-suffix: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || '' }}
       - name: Verify local gate attestation
         id: gate
         env:
