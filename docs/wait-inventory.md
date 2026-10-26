@@ -38,7 +38,7 @@ Status key:
 | API | Blocks a native thread | Status | Required result |
 | --- | --- | --- | --- |
 | `run_bounded_command`, `run_bounded_command_async` (`src/lib.rs`) | yes / lane | **fixed**: deadline required; `None` is refused with `InvalidInput` before spawning (the signature still takes `impl Into<Option<Duration>>` so `Some(budget)` callers compile) | none |
-| `PlatformChild::wait`, `kill` (`src/lib.rs`) | no | unbounded | Bounded wait. |
+| `PlatformChild::wait`, `kill` (`src/lib.rs`) | no | unbounded; bounded `wait_within(timeout)` exists (`TimedOut`, child left running and killable) | Migrate callers, bound `kill`'s reap, then remove the unbounded `wait`. |
 | `PlatformChild::wait_with_output_bounded` | no | output bounded, time unbounded (waits for natural exit and EOF) | A time budget; stalled-child and descendant-held-pipe policy. |
 | `ProcessSession` post-exit drain | no | optional (`ProcessPostExitDrain::WaitForEof` vs `AbandonAfter`) | Remove the unbounded default from ordinary product use. |
 | `platform::process::DaemonChild::wait`, `SpawnedChild::wait` | yes | unbounded | Bounded wait. `try_wait` already exists. |

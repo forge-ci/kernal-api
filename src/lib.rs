@@ -932,6 +932,22 @@ impl PlatformChild {
         exit
     }
 
+    /// Wait at most `timeout` for completion without capturing output.
+    ///
+    /// An expired wait leaves the child running and this handle usable: the
+    /// caller decides whether to wait again or [`Self::kill`] it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::ErrorKind::TimedOut`] if the child is still running when
+    /// `timeout` elapses, or the error [`Self::wait`] would return. Requires
+    /// a runtime with its timer enabled.
+    pub async fn wait_within(&mut self, timeout: std::time::Duration) -> io::Result<ExitStatus> {
+        async_engine::timeout(timeout, self.wait())
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "child did not exit within its timeout"))?
+    }
+
     /// Terminate the child and wait for its exit.
     pub async fn kill(&mut self) -> io::Result<()> {
         let killed = self.inner.kill().await;
@@ -1984,6 +2000,28 @@ mod tests {
                 .expect("temporary working directory remains available")
                 .to_string_lossy(),
         );
+    }
+
+    #[test]
+    fn bounded_child_wait_times_out_and_leaves_the_child_killable() {
+        let runtime = crate::async_engine::RuntimeBuilder::current_thread()
+            .enable_all()
+            .build()
+            .expect("current-thread runtime");
+        runtime.run(async {
+            let mut child = slow_command().spawn().await.expect("spawn slow child");
+            let started = Instant::now();
+            let error = child
+                .wait_within(Duration::from_millis(200))
+                .await
+                .expect_err("a 30 s child must outlive a 200 ms wait");
+            let waited = started.elapsed();
+            assert_eq!(error.kind(), std::io::ErrorKind::TimedOut, "{error}");
+            assert!(waited >= Duration::from_millis(200), "returned early after {waited:?}");
+            assert!(child.id().is_some(), "a timed-out wait must not report the child gone");
+            child.kill().await.expect("kill after an expired wait");
+            assert!(child.id().is_none());
+        });
     }
 
     #[test]
