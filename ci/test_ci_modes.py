@@ -47,6 +47,8 @@ class ModeTests(unittest.TestCase):
         )
         self.assertIn("candidate_sha:", text)
         self.assertIn("merge_group:\n    types: [checks_requested]", text)
+        # CACHE-016: main's Dylint cache save must not be cancelled by a later push.
+        self.assertIn("cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}", text)
         self.assertIn("python 3.12 ci/ci_mode.py", text)
         self.assertIn("mode: ${{ steps.mode.outputs.mode }}", text)
         self.assertIn(
