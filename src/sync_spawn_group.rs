@@ -89,6 +89,9 @@ impl SpawnedInner {
     }
 
     pub fn wait(&self) -> io::Result<i32> {
+        // Block for exit without the lock, so a concurrent `kill` is never
+        // queued behind this wait (#433); then reap under it.
+        wait_for_exit_unreaped(self.pgid);
         let mut guard = self.child.lock().expect("child mutex poisoned");
         let Some(child) = guard.as_mut() else {
             return Err(io::Error::other("child handle absent"));
@@ -142,6 +145,31 @@ impl crate::platform::process::SpawnedChildControl for SpawnedInner {
 
     fn shutdown(&mut self) {
         SpawnedInner::shutdown(self);
+    }
+}
+
+/// Block until the child leading `pid`'s group has exited, without reaping it.
+///
+/// `WNOWAIT` leaves the zombie for the owner's `wait`, and an unreaped child's
+/// PID cannot be reissued, so a concurrent `kill` stays safe throughout. Any
+/// error (`ECHILD` once something else reaped it) returns at once; the caller's
+/// locked `wait` then reports the real outcome.
+fn wait_for_exit_unreaped(pid: i32) {
+    loop {
+        // SAFETY: zeroed POD out-parameter, written by the kernel only.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: scalar id and flags; `info` outlives the call.
+        let rc = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        if rc == 0 || io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return;
+        }
     }
 }
 
@@ -484,6 +512,46 @@ mod tests {
 
         assert_eq!(polls.load(Ordering::SeqCst), 1);
         assert_eq!(waits.load(Ordering::SeqCst), 0);
+    }
+
+    /// A blocked `wait` must not hold the child lock, or a concurrent `kill`
+    /// queues behind it and a child that only exits when killed never does
+    /// (#433).
+    #[test]
+    fn kill_is_not_blocked_by_a_concurrent_wait() {
+        use std::os::unix::process::CommandExt as _;
+        let child = Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .expect("spawn sleep");
+        let pgid = child.id() as i32;
+        let child: Arc<Mutex<Option<Box<dyn UnixChild>>>> = Arc::new(Mutex::new(Some(Box::new(child))));
+        let inner = Arc::new(SpawnedInner { child, pgid });
+
+        let waiter = {
+            let inner = Arc::clone(&inner);
+            thread::spawn(move || inner.wait())
+        };
+        thread::sleep(Duration::from_millis(100));
+        let (killed, kill_returned) = std::sync::mpsc::channel();
+        {
+            let inner = Arc::clone(&inner);
+            thread::spawn(move || {
+                let _ = killed.send(inner.kill());
+            });
+        }
+        let kill = kill_returned.recv_timeout(Duration::from_secs(2));
+        if kill.is_err() {
+            // Unblock the waiter so a failing run does not leak the child.
+            let _ = crate::platform::process::unix_signal_process_group(
+                pgid,
+                crate::platform::process::UnixSignalKind::Kill,
+            );
+        }
+        let status = waiter.join().expect("waiter thread");
+        assert!(kill.is_ok(), "kill queued behind a blocked wait");
+        assert!(status.is_ok(), "wait reports the killed child: {status:?}");
     }
 
     #[test]
