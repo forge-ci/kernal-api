@@ -74,19 +74,42 @@ def apt_install(packages: list[str]) -> int:
     return 0
 
 
+# A mirror can trickle a large package (libwebkit2gtk-4.1-0 is ~25 MB) so
+# slowly that it never trips Acquire::*::Timeout, which only fires on a silent
+# connection. Each attempt is capped instead and retried on a fresh connection;
+# apt resumes the partial download from its archive cache. Worst case
+# (60 + 3 * 150 s) still ends before apt-finish's 540 s deadline.
+APT_UPDATE_SECONDS = 60
+APT_INSTALL_SECONDS = 150
+APT_INSTALL_ATTEMPTS = 3
+
+
+def apt_background_plan(packages: list[str]) -> list[list[str]]:
+    """The capped commands apt-start's child runs: update, then each install attempt."""
+    update, install = apt_commands(packages, APT_RESILIENCE)
+    return [
+        ["sudo", "timeout", str(APT_UPDATE_SECONDS), *update[1:]],
+        *[["sudo", "timeout", str(APT_INSTALL_SECONDS), *install[1:]]] * APT_INSTALL_ATTEMPTS,
+    ]
+
+
 def apt_start(packages: list[str]) -> int:
     """Start the install detached; `apt-finish` waits for its status file."""
     temp = gha.runner_temp()
     (temp / APT_STATUS).unlink(missing_ok=True)
-    # A tiny Python child runs both apt commands in order and records the
-    # final status either way, so the wait below always ends.
+    update, *installs = apt_background_plan(packages)
+    # A tiny Python child updates once, retries the capped install until one
+    # attempt succeeds, and records the final status either way, so the wait
+    # below always ends.
     child = (
-        "import subprocess, sys\n"
-        "status = 0\n"
-        f"for command in {apt_commands(packages, APT_RESILIENCE)!r}:\n"
-        "    status = subprocess.run(command, check=False).returncode\n"
-        "    if status:\n"
-        "        break\n"
+        "import subprocess\n"
+        f"status = subprocess.run({update!r}, check=False).returncode\n"
+        "if status == 0:\n"
+        f"    for command in {installs!r}:\n"
+        "        status = subprocess.run(command, check=False).returncode\n"
+        "        if status == 0:\n"
+        "            break\n"
+        "        print(f'apt install attempt exited {status}; retrying', flush=True)\n"
         f"open({str(temp / APT_STATUS)!r}, 'w').write(str(status))\n"
     )
     log = (temp / APT_LOG).open("w")
