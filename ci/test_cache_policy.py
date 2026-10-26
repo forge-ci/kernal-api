@@ -49,6 +49,10 @@ COOK_SHAPES = {
     # had 0 compile-cache hits in exact-main full run 36281990983.
     ("ci.yml", "build"): ("matrix", "none"),
     ("ci.yml", "dylints"): ("dylint-nightly", "none"),
+    # GEN-022 step 5 (forge-ci/ci.yml#432): push-only writers with their
+    # validation job's exact inputs, so PRs restore what main saves.
+    ("ci.yml", "linux-cache-writer"): ("x86_64-unknown-linux-gnu", "dev"),
+    ("ci.yml", "dylint-cache-writer"): ("dylint-nightly", "none"),
     ("release.yml", "validate-and-package"): ("x86_64-unknown-linux-gnu", "dev"),
     ("release.yml", "symbolizer-workers"): ("matrix", "none"),
     ("auto-release.yml", "publish-crates"): ("x86_64-unknown-linux-gnu", "none"),
@@ -192,7 +196,7 @@ def saves_on_pull_request(step):
 class CachePolicyTests(unittest.TestCase):
     def test_remote_plan_does_not_globally_disable_local_ci_saves(self):
         steps = [step for step in self.steps() if step["workflow"] == "ci.yml"]
-        self.assertEqual(len(steps), 3)
+        self.assertEqual(len(steps), 5)
         for step in steps:
             with self.subTest(job=step["job"]):
                 self.assertNotIn("save-cache", step["inputs"])
@@ -328,7 +332,7 @@ class CachePolicyTests(unittest.TestCase):
     def test_ci_writers_save_only_on_main_push(self):
         """PR and arbitrary-SHA dispatch runs must not write main-scoped keys."""
         steps = [step for step in self.steps() if step["workflow"] == "ci.yml"]
-        self.assertEqual(len(steps), 3)
+        self.assertEqual(len(steps), 5)
         for step in steps:
             with self.subTest(job=step["job"]):
                 self.assertIn(
@@ -354,7 +358,7 @@ class CachePolicyTests(unittest.TestCase):
             with self.subTest(workflow=step["workflow"], job=step["job"]):
                 self.assertEqual(step["workflow"], "ci.yml")
                 body = re.search(rf"(?ms)^  {step['job']}:\n(.*?)(?=^  [\w-]+:\n|\Z)", text).group(1)
-                if step["job"] in {"linux", "dylints"}:
+                if step["job"] in {"linux", "dylints", "linux-cache-writer", "dylint-cache-writer"}:
                     self.assertRegex(body, r"(?m)^    runs-on: ubuntu-24\.04$")
                 else:
                     self.assertIn("if: needs.linux.outputs.mode == 'full'", body)

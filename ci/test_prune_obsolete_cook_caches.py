@@ -942,7 +942,10 @@ class CookCacheRetentionTests(unittest.TestCase):
         self.assertIn("ci/linux_steps.py ci-guards", workflow)
         self.assertIn('"ci.test_prune_obsolete_cook_caches"', guards)
         self.assertIn("soldr_version: ${{ steps.setup_soldr.outputs.soldr-version }}", workflow)
-        self.assertIn("needs: [linux, build, test, dylints, full-coverage]", workflow)
+        self.assertIn(
+            "needs: [linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer]", workflow
+        )
+        self.assertIn("SOLDR_VERSION: ${{ needs['linux-cache-writer'].outputs.soldr_version }}", workflow)
         self.assertIn("github.event_name == 'push'", workflow)
         self.assertIn("github.ref == 'refs/heads/main'", workflow)
         self.assertIn('--version "${SOLDR_VERSION}" --apply', workflow)
