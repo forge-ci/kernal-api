@@ -29,6 +29,8 @@ TARGETS = {target for _, target in HOSTS}
 GATE_TARGET = "x86_64-unknown-linux-gnu"
 EXPECTED_JOBS = {
     "verify",
+    # GEN-004: Ruff + Pylint over the Python sources; compiles nothing.
+    "fast",
     "linux",
     "build",
     "test",

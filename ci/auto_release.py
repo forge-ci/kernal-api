@@ -23,7 +23,7 @@ def should_release(tag: str, previous_tag: str | None, manual: bool) -> bool:
 
 
 def main() -> None:
-    tag = release_tag(Path("Cargo.toml").read_text())
+    tag = release_tag(Path("Cargo.toml").read_text(encoding="utf-8"))
     if sys.argv[1:] == ["--verify-source"]:
         if os.environ["RELEASE_TAG"] != tag:
             raise ValueError("release tag does not match Cargo.toml")
@@ -61,7 +61,7 @@ def main() -> None:
             text=True,
         ).splitlines()
         proceed = tag not in existing
-    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"tag={tag}\nshould_release={str(proceed).lower()}\n")
     print(f"{tag}: {'verify release' if proceed else 'no new release'}")
 

@@ -126,7 +126,7 @@ def stream(arguments: list, *, env: dict[str, str] | None = None, cwd: Path = RE
     """Run a proof, echoing its combined output live, and return that output."""
     arguments = [str(argument) for argument in arguments]
     print("Running: " + " ".join(arguments), flush=True)
-    process = subprocess.Popen(
+    process = subprocess.Popen(  # pylint: disable=consider-using-with
         arguments,
         cwd=cwd,
         env=env,

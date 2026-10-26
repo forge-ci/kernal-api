@@ -840,7 +840,7 @@ class CookCacheRetentionTests(unittest.TestCase):
                 return [self.current]
 
             def delete_cache(self, cache_id):
-                self.asserted_id = cache_id
+                self.asserted_id = cache_id  # pylint: disable=attribute-defined-outside-init
 
             def usage_bytes(self):
                 return 910 if self.read_count < 3 else 10
@@ -921,7 +921,7 @@ class CookCacheRetentionTests(unittest.TestCase):
                 return [self.native]
 
             def delete_cache(self, cache_id):
-                self.asserted_id = cache_id
+                self.asserted_id = cache_id  # pylint: disable=attribute-defined-outside-init
                 return True
 
             def usage_bytes(self):

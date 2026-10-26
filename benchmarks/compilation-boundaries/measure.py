@@ -11,7 +11,6 @@ import argparse
 import json
 import os
 import platform
-import re
 import shutil
 import subprocess
 import sys
@@ -28,7 +27,7 @@ def version(command: list[str], cwd: Path) -> str:
 
 
 def cache_snapshot(cwd: Path) -> dict[str, object]:
-    completed = subprocess.run(["soldr", "cache", "--json"], cwd=cwd, text=True, capture_output=True)
+    completed = subprocess.run(["soldr", "cache", "--json"], cwd=cwd, text=True, capture_output=True, check=False)
     if completed.returncode:
         return {"available": False, "error": completed.stderr.strip()}
     try:

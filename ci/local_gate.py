@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 if __package__:
-    from .platform_host import NativeHost, native_host
+    from .platform_host import NativeHost, native_host  # pylint: disable=relative-beyond-top-level
 else:
     from platform_host import NativeHost, native_host
 
@@ -286,7 +286,7 @@ def main() -> None:
     proof = RunProof.from_json(raw)
     verify_run(proof, ROOT, sha, git_tree, job=args.job)
     if __package__:
-        from .replay_evidence import verify_checks
+        from .replay_evidence import verify_checks  # pylint: disable=relative-beyond-top-level
     else:
         from replay_evidence import verify_checks
     verify_checks(raw, ROOT, sha, git_tree, args.job)

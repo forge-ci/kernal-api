@@ -232,7 +232,7 @@ inputs = {}
 [reuse.default-branch]
 mode           = "enforce"
 workflows      = ["ci.yml"]
-required-jobs  = ["linux", "Dylint workspace"]
+required-jobs  = ["linux", "Dylint workspace", "Python lint"]
 max-age-hours  = 24
 
 [allow]

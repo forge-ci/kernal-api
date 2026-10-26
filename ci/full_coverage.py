@@ -29,12 +29,12 @@ REQUIRED_TEST_STEPS = (
 )
 
 
-def failures(expected_sha, checked_out_sha, needs, jobs):  # noqa: C901 -- Existing full-coverage aggregation; ratchet complexity 13.
+def failures(expected_sha, checked_out, needs, jobs):  # noqa: C901 -- Existing full-coverage aggregation; ratchet complexity 13.
     errors = []
     if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_sha):
         errors.append("source SHA is missing or invalid")
-    if checked_out_sha.lower() != expected_sha.lower():
-        errors.append(f"source SHA mismatch: checked out {checked_out_sha}, expected {expected_sha}")
+    if checked_out.lower() != expected_sha.lower():
+        errors.append(f"source SHA mismatch: checked out {checked_out}, expected {expected_sha}")
     for name in REQUIRED_NEEDS:
         dependency = needs.get(name)
         result = dependency.get("result", "missing") if isinstance(dependency, dict) else "missing"

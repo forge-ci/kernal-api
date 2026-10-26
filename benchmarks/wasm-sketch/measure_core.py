@@ -76,7 +76,12 @@ def run(
         command = [str(gnu_time), "-f", "%M", "-o", str(rss_log), "--", *command]
     start = time.monotonic_ns()
     result = subprocess.run(
-        command, cwd=cwd, capture_output=True, text=True, env={**os.environ, "SOLDR_LINKER": "default", "LC_ALL": "C"}
+        command,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "SOLDR_LINKER": "default", "LC_ALL": "C"},
     )
     elapsed = time.monotonic_ns() - start
     log.write_text(result.stdout + "\n--- stderr ---\n" + result.stderr, encoding="utf-8")

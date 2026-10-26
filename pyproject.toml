@@ -40,3 +40,38 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["C901", "RUF100"]
+
+# GEN-004: the `fast` job runs `pylint` over every tracked Python file.
+[tool.pylint.main]
+ignore = [".ci-lint", "target", ".git"]
+# The pinned ci-lint is checked out only in the jobs that run it.
+ignored-modules = ["ci_lint", "yaml"]
+
+[tool.pylint."messages control"]
+disable = [
+  # ruff format owns line width; ruff C901 owns function complexity.
+  "line-too-long",
+  "too-many-locals",
+  "too-many-statements",
+  "too-many-return-statements",
+  "too-many-boolean-expressions",
+  "too-many-public-methods",
+  "too-many-instance-attributes",
+  "too-many-lines",
+  "too-few-public-methods",
+  # CI scripts and tests are documented at module/step level, not per helper.
+  "missing-function-docstring",
+  "missing-class-docstring",
+  "missing-module-docstring",
+  # Step scripts share argv shapes; tests share fixtures.
+  "duplicate-code",
+  # Platform-only modules (winreg) and optional tooling import lazily.
+  "import-outside-toplevel",
+  # Tests drive module internals; test doubles mirror real signatures.
+  "protected-access",
+  "unused-argument",
+  # `type(x) is bool` deliberately separates bool from int in JSON checks.
+  "unidiomatic-typecheck",
+  # Workflow-referenced script names keep their dashes (verify-guest-results.py).
+  "invalid-name",
+]

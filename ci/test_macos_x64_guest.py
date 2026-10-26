@@ -244,7 +244,7 @@ class VerifyGuestResultsTests(unittest.TestCase):
 
     def setUp(self):
         self.module = load_verify_module()
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
         self.addCleanup(self._tmp.cleanup)
         self.collected = Path(self._tmp.name)
 
