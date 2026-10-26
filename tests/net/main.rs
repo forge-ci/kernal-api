@@ -16,6 +16,7 @@ mod async_notify_task;
 mod async_rw_lock;
 mod async_task_local;
 mod async_timers_permits;
+mod bounded_ipc_connect;
 mod http_client;
 mod http_server;
 mod owner_only_local_ipc;

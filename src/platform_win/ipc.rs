@@ -284,6 +284,22 @@ impl Stream {
         interprocess::local_socket::Stream::connect(name(endpoint.display())?).map(Self)
     }
 
+    /// Connect, waiting at most `timeout` for a free pipe instance; returns
+    /// [`io::ErrorKind::TimedOut`] on expiry.
+    ///
+    /// The local-socket layer ignores connect wait modes on Windows, so this
+    /// dials the named pipe with the bound and adopts the connected handle.
+    pub fn connect_within(endpoint: &Endpoint, timeout: std::time::Duration) -> io::Result<Self> {
+        let pipe = DuplexPipeStream::<pipe_mode::Bytes>::connect_by_path_with_wait_mode(
+            pipe_path(endpoint.display()),
+            ConnectWaitMode::Timeout(timeout),
+        )?;
+        let handle = std::os::windows::io::OwnedHandle::from(pipe);
+        let stream = interprocess::os::windows::named_pipe::local_socket::Stream::try_from(handle)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        Ok(Self(stream.into()))
+    }
+
     pub fn try_clone(&self) -> io::Result<Self> {
         self.0.try_clone().map(Self)
     }
