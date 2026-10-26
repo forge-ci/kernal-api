@@ -1476,8 +1476,10 @@ impl std::error::Error for BoundedProcessAsyncError {
 
 /// Run a contained one-shot command with bounded capture.
 ///
-/// The limit covers stdout and stderr together. A [`std::time::Duration`]
-/// requests a deadline; `None` preserves the pre-existing no-deadline API.
+/// The limit covers stdout and stderr together. The deadline is required:
+/// pass a [`std::time::Duration`] (or `Some(duration)`). `None` no longer
+/// means "no deadline"; it is refused with [`std::io::ErrorKind::InvalidInput`]
+/// before anything is spawned.
 /// Timeout and output-limit failures request hard cleanup before return.
 pub fn run_bounded_command(
     spec: SpawnSpec,
@@ -1490,8 +1492,8 @@ pub fn run_bounded_command(
 /// Run [`run_bounded_command`] on the canonical async engine's blocking lane.
 ///
 /// This keeps the current runtime responsive without constructing a second
-/// runtime or exposing its implementation types. The timeout accepts either a
-/// required [`std::time::Duration`] or `Option<Duration>` for compatibility.
+/// runtime or exposing its implementation types. The deadline is required
+/// exactly as for [`run_bounded_command`].
 pub async fn run_bounded_command_async(
     spec: SpawnSpec,
     timeout: impl Into<Option<std::time::Duration>>,
@@ -1741,6 +1743,27 @@ mod tests {
                     || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
             }
         }
+    }
+
+    #[test]
+    fn bounded_command_refuses_a_missing_deadline_before_spawning() {
+        let marker = std::env::temp_dir().join(format!(
+            "kernal-api-no-deadline-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_file(&marker);
+        // Redirection with a double-quoted path means the same in sh and cmd.
+        let spec = shell_spec(format!("echo x > \"{}\"", marker.display()));
+
+        let error = run_bounded_command(spec, None, 1024)
+            .expect_err("a run without a deadline must be refused");
+
+        assert!(
+            matches!(&error, BoundedProcessError::Io(io) if io.kind() == std::io::ErrorKind::InvalidInput),
+            "unexpected error: {error:?}"
+        );
+        assert!(!marker.exists(), "the refused command must not have run");
     }
 
     #[cfg(unix)]
