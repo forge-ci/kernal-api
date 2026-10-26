@@ -160,3 +160,55 @@ async fn bounded_notification_waits_time_out_and_still_see_an_enabled_permit() {
     assert!(owned.wait_within(Duration::from_secs(60)).await.is_ok());
     sender.await.unwrap();
 }
+
+#[tokio::test(start_paused = true)]
+async fn bounded_joins_time_out_and_keep_the_task() {
+    use kernal_api::async_engine::{JoinTimedOut, TaskGroup};
+
+    let mut task = async_engine::launch(async {
+        async_engine::sleep(Duration::from_secs(10)).await;
+        7_u8
+    });
+    let start = tokio::time::Instant::now();
+    assert!(matches!(
+        task.join_within(Duration::from_secs(2)).await,
+        Err(JoinTimedOut)
+    ));
+    assert_eq!(start.elapsed(), Duration::from_secs(2));
+    assert!(
+        !task.is_finished(),
+        "an expired join must not cancel the task"
+    );
+    assert_eq!(
+        task.join_within(Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap(),
+        7
+    );
+
+    let mut group = TaskGroup::new();
+    group.spawn(async {
+        async_engine::sleep(Duration::from_secs(5)).await;
+        1_u8
+    });
+    assert!(matches!(
+        group.join_next_within(Duration::from_secs(1)).await,
+        Err(JoinTimedOut)
+    ));
+    assert_eq!(group.len(), 1);
+    assert_eq!(
+        group
+            .join_next_within(Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap(),
+        1
+    );
+    assert!(group
+        .join_next_within(Duration::ZERO)
+        .await
+        .unwrap()
+        .is_none());
+}
