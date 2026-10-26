@@ -127,8 +127,8 @@ jobs:
       - name: Build and stage ConPTY sidecars
         shell: bash
         run: |
-          bash ci/build_conpty_assets.sh target/conpty-assets
-          bash ci/verify_conpty_assets.sh target/conpty-assets
+          uv run --no-project --python 3.12 ci/build_conpty_assets.py target/conpty-assets
+          uv run --no-project --python 3.12 ci/verify_conpty_assets.py target/conpty-assets
           cp target/conpty-assets/conpty-sidecar.sha256.toml conpty-sidecar.sha256.toml
       - name: Test every facility together
         run: soldr cargo test --locked --all-features

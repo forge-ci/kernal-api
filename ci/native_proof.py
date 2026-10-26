@@ -281,7 +281,7 @@ def build(target: str, archive: Path, work: Path) -> None:
 
 def ensure_wasm_target(target: str) -> None:
     """Materialize a Wasm target through the shared rustup repair helper."""
-    capture(["bash", "ci/ensure-rustup-target.sh", target])
+    capture([sys.executable, "ci/rust_target.py", target])
 
 
 def embed_threaded_metadata(built: Path, admitted: Path) -> None:
@@ -342,7 +342,7 @@ def guests(out: Path, work: Path) -> None:
         ("screenshot-block", ["--block-after-capture"]),
     ):
         printed = capture(
-            ["bash", "examples/wasm-tauri-screenshot/build-guest.sh", *flags], env=screenshot_env
+            [sys.executable, "examples/wasm-tauri-screenshot/build_guest.py", *flags], env=screenshot_env
         ).strip().splitlines()
         admitted = Path(printed[-1]) if printed else Path()
         if not admitted.is_absolute() or not admitted.is_file():

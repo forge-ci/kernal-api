@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -365,7 +366,7 @@ fi
             encoding="utf-8",
         )
         fake_soldr.chmod(0o755)
-        command = ["bash", str(proof.REPO / "ci/ensure-rustup-target.sh")]
+        command = [sys.executable, str(proof.REPO / "ci/rust_target.py")]
         if toolchain:
             command.append(toolchain)
         command.append(proof.THREADS)
@@ -386,7 +387,7 @@ fi
     def test_native_proof_delegates_to_the_shared_target_repair_helper(self):
         with patch.object(proof, "capture") as capture:
             proof.ensure_wasm_target(proof.THREADS)
-        capture.assert_called_once_with(["bash", "ci/ensure-rustup-target.sh", proof.THREADS])
+        capture.assert_called_once_with([sys.executable, "ci/rust_target.py", proof.THREADS])
 
     def test_healthy_toolchain_is_not_mutated(self):
         result, calls, _ = self.repair("never", healthy=True)
@@ -435,7 +436,7 @@ class GuestTests(unittest.TestCase):
             calls.append(arguments)
             built = root / f"built-{len(calls)}.wasm"
             built.write_bytes(b"\0asm")
-            if arguments[:2] == ["bash", "examples/wasm-tauri-screenshot/build-guest.sh"]:
+            if arguments[:2] == [sys.executable, "examples/wasm-tauri-screenshot/build_guest.py"]:
                 return f"cargo noise\n{built}\n"
             if "--embed-threaded-metadata" in arguments:
                 return ""

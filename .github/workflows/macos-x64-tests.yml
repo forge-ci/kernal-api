@@ -68,7 +68,7 @@ jobs:
           cross-targets: x86_64-apple-darwin
 
       - name: Cross-build Intel test binaries on Linux
-        run: ci/macos-x64/build-archive.sh
+        run: python3 ci/macos-x64/build_archive.py
 
       # The action serves this directory to the guest at http://10.0.2.2:8000/.
       # Everything the guest executes must be staged here: the archive, the
@@ -77,7 +77,7 @@ jobs:
       - name: Stage the guest share directory
         env:
           NEXTEST_FILTER: ${{ inputs.filter }}
-        run: ci/macos-x64/stage-guest-share.sh
+        run: python3 ci/macos-x64/stage_guest_share.py
 
       # Recovery boots exactly one script and offers no per-command execution,
       # so the guest half has to travel as a single string. Handing it to the
