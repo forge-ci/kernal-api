@@ -34,6 +34,7 @@ LINUX = ReplayJob(
         "Verify selected source SHA",
         "Checkout pinned ci-lint",
         "Plan this run with the pinned ci-lint",
+        "Precheck the repository with the pinned ci-lint",
         "Set up soldr",
         "Restore native pkg-config search path",
         "Check workspace formatting",
