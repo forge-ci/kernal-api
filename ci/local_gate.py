@@ -25,7 +25,10 @@ else:
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ".github/workflows/ci.yml"
-CI_LINT = "ci-lint @ git+https://github.com/forge-ci/ci.yml@81892aaffe35fce54355b02f70de647153c55e45"
+# bosn names the repository after the checkout's origin URL. The repository
+# moved to forge-ci; checkouts made before the move still say zackees (#436).
+REPOSITORIES = frozenset({"forge-ci/kernal-api", "zackees/kernal-api"})
+CI_LINT = "ci-lint @ git+https://github.com/forge-ci/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0"
 
 
 def bosn_command(*arguments: str) -> list[str]:
@@ -90,7 +93,7 @@ class RunProof:
             type(raw.get("schema_version")) is not int
             or raw["schema_version"] != 1
             or raw.get("provider") != "github"
-            or raw.get("repository") != "zackees/kernal-api"
+            or raw.get("repository") not in REPOSITORIES
             or type(raw.get("act_exit_code")) is not int
             or raw["act_exit_code"] != 0
             or not isinstance(raw.get("tree_digest"), str)

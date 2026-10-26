@@ -152,6 +152,8 @@ class RunProofTests(unittest.TestCase):
             tree_digest="d" * 64,
         )
         self.assertEqual(RunProof.from_json(raw), self.proof)
+        # A checkout cloned from the moved repository is the same repository (#436).
+        self.assertEqual(RunProof.from_json({**raw, "repository": "forge-ci/kernal-api"}), self.proof)
         for field in ("git_tree", "trigger", "event", "cleanup", "payload_sha256"):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 RunProof.from_json({key: value for key, value in raw.items() if key != field})

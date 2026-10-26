@@ -5,7 +5,7 @@
 # yet meet this contract are tracked in zackees/ci.yml, not silenced here.
 schema  = 3
 profile = "rust-library"                          # a Rust facade crate + a hatchling Python package; not a native-CLI PyPI app
-linter  = "zackees/ci.yml@81892aaffe35fce54355b02f70de647153c55e45"
+linter  = "zackees/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0"
 
 # -- Platforms: the six hosts `linux` + `test` (x5) run on --------------------
 [platforms]
@@ -141,16 +141,16 @@ cache  = "machine"
 # First rollout lane: the exact remote minimal Linux job in bosn/act2.
 # Remote jobs keep running until verifier wiring and coverage are validated.
 [local.gate]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@81892aaffe35fce54355b02f70de647153c55e45", "--python", "3.12", "python", "ci/local_gate.py"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0", "--python", "3.12", "python", "ci/local_gate.py"]
 mode = "enforce"
 verify = "ci.yml:verify"
 
 [local.gate.lanes.linux-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@81892aaffe35fce54355b02f70de647153c55e45", "--python", "3.12", "python", "ci/local_gate.py"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0", "--python", "3.12", "python", "ci/local_gate.py"]
 tools = ["bosn", "uv"]
 
 [local.gate.lanes.dylint-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@81892aaffe35fce54355b02f70de647153c55e45", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
 tools = ["bosn", "uv"]
 
 # Eligible attested minimal PRs reuse both source-bound workflow lanes.
@@ -163,7 +163,10 @@ full-labels = ["ci-full", "ci-test"]
 audit-rate = 10
 
 [local.gate.replay]
-repository = "zackees/kernal-api"
+repository = "forge-ci/kernal-api"
+# bosn names the repository after the checkout's origin URL; checkouts made
+# before the move still say zackees (#436).
+repository-aliases = ["zackees/kernal-api"]
 # Match jobs by their qualified identity (`jobID` + matrix), which current bosn
 # reports, rather than by display key.
 qualified = true

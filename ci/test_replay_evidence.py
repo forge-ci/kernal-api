@@ -75,6 +75,13 @@ class ExecutedChecksTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify(raw)
 
+    def test_either_repository_name_is_this_repository(self):
+        for name in ("zackees/kernal-api", "forge-ci/kernal-api"):
+            with self.subTest(name=name):
+                self.verify({**report("linux"), "repository": name})
+        with self.assertRaises(ValueError):
+            self.verify({**report("linux"), "repository": "other/kernal-api"})
+
     def test_wrong_selection_cannot_borrow_another_job(self):
         with self.assertRaises(ValueError):
             self.verify(report("linux"), "dylints")
