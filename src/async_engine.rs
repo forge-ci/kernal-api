@@ -146,6 +146,29 @@ impl<T> Task<T> {
     }
 }
 
+impl<T> Task<T> {
+    /// Wait at most `timeout` for the task's result. An expired wait leaves
+    /// the task running and this handle usable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`JoinTimedOut`] if the task did not finish in time. Requires a
+    /// runtime with its timer enabled.
+    pub async fn join_within(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Result<T, TaskError>, JoinTimedOut> {
+        self::timeout(timeout, &mut *self)
+            .await
+            .map_err(|_| JoinTimedOut)
+    }
+}
+
+/// A bounded [`Task`] or [`TaskGroup`] join expired before a result arrived.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("no kernal-api task result arrived before the timeout")]
+pub struct JoinTimedOut;
+
 impl<T> Drop for Task<T> {
     fn drop(&mut self) {
         if !self.detached {
@@ -502,6 +525,22 @@ impl<T: 'static> TaskGroup<T> {
             .join_next()
             .await
             .map(|result| result.map_err(TaskError::from_backend))
+    }
+
+    /// Wait at most `timeout` for the next task to complete. An expired wait
+    /// cancels nothing and loses no result.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`JoinTimedOut`] if no task completed in time. Requires a
+    /// runtime with its timer enabled.
+    pub async fn join_next_within(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<Result<T, TaskError>>, JoinTimedOut> {
+        self::timeout(timeout, self.join_next())
+            .await
+            .map_err(|_| JoinTimedOut)
     }
 
     /// The number of tasks still running or awaiting collection in this
