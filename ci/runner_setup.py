@@ -79,14 +79,17 @@ def apt_install(packages: list[str]) -> int:
 # connection. Only the download is capped and retried: killing it is safe and
 # apt resumes the partial .deb from its archive cache. Killing dpkg mid-unpack
 # is not (later attempts fail with "dpkg was interrupted"), so the offline
-# install gets one longer cap after `dpkg --configure -a`. Worst case
-# (60 + 100, then 10 + 60 + 100, then 10 + 180 s = 520 s) still ends before
-# apt-finish's 540 s deadline.
+# install, after `dpkg --configure -a`, gets whatever remains of one overall
+# budget measured from when the child starts: unpacking can take minutes on a
+# slow disk, and a fast download should leave that time to it. The budget ends
+# before apt-finish's 540 s deadline, which starts later than the child.
 APT_UPDATE_SECONDS = 60
 APT_DOWNLOAD_SECONDS = 100
 APT_MIRROR_SECONDS = 10
 APT_CONFIGURE_SECONDS = 10
-APT_INSTALL_SECONDS = 180
+APT_TOTAL_SECONDS = 530
+# Stands in for the install's timeout until the child knows what is left.
+APT_REMAINING = "{remaining}"
 # GitHub's Azure Ubuntu mirror has trickled the 25 MB webkit .deb past every
 # capped attempt (runs 40368020419, 40374990547); the retry uses the primary.
 APT_FALLBACK_MIRROR = "archive.ubuntu.com"
@@ -120,7 +123,7 @@ def apt_background_plan(packages: list[str]) -> tuple[list[list[list[str]]], lis
     ]
     finish = [
         ["sudo", "timeout", str(APT_CONFIGURE_SECONDS), "dpkg", "--configure", "-a"],
-        capped(APT_INSTALL_SECONDS, install),
+        ["sudo", "timeout", APT_REMAINING, *install[1:]],
     ]
     return downloads, finish
 
@@ -131,12 +134,18 @@ def apt_start(packages: list[str]) -> int:
     (temp / APT_STATUS).unlink(missing_ok=True)
     downloads, finish = apt_background_plan(packages)
     # A tiny Python child retries the capped download until one attempt
-    # succeeds, installs offline, and records the final status either way, so
+    # succeeds, installs offline in the remaining budget, and records the final status either way, so
     # the wait below always ends.
     child = (
-        "import subprocess\n"
+        "import subprocess, time\n"
+        "started = time.monotonic()\n"
         "def run(commands):\n"
         "    for command in commands:\n"
+        f"        remaining = int({APT_TOTAL_SECONDS} - (time.monotonic() - started))\n"
+        f"        if {APT_REMAINING!r} in command:\n"
+        "            if remaining <= 0:\n"
+        "                return 124\n"
+        f"            command = [str(remaining) if part == {APT_REMAINING!r} else part for part in command]\n"
         "        status = subprocess.run(command, check=False).returncode\n"
         "        if status != 0:\n"
         "            return status\n"

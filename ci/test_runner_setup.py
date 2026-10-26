@@ -16,6 +16,9 @@ class AptBackgroundPlanTests(unittest.TestCase):
         for command in self.commands():
             self.assertEqual(command[:2], ["sudo", "timeout"])
 
+    def test_the_install_takes_the_remaining_budget(self):
+        self.assertEqual(self.finish[1][2], runner_setup.APT_REMAINING)
+
     def test_only_the_download_is_retried(self):
         self.assertEqual(len(self.downloads), 2)
         for attempt in self.downloads:
@@ -33,9 +36,10 @@ class AptBackgroundPlanTests(unittest.TestCase):
         self.assertIn("azure.archive.ubuntu.com", " ".join(fallback[0]))
         self.assertIn("update", fallback[1])
 
-    def test_worst_case_ends_before_the_finish_deadline(self):
-        worst = sum(int(command[2]) for command in self.commands())
-        self.assertLess(worst, 540)
+    def test_fixed_caps_leave_the_install_a_budget_inside_the_deadline(self):
+        fixed = sum(int(command[2]) for command in self.commands() if command[2] != runner_setup.APT_REMAINING)
+        self.assertLess(fixed + 120, runner_setup.APT_TOTAL_SECONDS)
+        self.assertLess(runner_setup.APT_TOTAL_SECONDS, 540)
 
 
 if __name__ == "__main__":
