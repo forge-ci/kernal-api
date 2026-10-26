@@ -132,6 +132,31 @@ impl<T> RwLock<T> {
         }
     }
 
+    /// Block this thread until a shared guard is available or
+    /// `timeout` elapses.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`super::LockTimedOut`] if the guard is not available within
+    /// `timeout`; no guard or queue position is kept.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called from inside an asynchronous execution context, like
+    /// the unbounded form.
+    pub fn blocking_read_within(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<RwLockReadGuard<'_, T>, super::LockTimedOut> {
+        assert!(
+            super::RuntimeHandle::current().is_err(),
+            "a bounded blocking lock must not park an asynchronous execution context"
+        );
+        super::park_within(self.inner.read(), timeout)
+            .map(|inner| RwLockReadGuard { inner })
+            .ok_or(super::LockTimedOut)
+    }
+
     /// Block this thread until an exclusive guard is available.
     ///
     /// # Panics
@@ -143,6 +168,31 @@ impl<T> RwLock<T> {
         RwLockWriteGuard {
             inner: self.inner.blocking_write(),
         }
+    }
+
+    /// Block this thread until an exclusive guard is available or
+    /// `timeout` elapses.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`super::LockTimedOut`] if the guard is not available within
+    /// `timeout`; no guard or queue position is kept.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called from inside an asynchronous execution context, like
+    /// the unbounded form.
+    pub fn blocking_write_within(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<RwLockWriteGuard<'_, T>, super::LockTimedOut> {
+        assert!(
+            super::RuntimeHandle::current().is_err(),
+            "a bounded blocking lock must not park an asynchronous execution context"
+        );
+        super::park_within(self.inner.write(), timeout)
+            .map(|inner| RwLockWriteGuard { inner })
+            .ok_or(super::LockTimedOut)
     }
 
     /// Attempt an owned shared guard without waiting.

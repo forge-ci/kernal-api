@@ -1427,28 +1427,13 @@ impl<T> Sender<T> {
         if RuntimeHandle::current().is_ok() {
             return Err(BlockingSendError::AsyncContext(value));
         }
-        let started = std::time::Instant::now();
-        // Poll one reservation future and park between polls, as Tokio's own
-        // `blocking_send` does, but against a deadline. An unpark that lands
-        // before the park is kept by the thread token, so no wakeup is lost.
-        let waker = std::task::Waker::from(Arc::new(ThreadWaker(std::thread::current())));
-        let mut context = Context::from_waker(&waker);
-        let mut reserve = std::pin::pin!(self.inner.reserve());
-        loop {
-            match reserve.as_mut().poll(&mut context) {
-                Poll::Ready(Ok(permit)) => {
-                    permit.send(value);
-                    return Ok(());
-                }
-                Poll::Ready(Err(_)) => return Err(BlockingSendError::Closed(value)),
-                Poll::Pending => {
-                    let elapsed = started.elapsed();
-                    if elapsed >= timeout {
-                        return Err(BlockingSendError::TimedOut(value));
-                    }
-                    std::thread::park_timeout(timeout - elapsed);
-                }
+        match park_within(self.inner.reserve(), timeout) {
+            Some(Ok(permit)) => {
+                permit.send(value);
+                Ok(())
             }
+            Some(Err(_)) => Err(BlockingSendError::Closed(value)),
+            None => Err(BlockingSendError::TimedOut(value)),
         }
     }
 
@@ -1647,7 +1632,27 @@ pub enum BlockingSendError<T> {
     TimedOut(T),
 }
 
-/// Unparks the synchronous sender's thread when its reservation can progress.
+/// Drive `future` on this thread, parking between polls, until it completes
+/// or `timeout` elapses (`None`). No runtime is created; an unpark that lands
+/// before the park is kept by the thread token, so no wakeup is lost.
+pub(crate) fn park_within<F: Future>(future: F, timeout: Duration) -> Option<F::Output> {
+    let started = std::time::Instant::now();
+    let waker = std::task::Waker::from(Arc::new(ThreadWaker(std::thread::current())));
+    let mut context = Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    loop {
+        if let Poll::Ready(output) = future.as_mut().poll(&mut context) {
+            return Some(output);
+        }
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return None;
+        }
+        std::thread::park_timeout(timeout - elapsed);
+    }
+}
+
+/// Unparks a thread parked in [`park_within`] when its future can progress.
 struct ThreadWaker(std::thread::Thread);
 
 impl std::task::Wake for ThreadWaker {

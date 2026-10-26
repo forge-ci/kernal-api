@@ -149,3 +149,31 @@ async fn bounded_lock_times_out_while_held_and_succeeds_once_released() {
         .unwrap();
     assert_eq!(*owned, 1);
 }
+
+#[test]
+fn a_bounded_blocking_lock_times_out_then_acquires_after_release() {
+    use kernal_api::async_engine::LockTimedOut;
+    use std::time::{Duration, Instant};
+
+    let mutex = Arc::new(Mutex::new(0_u8));
+    let held = mutex.try_lock().unwrap();
+    let started = Instant::now();
+    assert!(matches!(
+        mutex.blocking_lock_within(Duration::from_millis(100)),
+        Err(LockTimedOut)
+    ));
+    assert!(started.elapsed() >= Duration::from_millis(100));
+
+    let waiter = {
+        let mutex = Arc::clone(&mutex);
+        std::thread::spawn(move || {
+            *mutex
+                .blocking_lock_within(Duration::from_secs(30))
+                .expect("acquired once the holder releases") += 1;
+        })
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    drop(held);
+    waiter.join().unwrap();
+    assert_eq!(*mutex.try_lock().unwrap(), 1);
+}
