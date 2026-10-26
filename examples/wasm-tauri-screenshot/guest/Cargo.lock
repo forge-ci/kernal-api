@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "kernal-api"
-version = "0.1.31"
+version = "0.1.32"
 dependencies = [
  "blake3",
  "libc",

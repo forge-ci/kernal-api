@@ -7,6 +7,7 @@
 //! See AGENTS.md for the rule.
 
 mod broker_client;
+mod broker_v2;
 mod daemon_identity_control;
 mod daemon_registration;
 mod daemon_registration_v2;
