@@ -28,9 +28,14 @@ on:
 # nine runners in `reld` while unrelated PRs queued. A superseded main commit
 # now has no run of its own; its content is covered by the run for the commit
 # that replaced it.
+#
+# Main pushes no longer cancel (CACHE-016): main is the only writer of the
+# must-hit Dylint cache, and a cancelled run loses its save, so every PR misses.
+# The merge queue (GEN-022) lands one PR at a time, so main pushes rarely
+# overlap; a later one waits, and GitHub drops an older *pending* run itself.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Read-only by default (ci-lint SEC-002). Each job whose last step cancels
 # the run on failure grants itself `actions: write`; ci.toml's
