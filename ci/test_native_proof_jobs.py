@@ -340,7 +340,10 @@ class NativeProofJobsTests(unittest.TestCase):
     def test_desktop_status_preserves_minimal_and_full_feature_graphs(self):
         minimal = self.step("linux", "Test the Linux desktop status facade")
         full = self.step("linux", "Test the full Linux desktop status facade")
-        self.assertIn("if: steps.mode.outputs.mode != 'full'", minimal)
+        self.assertIn(
+            "if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'",
+            minimal,
+        )
         self.assertIn("if: steps.mode.outputs.mode == 'full'", full)
         for selector in ("--lib system_tray", "--test terminal system_tray"):
             self.assertIn(f"--features system-tray {selector}", minimal)
