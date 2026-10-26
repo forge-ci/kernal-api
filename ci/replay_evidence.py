@@ -28,7 +28,7 @@ LINUX = ReplayJob("CI/linux", identity=(identity_part("linux"),), steps=(
     "Lint the default facade", "Test the default facade", "Test the Linux desktop status facade",
 ))
 DYLINT = ReplayJob("CI/Dylint workspace", identity=(identity_part("dylints"),), steps=(
-    "Start installing native webview development packages", "Checkout candidate source", "Set up uv",
+    "Checkout candidate source", "Start installing native webview development packages", "Set up uv",
     "Select CI mode and verify the checked-out commit", "Verify selected source SHA",
     "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Set up soldr",
     "Restore native pkg-config search path", "Select the pinned Dylint compiler",

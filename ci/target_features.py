@@ -1,6 +1,6 @@
 """Print the feature list for a kernal-api *target* graph, comma-separated.
 
-    uv run --no-project --python 3.12 ci/target_features.py
+    uv run --no-project --python 3.12 ci/target_features.py [--github-env]
 
 That is every feature in Cargo.toml's `[features]` except `default` and the
 host-only ones. A host-only feature is a build-script facility: it only ever
@@ -20,6 +20,7 @@ which runs `build-resources` as a real build-dependency.
 
 from __future__ import annotations
 
+import os
 import sys
 import tomllib
 from pathlib import Path
@@ -37,7 +38,12 @@ def target_features(manifest: Path = MANIFEST) -> list[str]:
 
 
 def main() -> int:
-    print(",".join(target_features()))
+    features = ",".join(target_features())
+    if sys.argv[1:] == ["--github-env"]:
+        # Export KERNAL_TARGET_FEATURES to every later step of this job.
+        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+            env.write(f"KERNAL_TARGET_FEATURES={features}\n")
+    print(features)
     return 0
 
 

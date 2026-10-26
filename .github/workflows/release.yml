@@ -110,26 +110,15 @@ jobs:
           cache-key-suffix: linux
           prebuild-deps-flags: ""
       - name: Install native webview development packages
-        run: >-
-          sudo apt-get update && sudo apt-get install --yes
-          libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
+        run: python3 ci/runner_setup.py apt-install libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
       - name: Restore native pkg-config search path
-        run: |
-          echo "PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
+        run: python3 ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
       - name: Verify exact release version
-        shell: bash
-        run: |
-          manifest_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
-          test "v${manifest_version}" = "${{ inputs.tag }}"
-          test "${manifest_version}" != "0.0.0"
-          grep -q "version = \"${manifest_version}\"" pyproject.toml
-          grep -q "__version__ = \"${manifest_version}\"" python/kernal_api/__init__.py
+        run: python3 ci/release_steps.py verify-version --tag "${{ inputs.tag }}"
       - name: Build and stage ConPTY sidecars
-        shell: bash
-        run: |
-          uv run --no-project --python 3.12 ci/build_conpty_assets.py target/conpty-assets
-          uv run --no-project --python 3.12 ci/verify_conpty_assets.py target/conpty-assets
-          cp target/conpty-assets/conpty-sidecar.sha256.toml conpty-sidecar.sha256.toml
+        # ci/build_conpty_assets.py, ci/verify_conpty_assets.py target/conpty-assets,
+        # then cp target/conpty-assets/conpty-sidecar.sha256.toml conpty-sidecar.sha256.toml
+        run: python3 ci/release_steps.py conpty
       - name: Test every facility together
         run: soldr cargo test --locked --all-features
       - name: Package exact Rust source
@@ -143,11 +132,7 @@ jobs:
         run: uv build --clear
       - run: uv run --no-project --with twine twine check dist/*
       - name: Stage flat registry artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir registry-packages
-          cp target/package/kernal-api-*.crate dist/* registry-packages/
+        run: python3 ci/release_steps.py stage-registry
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: registry-packages
@@ -228,11 +213,7 @@ jobs:
           --release --target ${{ matrix.target }} --features symbolize-worker
           --bin kernal-symbolize
       - name: Stage worker asset
-        shell: bash
-        run: |
-          mkdir -p release-worker
-          cp "target/${{ matrix.target }}/release/kernal-symbolize${{ matrix.extension }}" \
-            "release-worker/kernal-symbolize-${{ matrix.target }}${{ matrix.extension }}"
+        run: python3 ci/release_steps.py stage-worker --target "${{ matrix.target }}" --extension "${{ matrix.extension }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: symbolizer-${{ matrix.target }}
@@ -256,6 +237,11 @@ jobs:
       contents: read
       actions: write
     steps:
+      # The step logic lives in ci/release_steps.py (GEN-005).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           # Release runs never write caches (ci.toml [cache].write-on = main).
@@ -265,28 +251,11 @@ jobs:
           name: registry-packages
           path: release-packages
       - name: Publish or verify identical PyPI artifacts
-        shell: bash
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          version="${{ inputs.tag }}"
-          version="${version#v}"
-          status="$(curl -sS -o pypi.json -w '%{http_code}' \
-            "https://pypi.org/pypi/kernal-api/${version}/json")"
-          if [[ "${status}" == "404" ]]; then
-            uv run --no-project --with twine twine upload --non-interactive "release-packages/kernal_api-${version}"*
-          elif [[ "${status}" == "200" ]]; then
-            for file in "release-packages/kernal_api-${version}"*; do
-              local_sha="$(sha256sum "${file}" | awk '{print $1}')"
-              jq -e --arg name "$(basename "${file}")" --arg sha "${local_sha}" \
-                '.urls[] | select(.filename == $name and .digests.sha256 == $sha)' \
-                pypi.json >/dev/null
-            done
-          else
-            echo "PyPI returned HTTP ${status}" >&2
-            exit 1
-          fi
+        # 404: upload; 200: every staged file must match PyPI's sha256; else fail.
+        run: python3 ci/release_steps.py publish-pypi --tag "${{ inputs.tag }}"
       # A failed release job stops the whole release run.
       - name: Cancel the run (this job failed)
         if: failure()
@@ -305,6 +274,11 @@ jobs:
       contents: write
       actions: write
     steps:
+      # The step logic lives in ci/release_steps.py (GEN-005).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-assets
@@ -314,23 +288,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_SHA: ${{ inputs.source_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --slurp > releases.json
-          existing="$(jq --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)] | length' releases.json)"
-          if [[ "$existing" == 0 ]]; then
-            gh release create "$RELEASE_TAG" release-assets/* \
-              --repo "$GITHUB_REPOSITORY" --target "$RELEASE_SHA" --generate-notes
-          else
-            # Manual registry recovery must not overwrite published GitHub assets.
-            jq -e --arg tag "$RELEASE_TAG" '.[][] | select(.tag_name == $tag) | .draft == false' releases.json
-            download_dir="$(mktemp -d)"
-            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$download_dir"
-            for asset in release-assets/*; do
-              cmp "$asset" "$download_dir/$(basename "$asset")"
-            done
-          fi
+        run: python3 ci/release_steps.py release-assets
       # A failed release job stops the whole release run.
       - name: Cancel the run (this job failed)
         if: failure()

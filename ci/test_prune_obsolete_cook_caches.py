@@ -982,7 +982,9 @@ class CookCacheRetentionTests(unittest.TestCase):
             Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
         ).read_text()
 
-        self.assertIn("ci.test_prune_obsolete_cook_caches", workflow)
+        guards = (Path(__file__).resolve().parents[1] / "ci/linux_steps.py").read_text()
+        self.assertIn("ci/linux_steps.py ci-guards", workflow)
+        self.assertIn('"ci.test_prune_obsolete_cook_caches"', guards)
         self.assertIn(
             "soldr_version: ${{ steps.setup_soldr.outputs.soldr-version }}", workflow
         )

@@ -51,6 +51,10 @@ class NativeProofJobsTests(unittest.TestCase):
     def text(self):
         return WORKFLOW.read_text(encoding="utf-8")
 
+    def script(self, name):
+        """A workflow-step script's source (GEN-005 moved step bodies to ci/*.py)."""
+        return (WORKFLOW.parents[2] / "ci" / name).read_text(encoding="utf-8")
+
     def job(self, name):
         match = re.search(
             rf"^  {re.escape(name)}:\n(.*?)(?=^  [\w-]+:|\Z)",
@@ -103,7 +107,9 @@ class NativeProofJobsTests(unittest.TestCase):
     def test_only_python_310_is_tested(self):
         """The package is tested on its supported floor alone."""
         self.assertNotIn("3.13", self.text())
-        self.assertIn("--python 3.10", self.job("linux"))
+        self.assertIn("ci/linux_steps.py python-package", self.job("linux"))
+        self.assertIn('"--python", "3.10"', self.script("linux_steps.py"))
+        self.assertNotIn("3.13", self.script("linux_steps.py"))
 
     def test_linux_runs_its_own_checks_before_lint_and_the_suite(self):
         """One Linux runner: the Linux-only checks first, then the gate's lint and suite.
@@ -185,7 +191,8 @@ class NativeProofJobsTests(unittest.TestCase):
         for job in ("linux", "build"):
             with self.subTest(job=job):
                 self.assertIn("ci-tests: true", self.job(job))
-        self.assertIn("cargo nextest archive", build)
+        self.assertIn("ci/build_steps.py archive", build)
+        self.assertRegex(self.script("build_steps.py"), r'"soldr",\s*"cargo",\s*"nextest",\s*"archive"')
         self.assertIn("native_proof.py build --target ${{ matrix.target }}", build)
 
     def test_native_hosts_only_execute_prebuilt_binaries(self):
@@ -248,13 +255,14 @@ class NativeProofJobsTests(unittest.TestCase):
         archive = self.step("build", "Archive every test binary for this target")
         self.assertNotIn("--target ${{ matrix.target }}", lint + archive)
         self.assertIn("matrix.cross && format('--target {0}', matrix.cross)", lint)
-        self.assertIn('target_args=(--target "${{ matrix.cross }}")', archive)
+        self.assertIn('--cross "${{ matrix.cross }}"', archive)
+        self.assertIn('target_args = ["--target", cross] if cross else []', self.script("build_steps.py"))
 
     def test_windows_archives_ship_the_symbolizer_pdb(self):
         """`kernal-symbolize`'s tests read their own binary's PDB."""
-        archive = self.step("build", "Archive every test binary for this target")
+        archive = self.script("build_steps.py")
         self.assertIn("kernal_symbolize-*.pdb", archive)
-        self.assertIn('on-missing = \\"error\\"', archive)
+        self.assertIn('on-missing = "error"', archive)
         self.assertIn("the kernal-symbolize test build produced no PDB", archive)
 
     def test_each_replay_host_gets_a_nextest_it_can_execute(self):
@@ -282,10 +290,14 @@ class NativeProofJobsTests(unittest.TestCase):
     # -- Linux-only checks ---------------------------------------------------
 
     def test_proof_runner_checks_run_once_on_linux(self):
-        checks = self.job("linux")
-        self.assertIn("ci.test_native_proof ci.test_native_proof_jobs", checks)
-        self.assertIn("ci.test_nextest_config ci.test_deny_warnings", checks)
-        self.assertIn("ci.test_build_guest", checks)
+        self.assertIn("ci/linux_steps.py ci-guards", self.job("linux"))
+        guards = self.script("linux_steps.py")
+        for module in (
+            "ci.test_native_proof", "ci.test_native_proof_jobs", "ci.test_nextest_config",
+            "ci.test_deny_warnings", "ci.test_build_guest", "ci.test_workflow_steps",
+        ):
+            with self.subTest(module=module):
+                self.assertIn(f'"{module}"', guards)
 
     def test_guest_building_screenshot_cli_runs_only_on_linux(self):
         # The one screenshot proof that compiles its own guest is skipped on
@@ -293,15 +305,18 @@ class NativeProofJobsTests(unittest.TestCase):
         checks = self.job("linux")
         self.assertLess(
             checks.index("native_proof.py wasm-target"),
-            checks.index(f"{native_proof.GUEST_BUILDING_SCREENSHOT_TEST} --exact --ignored"),
+            checks.index("ci/linux_steps.py screenshot-cli"),
             "the CLI's guest build needs its Wasm target installed first",
         )
+        steps = self.script("linux_steps.py")
+        self.assertIn(f'SCREENSHOT_CLI_TEST = "{native_proof.GUEST_BUILDING_SCREENSHOT_TEST}"', steps)
+        self.assertIn('SCREENSHOT_CLI_TEST, "--exact", "--ignored"', steps)
         # Materialize the target through the helper that verifies the libraries
         # are on disk; a bare `rustup target add` can install nothing when a
         # restored toolchain cache lists the target as present (#285).
         self.assertIn("native_proof.py wasm-target wasm32-wasip1-threads", checks)
         self.assertNotRegex(checks, r"run:\s*soldr rustup target add")
-        self.assertIn('grep -F "test result: ok. 1 passed; 0 failed;"', checks)
+        self.assertIn('ONE_PASSED = "test result: ok. 1 passed; 0 failed;"', steps)
         source = (WORKFLOW.parents[2] / "ci/native_proof.py").read_text(encoding="utf-8")
         self.assertIn('"--skip", GUEST_BUILDING_SCREENSHOT_TEST', source)
 
@@ -354,14 +369,18 @@ class NativeProofJobsTests(unittest.TestCase):
     def test_feature_isolation_checks_share_one_runner(self):
         """36 isolated `cargo check`s are one step, not 36 runners."""
         step = self.step("linux", "Check every feature in isolation")
-        self.assertIn('for feature in "${features[@]}"', step)
-        self.assertIn('failed+=("${feature}")', step)
+        self.assertIn("ci/linux_steps.py feature-isolation", step)
+        steps = self.script("linux_steps.py")
+        self.assertIn("for feature in ISOLATED_FEATURES:", steps)
+        self.assertIn("failed.append(feature)", steps)
 
     def test_native_hosts_only_replay_prebuilt_binaries(self):
         """Apple and Windows runners download and run; Linux compiles (#273)."""
         test = self.job("test")
         self.assertIsNone(re.search(r"setup-soldr|\bsoldr\b|\brustup\b|(?<![-\w])cargo\s", test))
-        self.assertIn("cargo-nextest nextest run", test)
+        self.assertIn("ci/host_steps.py run-tests", test)
+        self.assertRegex(self.script("host_steps.py"), r'"cargo-nextest",\s*"nextest",\s*"run"')
+        self.assertIsNone(re.search(r"\bsoldr\b|\brustup\b|\brustc\b", self.script("host_steps.py")))
 
     def test_ci_never_disables_the_soldr_cache(self):
         text = self.text()

@@ -72,9 +72,11 @@ class AutoReleaseTests(unittest.TestCase):
         self.assertIn("!inputs.dry_run", workflow)
         self.assertNotIn("--clobber", workflow)
         self.assertIn("path: registry-packages/*", workflow)
-        self.assertIn(
-            "cp target/package/kernal-api-*.crate dist/* registry-packages/", workflow
-        )
+        self.assertIn("ci/release_steps.py stage-registry", workflow)
+        steps = (ROOT / "ci/release_steps.py").read_text()
+        self.assertIn('glob.glob("target/package/kernal-api-*.crate")', steps)
+        self.assertIn('glob.glob("dist/*")', steps)
+        self.assertIn('Path("registry-packages")', steps)
 
     def test_every_release_job_compiles_on_linux(self):
         """No release build runs on an Apple or Windows host (#273)."""

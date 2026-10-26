@@ -46,9 +46,15 @@ class TargetFeatureTests(unittest.TestCase):
         build = workflow[start:workflow.index("\n  test:\n", start)]
         self.assertIn("ci/target_features.py", build)
         self.assertNotIn("--all-features", build)
-        self.assertEqual(len(re.findall(r'--features "\$\{KERNAL_TARGET_FEATURES\}"', build)), 4)
+        # Lint and the smoke binary inline; the archive's two builds in ci/build_steps.py.
+        self.assertEqual(len(re.findall(r'--features "\$\{KERNAL_TARGET_FEATURES\}"', build)), 2)
+        steps = (ROOT / "ci/build_steps.py").read_text(encoding="utf-8")
+        self.assertEqual(len(re.findall(r'"--features",\s*features\(\)', steps)), 2)
+        self.assertNotIn("--all-features", steps)
+        self.assertIn("ci/build_steps.py archive", build)
         # build-resources keeps real coverage where it runs: a build script.
-        self.assertIn("--manifest-path tests/build-resources-consumer/Cargo.toml", build)
+        self.assertIn("ci/build_steps.py embed-resources", build)
+        self.assertRegex(steps, r'"--manifest-path",\s*"tests/build-resources-consumer/Cargo.toml"')
 
 
 if __name__ == "__main__":

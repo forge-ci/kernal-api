@@ -170,7 +170,7 @@ jobs:
         id: mode
         run: uv run --no-project --python 3.12 ci/ci_mode.py
       - name: Verify selected source SHA
-        run: test "$(git rev-parse HEAD)" = "${{ steps.mode.outputs.sha }}"
+        run: python3 ci/verify_source_sha.py "${{ steps.mode.outputs.sha }}"
       # ci.toml is the fleet CI contract (zackees/ci.yml#37), pinned to the
       # exact ci-lint commit its `linter` key names. `plan` strictly loads it,
       # prints this run's selection, and decides whether this run writes
@@ -196,9 +196,7 @@ jobs:
       # image's libssl-dev, which this step never installed.
       - name: Install native webview packages and a virtual display
         if: steps.mode.outputs.mode == 'full'
-        run: >-
-          sudo apt-get update && sudo apt-get install --yes
-          dbus-x11 jq libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xdotool
+        run: python3 ci/runner_setup.py apt-install dbus-x11 jq libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xdotool
       # No restored crate registry here. This job compiles dozens of different
       # feature graphs, and a registry cache seeded by a job that needed only
       # part of the graph restores trimmed crate directories cargo trusts as
@@ -221,9 +219,7 @@ jobs:
           prebuild-deps-flags: ""
           cargo-registry-cache: false
       - name: Restore native pkg-config search path
-        run: |
-          multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
-          echo "PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu=/usr/lib/${multiarch}/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
+        run: python3 ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
       - name: Check workspace formatting
         if: needs.verify.outputs.reuse != 'true'
         run: soldr cargo fmt --all -- --check
@@ -234,12 +230,8 @@ jobs:
         if: needs.verify.outputs.reuse != 'true'
         env:
           PYTHONPATH: .ci-lint
-        run: |
-          uv run --no-project --with pyyaml==6.0.2 -m unittest \
-            ci.test_native_proof ci.test_native_proof_jobs ci.test_macos_x64_guest \
-            ci.test_ci_modes ci.test_release_ci_gate \
-            ci.test_nextest_config ci.test_deny_warnings ci.test_target_features ci.test_local_gate ci.test_replay_evidence \
-            ci.test_cache_policy ci.test_prune_obsolete_cook_caches ci.test_build_guest
+        # The module list lives in ci/linux_steps.py (CI_GUARD_MODULES).
+        run: python3 ci/linux_steps.py ci-guards
       # The platform boundary (#152) is a source rule, so its repository scan
       # parses every enforced package's modules -- cfg-elided Windows and
       # macOS files included -- without compiling the product. That makes it
@@ -254,18 +246,10 @@ jobs:
         # `linker = dylint-link`, which this scan job does not install, so every
         # build script fails to link. The scan is plain lib unit tests and
         # needs no Dylint linker.
-        run: |
-          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' \
-            dylints/kernal_api_platform_boundary/rust-toolchain.toml)"
-          soldr rustup toolchain install "$toolchain" --profile minimal \
-            --component rustc-dev,llvm-tools-preview,rust-src
-          soldr rustup run "$toolchain" cargo test --locked --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib -- --skip ui  # ci-lint: allow RUST-016 lib unit tests only; the crate's config.toml dylint-link linker is not installed in this job
+        run: python3 ci/linux_steps.py boundary-scan
       - name: Check the Dylint libraries' formatting
         if: needs.verify.outputs.reuse != 'true'
-        run: |
-          for manifest in dylints/*/Cargo.toml; do
-            soldr cargo fmt --manifest-path "$manifest" --all -- --check
-          done
+        run: python3 ci/linux_steps.py dylint-fmt
       - name: Lint the default facade
         if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'
         run: soldr cargo clippy --locked --lib -- --deny warnings
@@ -278,32 +262,22 @@ jobs:
           --skip platform_linux::tests::current_executable_exposes_a_gnu_build_id
       - name: Test the Linux desktop status facade
         if: needs.verify.outputs.reuse != 'true' && steps.mode.outputs.mode != 'full'
-        run: |
-          soldr cargo test --locked --no-default-features --features system-tray --lib system_tray
-          soldr cargo test --locked --no-default-features --features system-tray --test terminal system_tray
+        # --no-default-features --features system-tray --lib system_tray, then
+        # --no-default-features --features system-tray --test terminal system_tray
+        run: python3 ci/linux_steps.py desktop-status
       - name: Test the full Linux desktop status facade
         if: steps.mode.outputs.mode == 'full'
-        run: |
-          soldr cargo test --locked --all-features --lib system_tray
-          soldr cargo test --locked --all-features --test terminal system_tray
+        # --all-features --lib system_tray, then --all-features --test terminal system_tray
+        run: python3 ci/linux_steps.py desktop-status --full
       - name: Check the compilation boundary and the release tooling
         if: steps.mode.outputs.mode == 'full'
-        run: |
-          uv run --no-project ci/check_compilation_boundary_dependencies.py
-          uv run --no-project ci/test_release_package_features.py
-          # tomllib needs Python >= 3.11, so this cannot share the package's
-          # 3.10 floor; 3.12 is the runner's own interpreter.
-          uv run --no-project --python 3.12 ci/test_auto_release.py
-          uv run --no-project --python 3.12 ci/test_crate_release.py
+        run: python3 ci/linux_steps.py release-tooling
       - name: Test the Python package
         if: steps.mode.outputs.mode == 'full'
         # Python 3.10 only: it is the floor AGENTS.md supports, and the
         # package has no version-specific code for a second interpreter to
         # catch.
-        run: |
-          uv run --no-project --python 3.10 --with-editable . --with pytest pytest python/tests
-          uv build --clear
-          uv run --no-project --python 3.10 --with twine twine check dist/*
+        run: python3 ci/linux_steps.py python-package
       # First compile in this job, deliberately. zccache restores a cached
       # build script without the materialize/spawn exclusion its miss path
       # has, so a busy daemon can fork a child that inherits the write fd
@@ -313,75 +287,11 @@ jobs:
       # mitigation until #1597 is fixed, not a cure -- no job cap, no retry.
       - name: Verify checked-in guest, host, and ABI manifest generation
         if: steps.mode.outputs.mode == 'full'
-        run: |
-          uv run --no-project --python 3.12 ci/check_wasm_abi_generation.py
-          soldr cargo test --locked --manifest-path tools/wasm-abi-generator/Cargo.toml
+        run: python3 ci/linux_steps.py abi-generation
       - name: Check every feature in isolation
         if: steps.mode.outputs.mode == 'full'
-        run: |
-          set -uo pipefail
-          features=(
-            allocator
-            archive
-            archive-auth-test-support
-            conpty-sidecar
-            crash
-            # The four daemon lanes are the frozen running-process substrates.
-            # Without them these features are compiled only inside
-            # `--all-features` in `test-archive`, where every other feature is
-            # present to supply whatever a missing gate would need -- exactly
-            # the coupling this matrix exists to catch.
-            daemon-frame-v1
-            daemon-identity
-            daemon-registration
-            daemon-registration-v2
-            # Broker client adapter over running-process/client (heavy graph).
-            broker-client
-            # Build-script helper (Windows resources) over embed-resource.
-            build-resources
-            fs
-            fs-watch
-            hash-sha256
-            secure-random
-            text-similarity
-            command-arguments
-            config-toml
-            json
-            source-cpp
-            terminal-style
-            terminal-input
-            event-stream
-            http-server
-            http-client
-            # Canonical scheduler/broker spawn API is public only through this
-            # feature. Keep it isolated from the default process HAL.
-            independent-spawn
-            ipc
-            ipc-async
-            profile
-            pty
-            session-relay
-            snapshot
-            symbolize
-            symbolize-split
-            symbolize-worker
-            tokio-console
-            tauri-webview
-            system-tray
-            window-icon
-          )
-          failed=()
-          for feature in "${features[@]}"; do
-            echo "::group::${feature}"
-            if ! soldr cargo check --locked --no-default-features --features "${feature}"; then
-              failed+=("${feature}")
-            fi
-            echo "::endgroup::"
-          done
-          if [ "${#failed[@]}" -gt 0 ]; then
-            echo "::error::features that do not compile in isolation: ${failed[*]}"
-            exit 1
-          fi
+        # 36 isolated `cargo check`s, one step: ci/linux_steps.py ISOLATED_FEATURES.
+        run: python3 ci/linux_steps.py feature-isolation
       - name: Test JSON with unified arbitrary-precision backend feature
         if: steps.mode.outputs.mode != 'minimal'
         run: >-
@@ -394,12 +304,7 @@ jobs:
         run: soldr cargo test --features http-client,reqwest/gzip --test net http_client::encoded_responses_preserve_wire_bytes_and_headers  # ci-lint: allow TOOL-002 resolves reqwest/gzip outside the production graph, so it cannot run --locked
       - name: Check the external facade consumers
         if: steps.mode.outputs.mode == 'full'
-        run: |
-          soldr cargo check --locked --manifest-path tests/daemon-registration-consumer/Cargo.toml
-          soldr cargo check --locked --manifest-path tests/daemon-registration-v2-consumer/Cargo.toml
-          # kernal-api as both a dependency and a build-dependency; its
-          # feature split is asserted by check_compilation_boundary_dependencies.py.
-          soldr cargo check --locked --manifest-path tests/build-resources-consumer/Cargo.toml
+        run: python3 ci/linux_steps.py external-consumers
       - name: Run real semantic webview lifecycle and capture proofs
         if: steps.mode.outputs.mode == 'full'
         # A unit test does not own process main on every harness, while Tauri
@@ -409,24 +314,7 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: "1"
           NO_AT_BRIDGE: "1"
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
-        run: |
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- close
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- widget
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- bootstrap
-          # Expand fixture variables inside the child Bash, not this step shell.
-          # shellcheck disable=SC2016
-          dbus-run-session -- xvfb-run -a bash -c '
-            soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- popup & proof=$!;
-            for _ in $(seq 1 50); do window=$(xdotool search --name "kernal-api external-content proof" | head -1 || true); [ -n "$window" ] && break; sleep 0.1; done;
-            test -n "$window"; sleep 1; xdotool mousemove --window "$window" 150 150 click 1; wait "$proof"'
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- redirect
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- timeout
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- cancel
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- window-close
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- capture
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- capture-cancel
-          dbus-run-session -- xvfb-run -a soldr cargo run --locked --all-features --bin kernal-tauri-smoke -- open-cancel
-          dbus-run-session -- xvfb-run -a soldr cargo test --locked --all-features --lib live_webkit_viewport_png_completes_capture_operation -- --ignored --test-threads=1
+        run: python3 ci/linux_steps.py webview-proofs
       - name: Install the screenshot guest target
         if: steps.mode.outputs.mode == 'full'
         run: uv run --no-project ci/native_proof.py wasm-target wasm32-wasip1-threads
@@ -438,13 +326,9 @@ jobs:
           NO_AT_BRIDGE: "1"
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
           KERNAL_API_SCREENSHOT_PROOF_DIR: ${{ runner.temp }}/kernal-api-screenshot-proof
-        run: |
-          # The CLI starts Soldr itself. Finish the outer Soldr invocation
-          # before running the harness; never disable its reentry guard.
-          test_executable="$(soldr cargo test --locked --all-features --test wasm_tauri_screenshot --no-run --message-format=json |
-            jq -er -s '[.[] | select(.reason == "compiler-artifact" and .target.name == "wasm_tauri_screenshot" and .profile.test == true and .executable != null)] | if length == 1 then .[0].executable else error("expected exactly one screenshot test executable") end')"
-          dbus-run-session -- xvfb-run -a "$test_executable" default_screenshot_cli_uses_containment_and_commits_output --exact --ignored --nocapture --test-threads=1 | tee "$RUNNER_TEMP/screenshot-cli.log"
-          grep -F "test result: ok. 1 passed; 0 failed;" "$RUNNER_TEMP/screenshot-cli.log"
+        # The CLI starts Soldr itself; ci/linux_steps.py finishes the outer
+        # Soldr invocation before running the harness.
+        run: python3 ci/linux_steps.py screenshot-cli
       # The x86_64 Linux native proofs, built and run in place: here the
       # builder is the host. Every other target builds in `build` and runs in
       # `test`.
@@ -576,13 +460,10 @@ jobs:
           lfs: true
           ref: ${{ needs.linux.outputs.sha }}
       - name: Verify selected source SHA
-        shell: bash
-        run: test "$(git rev-parse HEAD)" = "${{ needs.linux.outputs.sha }}"
+        run: python3 ci/verify_source_sha.py "${{ needs.linux.outputs.sha }}"
       - name: Install native webview development packages
         if: matrix.cross == ''
-        run: >-
-          sudo apt-get update && sudo apt-get install --yes
-          libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: python3 ci/runner_setup.py apt-install libgtk-3-dev libwebkit2gtk-4.1-dev
       - uses: ./.github/actions/soldr # the one setup-soldr call site
         with:
           # The plan saves only on main pushes; PRs and manually selected
@@ -616,24 +497,20 @@ jobs:
       # each Windows target below. ci/native_proof.py reads the same variable,
       # so its `all` graph remains the one this job's archive already built.
       - name: Select the target feature graph
-        run: >-
-          echo "KERNAL_TARGET_FEATURES=$(uv run --no-project --python 3.12 ci/target_features.py)"
-          >> "${GITHUB_ENV}"
+        run: uv run --no-project --python 3.12 ci/target_features.py --github-env
       - name: Restore native pkg-config search path
         if: matrix.cross == ''
-        run: |
-          multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
-          target="${{ matrix.target }}"
-          # Only the variable NAME takes underscores; the path keeps hyphens.
-          echo "PKG_CONFIG_LIBDIR_${target//-/_}=/usr/lib/${multiarch}/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
+        run: python3 ci/runner_setup.py pkg-config-path --target "${{ matrix.target }}"
       # A native lane (`cross` empty) builds for the host WITHOUT `--target`:
       # naming the triple makes Soldr link through a zig shim the runner does
       # not carry. Clippy never links, so only the archive would notice.
       - name: Lint this target
+        env:
+          CROSS_TARGET_ARGS: ${{ matrix.cross && format('--target {0}', matrix.cross) || '' }}
         run: >-
           soldr cargo clippy
           --locked --features "${KERNAL_TARGET_FEATURES}" --all-targets
-          ${{ matrix.cross && format('--target {0}', matrix.cross) || '' }}
+          ${CROSS_TARGET_ARGS}
           -- --deny warnings
       # Windows keeps debug info in a `.pdb` beside the `.exe`, and nextest
       # archives the executable without it; `kernal-symbolize`'s tests read
@@ -641,43 +518,15 @@ jobs:
       # the name carries a build hash, so build first, name the PDB, archive
       # with it. Only that one: `deps` is half a gigabyte for one binary.
       - name: Archive every test binary for this target
-        shell: bash
-        run: |
-          set -euo pipefail
-          target_args=()
-          if [ -n "${{ matrix.cross }}" ]; then
-            target_args=(--target "${{ matrix.cross }}")
-          fi
-          config_args=()
-          if [[ "${{ matrix.target }}" == *-pc-windows-msvc ]]; then
-            soldr cargo test --locked --features "${KERNAL_TARGET_FEATURES}" "${target_args[@]}" --no-run
-            shopt -s nullglob
-            pdbs=(target/${{ matrix.target }}/debug/deps/kernal_symbolize-*.pdb)
-            if [ "${#pdbs[@]}" -eq 0 ]; then
-              echo "::error::the kernal-symbolize test build produced no PDB"
-              exit 1
-            fi
-            cp .config/nextest.toml "${RUNNER_TEMP}/nextest-archive.toml"
-            {
-              echo
-              echo "[profile.default.archive]"
-              echo "include = ["
-              for pdb in "${pdbs[@]}"; do
-                echo "  { path = \"${pdb#target/}\", relative-to = \"target\", on-missing = \"error\" },"
-              done
-              echo "]"
-            } >> "${RUNNER_TEMP}/nextest-archive.toml"
-            config_args=(--config-file "${RUNNER_TEMP}/nextest-archive.toml")
-          fi
-          soldr cargo nextest archive \
-            --locked --features "${KERNAL_TARGET_FEATURES}" "${target_args[@]}" "${config_args[@]}" \
-            --archive-file "kernal-tests-${{ matrix.target }}.tar.zst"
+        run: python3 ci/build_steps.py archive --target "${{ matrix.target }}" --cross "${{ matrix.cross }}"
       - name: Compile the explicit ABI generator for this target
         # The one check `supported-targets` made that the archive does not.
+        env:
+          CROSS_TARGET_ARGS: ${{ matrix.cross && format('--target {0}', matrix.cross) || '' }}
         run: >-
           soldr cargo check --locked
           --manifest-path tools/wasm-abi-generator/Cargo.toml
-          ${{ matrix.cross && format('--target {0}', matrix.cross) || '' }}
+          ${CROSS_TARGET_ARGS}
       # `build-resources` as it is meant to run: in an application's build
       # script on this (Linux) host, compiling resources for the Windows
       # target. The target graph above excludes it; this is its coverage.
@@ -689,29 +538,7 @@ jobs:
       # resources must stay a real failure, so nothing here is skipped.
       - name: Embed Windows resources through the build-resources consumer
         if: endsWith(matrix.target, '-pc-windows-msvc')
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          find_rc() {
-            command -v llvm-rc 2>/dev/null && return 0
-            ls -1 /usr/lib/llvm-*/bin/llvm-rc /usr/bin/llvm-rc-* 2>/dev/null | sort -V | tail -1
-          }
-          rc="$(find_rc || true)"
-          if [ -z "${rc}" ]; then
-            sudo apt-get update && sudo apt-get install --yes llvm
-            rc="$(find_rc || true)"
-          fi
-          if [ -z "${rc}" ]; then
-            echo "::error::no llvm-rc on this host; embed-resource cannot target ${TARGET}"
-            exit 1
-          fi
-          echo "resource compiler: ${rc}"
-          export "RC_${TARGET//-/_}=${rc}"
-          soldr cargo check --locked \
-            --manifest-path tests/build-resources-consumer/Cargo.toml \
-            --target "${TARGET}"
+        run: python3 ci/build_steps.py embed-resources --target "${{ matrix.target }}"
       - name: Build the native webview smoke binary
         if: endsWith(matrix.target, '-pc-windows-msvc') || endsWith(matrix.target, '-apple-darwin')
         run: >-
@@ -779,16 +606,18 @@ jobs:
         with:
           lfs: true
           ref: ${{ needs.linux.outputs.sha }}
+      # Before any script step: every host runs ci/*.py through uv's Python.
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          save-cache: ${{ needs.linux.outputs.cache_save }}
+          cache-suffix: ${{ needs.linux.outputs.cache_key_pr }}
       - name: Verify selected source SHA
-        shell: bash
-        run: test "$(git rev-parse HEAD)" = "${{ needs.linux.outputs.sha }}"
+        run: uv run --no-project --python 3.12 ci/verify_source_sha.py "${{ needs.linux.outputs.sha }}"
       - name: Install the native webview runtime and a virtual display
         # The binaries link webkit2gtk at run time, and the screenshot proofs
         # need a display. Windows and macOS carry their webviews with the OS.
         if: runner.os == 'Linux'
-        run: >-
-          sudo apt-get update && sudo apt-get install --yes
-          dbus-x11 libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
+        run: uv run --no-project --python 3.12 ci/runner_setup.py apt-install dbus-x11 libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: kernal-tests-${{ matrix.target }}
@@ -801,78 +630,22 @@ jobs:
           name: native-proof-${{ matrix.target }}
           path: ${{ runner.temp }}/native-proof-bundle
       - name: Install cargo-nextest
-        shell: bash
-        run: |
-          mkdir -p "$HOME/.cargo/bin"
-          # Pick by OS *and* architecture. The bare `linux` and `windows`
-          # builds are x86-64: on the ARM runners they fail with `Exec format
-          # error` before a single test starts. `mac` is universal.
-          case "${{ runner.os }}-${{ runner.arch }}" in
-            Linux-X64) url=https://get.nexte.st/latest/linux ;;
-            Linux-ARM64) url=https://get.nexte.st/latest/linux-arm ;;
-            Windows-X64) url=https://get.nexte.st/latest/windows ;;
-            Windows-ARM64) url=https://get.nexte.st/latest/windows-arm ;;
-            macOS-*) url=https://get.nexte.st/latest/mac ;;
-            *) echo "no cargo-nextest build for ${{ runner.os }}-${{ runner.arch }}"; exit 1 ;;
-          esac
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            curl -LsSf "$url" -o nextest.zip && unzip -o -q nextest.zip -d "$HOME/.cargo/bin"
-          else
-            curl -LsSf "$url" | tar zxf - -C "$HOME/.cargo/bin"
-          fi
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        # ci/runner_setup.py NEXTEST_URLS picks by "${{ runner.os }}-${{ runner.arch }}":
+        # https://get.nexte.st/latest/linux ;; https://get.nexte.st/latest/linux-arm ;;
+        # https://get.nexte.st/latest/windows ;; https://get.nexte.st/latest/windows-arm ;;
+        # https://get.nexte.st/latest/mac ;;
+        run: uv run --no-project --python 3.12 ci/runner_setup.py nextest-install
       # The runner's volumes are NTFS, which cannot share blocks. Format a
       # ReFS volume so the Windows extent-sharing tests prove block-clone
       # reference counts rather than skip (KERNAL_REFS_TEST_DIR).
       - name: Mount a ReFS volume for extent-sharing tests
         if: matrix.os == 'windows-2025'
-        shell: pwsh
-        run: |
-          $vhd = Join-Path $env:RUNNER_TEMP 'refs.vhdx'
-          $script = Join-Path $env:RUNNER_TEMP 'refs-diskpart.txt'
-          @(
-            "create vdisk file=`"$vhd`" maximum=2048 type=expandable"
-            "select vdisk file=`"$vhd`""
-            'attach vdisk'
-            'create partition primary'
-            'format fs=refs quick label=KernalReFS'
-            'assign letter=R'
-          ) | Set-Content -Path $script -Encoding ascii
-          diskpart /s $script
-          if ($LASTEXITCODE -ne 0) { throw "diskpart failed: $LASTEXITCODE" }
-          $fs = (Get-Volume -DriveLetter R).FileSystem
-          if ($fs -ne 'ReFS') { throw "R: is $fs, not ReFS" }
-          New-Item -ItemType Directory -Path 'R:\kernal-refs' | Out-Null
-          'KERNAL_REFS_TEST_DIR=R:\kernal-refs' | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        run: uv run --no-project --python 3.12 ci/runner_setup.py refs-volume
       - name: Run this host's prebuilt tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          # An array, not a string: the filter expression is one argument and
-          # word-splitting would hand nextest `not` and `binary(...)` as two.
-          filter=()
-          if [ "${{ runner.os }}" != "Linux" ]; then
-            filter=(-E 'not binary(source_policy)')
-          fi
-          set -o pipefail
-          cargo-nextest nextest run \
-            --archive-file "kernal-tests-${{ matrix.target }}.tar.zst" \
-            --workspace-remap . --no-fail-fast "${filter[@]}" 2>&1 | tee nextest-output.txt
+        run: uv run --no-project --python 3.12 ci/host_steps.py run-tests --target "${{ matrix.target }}"
       - name: Prove this host ran its own code
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${{ runner.os }}" in
-            Linux) marker="platform_linux::" ;;
-            macOS) marker="platform_macos::" ;;
-            Windows) marker="platform_win::" ;;
-          esac
-          grep -F "${marker}" nextest-output.txt > /dev/null \
-            || { echo "no ${marker} test ran: this host did not execute its own code"; exit 1; }
-      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          save-cache: ${{ needs.linux.outputs.cache_save }}
-          cache-suffix: ${{ needs.linux.outputs.cache_key_pr }}
+        # Fails "did not execute its own code" when no platform_<os>:: test ran.
+        run: uv run --no-project --python 3.12 ci/host_steps.py prove-own-code
       - name: Run actual Core and Component compiler-policy guest proofs
         timeout-minutes: 20
         shell: bash
@@ -883,31 +656,10 @@ jobs:
           --guests "${{ runner.temp }}/native-proof-guests"
           --work "${{ runner.temp }}/native-proof-run-compiler"
       - name: Configure screenshot proof storage
-        shell: pwsh
-        run: |
-          "KERNAL_API_SCREENSHOT_PROOF_DIR=$(Join-Path $env:RUNNER_TEMP 'kernal-api-screenshot-proof')" >> $env:GITHUB_ENV
+        run: uv run --no-project --python 3.12 ci/runner_setup.py screenshot-storage
       - name: Ensure Windows WebView2 Runtime
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Microsoft's documented Evergreen Runtime keys, not the Edge browser.
-          function Get-WebViewRuntimeVersion {
-            foreach ($key in @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}')) {
-              $value = (Get-ItemProperty -LiteralPath $key -Name pv -ErrorAction SilentlyContinue).pv
-              $parsed = $null
-              if ([version]::TryParse($value, [ref]$parsed) -and $parsed -gt [version]'0.0.0.0') { return $value }
-            }
-            return $null
-          }
-          if (-not (Get-WebViewRuntimeVersion)) {
-            $installer = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
-            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $installer
-            if ((Get-AuthenticodeSignature -LiteralPath $installer).Status -ne 'Valid') { throw 'Invalid WebView2 installer signature' }
-            $installation = Start-Process -FilePath $installer -ArgumentList '/silent','/install' -Wait -PassThru
-            if ($installation.ExitCode -ne 0) { throw "WebView2 installation failed: $($installation.ExitCode)" }
-          }
-          if (-not (Get-WebViewRuntimeVersion)) { throw 'WebView2 Runtime is unavailable after setup' }
-          Write-Output "WebView2 Runtime: $(Get-WebViewRuntimeVersion)"
+        run: uv run --no-project --python 3.12 ci/runner_setup.py webview2
       - name: Run offline native Wasm screenshot, admission, and worker containment proofs
         timeout-minutes: 30
         shell: bash
@@ -945,9 +697,7 @@ jobs:
       - name: Verify native macOS widget window controls
         if: runner.os == 'macOS'
         shell: bash
-        run: |
-          chmod +x target/${{ matrix.target }}/debug/kernal-tauri-smoke
-          target/${{ matrix.target }}/debug/kernal-tauri-smoke widget
+        run: uv run --no-project --python 3.12 ci/host_steps.py macos-widget --target "${{ matrix.target }}"
       - name: Preserve screenshot and process diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -980,30 +730,19 @@ jobs:
       contents: read
       actions: write
     steps:
-      # The webview headers are needed only once something compiles, and the
-      # install shares nothing with checkout or setup-soldr. Start it first in
-      # the background (a step's background process lives until the job
-      # ends) and wait for it before the lint step: it overlaps setup-soldr's
-      # ~40 s instead of adding its own 22-46 s to the critical path.
-      - name: Start installing native webview development packages
-        if: needs.verify.outputs.reuse != 'true'
-        shell: bash
-        run: |
-          # The step shell runs with `-e`; record the status either way so the
-          # wait below always ends.
-          (
-            set +e
-            # A stalled mirror connection otherwise hangs apt with no output
-            # until the wait step's timeout discards the log.
-            apt=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
-            sudo apt-get "${apt[@]}" update && sudo apt-get "${apt[@]}" install --yes \
-              libgtk-3-dev libwebkit2gtk-4.1-dev
-            echo $? >"${RUNNER_TEMP}/webview-packages.status"
-          ) >"${RUNNER_TEMP}/webview-packages.log" 2>&1 &
       - name: Checkout candidate source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      # The webview headers are needed only once something compiles, and the
+      # install shares nothing with setup-soldr. Start it right after checkout
+      # in the background (a step's background process lives until the job
+      # ends) and wait for it before the lint step: it overlaps setup-soldr's
+      # ~40 s instead of adding its own 22-46 s to the critical path. Bounded
+      # mirror retries/timeouts: a stalled connection otherwise hangs apt.
+      - name: Start installing native webview development packages
+        if: needs.verify.outputs.reuse != 'true'
+        run: python3 ci/runner_setup.py apt-start libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Set up uv
         uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
@@ -1014,8 +753,7 @@ jobs:
         id: mode
         run: uv run --no-project --python 3.12 ci/ci_mode.py
       - name: Verify selected source SHA
-        shell: bash
-        run: test "$(git rev-parse HEAD)" = "${{ steps.mode.outputs.sha }}"
+        run: python3 ci/verify_source_sha.py "${{ steps.mode.outputs.sha }}"
       # Runs beside `linux`, so it plans its own cache saves the same way.
       - name: Checkout pinned ci-lint
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -1055,12 +793,9 @@ jobs:
       - name: Restore native pkg-config search path
         run: echo "PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
       - name: Select the pinned Dylint compiler
-        shell: bash
-        run: |
-          rustc_path="$(soldr rustup which --toolchain "$DYLINT_TOOLCHAIN" rustc)"
-          echo "RUSTC=${rustc_path}" >> "${GITHUB_ENV}"
-          echo "RUSTUP_TOOLCHAIN=${DYLINT_TOOLCHAIN}" >> "${GITHUB_ENV}"
-          echo "${GITHUB_WORKSPACE}/ci/dylint-shim" >> "${GITHUB_PATH}"
+        # RUSTC=$(soldr rustup which --toolchain "$DYLINT_TOOLCHAIN" rustc),
+        # RUSTUP_TOOLCHAIN, and ci/dylint-shim first on PATH.
+        run: python3 ci/dylint_steps.py select-compiler
       # The lint libraries' own suites (UI + unit tests) depend only on
       # `dylints/**`; the platform lint's repository scan already runs in
       # `linux`. Each suite is a ~70 s uncached nightly compile, so an
@@ -1069,37 +804,13 @@ jobs:
       # them. A stale base only widens the diff, so it errs toward running.
       - name: Decide whether the lint libraries need their own tests
         id: lint_libs
-        shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          run=true
-          if [ "${GITHUB_EVENT_NAME}" = pull_request ] && [ "${{ steps.mode.outputs.mode }}" != full ]; then
-            # Any failure to fetch or diff keeps `run=true`.
-            if git fetch --quiet --depth=1 origin "${BASE_SHA}" &&
-              changed="$(git diff --name-only "${BASE_SHA}" HEAD)" &&
-              ! grep -qE '^(dylints/|ci/dylint-shim/|\.github/workflows/ci\.yml$)' <<<"${changed}"; then
-              run=false
-            fi
-          fi
-          echo "run=${run}" >> "${GITHUB_OUTPUT}"
-          echo "lint-library tests: ${run}"
+        run: python3 ci/dylint_steps.py lint-libs-decision --mode "${{ steps.mode.outputs.mode }}"
       - name: Finish installing native webview development packages
         if: needs.verify.outputs.reuse != 'true'
-        shell: bash
         timeout-minutes: 10
-        run: |
-          status="${RUNNER_TEMP}/webview-packages.status"
-          # Give up a minute before the step timeout so the log still prints.
-          deadline=$((SECONDS + 540))
-          until [ -s "$status" ] || [ "$SECONDS" -ge "$deadline" ]; do sleep 1; done
-          cat "${RUNNER_TEMP}/webview-packages.log"
-          if [ ! -s "$status" ]; then
-            echo "::error::webview package install did not finish within 9 minutes"
-            exit 1
-          fi
-          test "$(cat "$status")" = 0
+        run: python3 ci/runner_setup.py apt-finish
       # A Dylint pass only sees what the compiler compiles, and `default = []`.
       # Without `--all-features` every gated module -- `crash`, `wasm`,
       # `symbolize`, `profile`, `fs`, `ipc`, the platform watchers -- is invisible
@@ -1121,40 +832,9 @@ jobs:
           # Do not trust a partially restored global crates.io source tree.
           CARGO_HOME: ${{ runner.temp }}/kernal-dylint-cargo
           RUN_LINT_LIBRARY_TESTS: ${{ steps.lint_libs.outputs.run }}
-        shell: bash
-        run: |
-          set -uo pipefail
-          logs="${RUNNER_TEMP}/dylint-lanes"
-          mkdir -p "$logs"
-          declare -A pids
-          lanes=(workspace-dylint)
-          if [ "${RUN_LINT_LIBRARY_TESTS}" = true ]; then
-            lanes=(facade-boundary-tests platform-boundary-tests workspace-dylint)
-            # Run from the crate so its .cargo/config.toml applies (RUST-016).
-            (cd dylints/kernal_api_boundary && soldr rustup run "$DYLINT_TOOLCHAIN" cargo test) \
-              >"$logs/facade-boundary-tests.log" 2>&1 & pids[facade-boundary-tests]=$!
-            # Run from the crate so its .cargo/config.toml applies (RUST-016).
-            (cd dylints/kernal_api_platform_boundary && soldr rustup run "$DYLINT_TOOLCHAIN" cargo test) \
-              >"$logs/platform-boundary-tests.log" 2>&1 & pids[platform-boundary-tests]=$!
-          fi
-          soldr cargo dylint --all --workspace -- --all-features --all-targets \
-            >"$logs/workspace-dylint.log" 2>&1 & pids[workspace-dylint]=$!
-          failed=()
-          for lane in "${lanes[@]}"; do
-            wait "${pids[$lane]}" || failed+=("$lane")
-            echo "::group::${lane}"
-            cat "$logs/${lane}.log"
-            echo "::endgroup::"
-          done
-          # This step is the required Dylint aggregate (#363): it fails when any
-          # lane fails, and the workspace pass always runs. A separate
-          # `needs:` sentinel job added 0.5-3 min of runner queue after this
-          # job finished; `linux` reports its own check.
-          if [ "${#failed[@]}" -gt 0 ]; then
-            echo "::error::Dylint lanes failed: ${failed[*]}"
-            exit 1
-          fi
-          test -s "$logs/workspace-dylint.log"
+        # `soldr cargo dylint --all --workspace -- --all-features --all-targets`,
+        # plus the lint libraries' suites when they run: ci/dylint_steps.py.
+        run: python3 ci/dylint_steps.py lanes
       # Stops a minimal PR run on a failure here; full runs report every leg.
       - name: Cancel the run (this job failed)
         if: failure() && github.event_name == 'pull_request' && steps.mode.outputs.mode != 'full'
@@ -1186,7 +866,7 @@ jobs:
           EXPECTED_SHA: ${{ needs.linux.outputs.sha }}
           CI_NEEDS_JSON: ${{ toJSON(needs) }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: CHECKED_OUT_SHA="$(git rev-parse HEAD)" uv run --no-project --python 3.12 ci/full_coverage.py
+        run: uv run --no-project --python 3.12 ci/full_coverage.py
 
   # setup-soldr cook bases restore exact-only and include the runtime Soldr
   # version in the key. After every producer job has completed its post-step,

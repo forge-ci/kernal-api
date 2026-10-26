@@ -85,12 +85,7 @@ jobs:
       # reviewable file rather than an inline heredoc.
       - name: Generate the Recovery guest script
         id: guest_script
-        run: |
-          {
-            echo 'script<<KERNAL_GUEST_SCRIPT_EOF'
-            cat ci/macos-x64/recovery-guest.sh
-            echo 'KERNAL_GUEST_SCRIPT_EOF'
-          } >> "$GITHUB_OUTPUT"
+        run: python3 ci/macos-x64/guest_script_output.py
 
       # The action installs the KVM udev rule and reclaims runner disk itself,
       # so this job needs neither step. Timeouts are raised well above the
