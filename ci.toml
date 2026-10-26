@@ -5,7 +5,7 @@
 # yet meet this contract are tracked in zackees/ci.yml, not silenced here.
 schema  = 3
 profile = "rust-library"                          # a Rust facade crate + a hatchling Python package; not a native-CLI PyPI app
-linter  = "zackees/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0"
+linter  = "zackees/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b"
 
 # -- Platforms: the six hosts `linux` + `test` (x5) run on --------------------
 [platforms]
@@ -142,16 +142,16 @@ cache  = "machine"
 # First rollout lane: the exact remote minimal Linux job in bosn/act2.
 # Remote jobs keep running until verifier wiring and coverage are validated.
 [local.gate]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0", "--python", "3.12", "python", "ci/local_gate.py"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b", "--python", "3.12", "python", "ci/local_gate.py"]
 mode = "enforce"
 verify = "ci.yml:verify"
 
 [local.gate.lanes.linux-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0", "--python", "3.12", "python", "ci/local_gate.py"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b", "--python", "3.12", "python", "ci/local_gate.py"]
 tools = ["bosn", "uv"]
 
 [local.gate.lanes.dylint-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@dc6fff550ddb3e538457e41b90cf8eb74695cda0", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@254e16d0a503b0f0bfe67992964219c4833e5e8b", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
 tools = ["bosn", "uv"]
 
 # Eligible attested minimal PRs reuse both source-bound workflow lanes.
@@ -183,7 +183,7 @@ lanes = ["linux-minimal", "dylint-minimal"]
 [[local.gate.replay.jobs]]
 source-job = "ci.yml:linux"
 key = "CI/linux"
-steps = ["Checkout candidate source", "Set up uv", "Select CI mode and verify the checked-out commit", "Verify selected source SHA", "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Install native webview packages and a virtual display", "Set up soldr", "Restore native pkg-config search path", "Check workspace formatting", "Check Python function complexity", "Check the CI guards and the guest build scripts", "Scan the repository against the platform boundary", "Check the Dylint libraries' formatting", "Lint the default facade", "Test the default facade", "Test the Linux desktop status facade", "Test the full Linux desktop status facade", "Check the compilation boundary and the release tooling", "Test the Python package", "Verify checked-in guest, host, and ABI manifest generation", "Check every feature in isolation", "Test JSON with unified arbitrary-precision backend feature", "Verify HTTP wire semantics under backend feature unification", "Check the external facade consumers", "Run real semantic webview lifecycle and capture proofs", "Install the screenshot guest target", "Build, admit, and run the real guest through the default screenshot CLI", "Build the target-independent Wasm guests once", "Upload target-independent Wasm guests", "Compile the x86_64 Linux native proofs", "Run the x86_64 Linux compiler-policy proofs", "Run the x86_64 Linux screenshot and containment proofs", "Lint every target", "Run the full test suite", "Preserve screenshot and process diagnostics", "Cancel the run (this job failed)"]
+steps = ["Checkout candidate source", "Set up uv", "Select CI mode and verify the checked-out commit", "Verify selected source SHA", "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Precheck the repository with the pinned ci-lint", "Install native webview packages and a virtual display", "Set up soldr", "Restore native pkg-config search path", "Check workspace formatting", "Check Python function complexity", "Check the CI guards and the guest build scripts", "Scan the repository against the platform boundary", "Check the Dylint libraries' formatting", "Lint the default facade", "Test the default facade", "Test the Linux desktop status facade", "Test the full Linux desktop status facade", "Check the compilation boundary and the release tooling", "Test the Python package", "Verify checked-in guest, host, and ABI manifest generation", "Check every feature in isolation", "Test JSON with unified arbitrary-precision backend feature", "Verify HTTP wire semantics under backend feature unification", "Check the external facade consumers", "Run real semantic webview lifecycle and capture proofs", "Install the screenshot guest target", "Build, admit, and run the real guest through the default screenshot CLI", "Build the target-independent Wasm guests once", "Upload target-independent Wasm guests", "Compile the x86_64 Linux native proofs", "Run the x86_64 Linux compiler-policy proofs", "Run the x86_64 Linux screenshot and containment proofs", "Lint every target", "Run the full test suite", "Preserve screenshot and process diagnostics", "Cancel the run (this job failed)"]
 lanes = ["linux-minimal"]
 minimal-skip-steps = ["Install native webview packages and a virtual display", "Test the full Linux desktop status facade", "Check the compilation boundary and the release tooling", "Test the Python package", "Verify checked-in guest, host, and ABI manifest generation", "Check every feature in isolation", "Test JSON with unified arbitrary-precision backend feature", "Verify HTTP wire semantics under backend feature unification", "Check the external facade consumers", "Run real semantic webview lifecycle and capture proofs", "Install the screenshot guest target", "Build, admit, and run the real guest through the default screenshot CLI", "Build the target-independent Wasm guests once", "Upload target-independent Wasm guests", "Compile the x86_64 Linux native proofs", "Run the x86_64 Linux compiler-policy proofs", "Run the x86_64 Linux screenshot and containment proofs", "Lint every target", "Run the full test suite", "Preserve screenshot and process diagnostics", "Cancel the run (this job failed)"]
 minimal-mode-step = "Select CI mode and verify the checked-out commit"

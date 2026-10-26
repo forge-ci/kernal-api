@@ -73,7 +73,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: dc6fff550ddb3e538457e41b90cf8eb74695cda0
+          ref: 254e16d0a503b0f0bfe67992964219c4833e5e8b
           path: .ci-lint
           persist-credentials: false
       - name: Set up uv
@@ -212,7 +212,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: dc6fff550ddb3e538457e41b90cf8eb74695cda0
+          ref: 254e16d0a503b0f0bfe67992964219c4833e5e8b
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -222,6 +222,14 @@ jobs:
         run: >-
           uv run --no-project python -m ci_lint plan --repo .
           --event-name "${GITHUB_EVENT_NAME}" --sha "${{ steps.mode.outputs.sha }}" --github-output
+      # forge-ci/ci.yml#95: precheck gates. Any ci-lint violation in the
+      # workflows, ci.toml or the tree fails `linux`; `--live` adds the live
+      # cache audit (actions: read through this job's token).
+      - name: Precheck the repository with the pinned ci-lint
+        env:
+          PYTHONPATH: .ci-lint
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run --no-project --python 3.12 --with pyyaml==6.0.3 python -m ci_lint precheck --repo . --live
       # Only full mode compiles the webview graph or drives a display. The
       # minimal and test graphs (`default = []`, `json`) link no GTK, WebKit or
       # soup library; `openssl-sys` in dev-dependencies uses the runner
@@ -791,7 +799,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: dc6fff550ddb3e538457e41b90cf8eb74695cda0
+          ref: 254e16d0a503b0f0bfe67992964219c4833e5e8b
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -970,7 +978,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: dc6fff550ddb3e538457e41b90cf8eb74695cda0
+          ref: 254e16d0a503b0f0bfe67992964219c4833e5e8b
           path: .ci-lint
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6

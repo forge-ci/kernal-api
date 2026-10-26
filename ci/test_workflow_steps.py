@@ -56,6 +56,17 @@ class ShellBudgetTests(unittest.TestCase):
                     for token in CONTROL_TOKENS:
                         self.assertNotIn(token, block, block)
 
+    def test_precheck_gates_linux(self):
+        """forge-ci/ci.yml#95: a ci-lint violation fails `linux`, live audit included."""
+        text = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+        step = re.search(r"- name: Precheck the repository with the pinned ci-lint\n(?P<body>(?:\s{8,}.*\n)+)", text)
+        self.assertIsNotNone(step)
+        body = step.group("body")
+        self.assertIn("python -m ci_lint precheck --repo . --live\n", body)
+        self.assertNotIn("continue-on-error", body)
+        self.assertNotIn("if:", body)
+        self.assertIn("GITHUB_TOKEN: ${{ github.token }}", body)
+
     def test_no_tracked_shell_scripts_but_the_recovery_guest(self):
         listed = gha.read(["git", "ls-files", "*.sh", "*.ps1", "*.bat", "*.cmd"], cwd=ROOT)
         self.assertEqual(listed.returncode, 0)
