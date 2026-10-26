@@ -996,7 +996,10 @@ jobs:
           # wait below always ends.
           (
             set +e
-            sudo apt-get update && sudo apt-get install --yes \
+            # A stalled mirror connection otherwise hangs apt with no output
+            # until the wait step's timeout discards the log.
+            apt=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+            sudo apt-get "${apt[@]}" update && sudo apt-get "${apt[@]}" install --yes \
               libgtk-3-dev libwebkit2gtk-4.1-dev
             echo $? >"${RUNNER_TEMP}/webview-packages.status"
           ) >"${RUNNER_TEMP}/webview-packages.log" 2>&1 &
@@ -1092,8 +1095,14 @@ jobs:
         timeout-minutes: 10
         run: |
           status="${RUNNER_TEMP}/webview-packages.status"
-          until [ -s "$status" ]; do sleep 1; done
+          # Give up a minute before the step timeout so the log still prints.
+          deadline=$((SECONDS + 540))
+          until [ -s "$status" ] || [ "$SECONDS" -ge "$deadline" ]; do sleep 1; done
           cat "${RUNNER_TEMP}/webview-packages.log"
+          if [ ! -s "$status" ]; then
+            echo "::error::webview package install did not finish within 9 minutes"
+            exit 1
+          fi
           test "$(cat "$status")" = 0
       # A Dylint pass only sees what the compiler compiles, and `default = []`.
       # Without `--all-features` every gated module -- `crash`, `wasm`,
