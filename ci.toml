@@ -191,7 +191,7 @@ minimal-mode-step = "Select CI mode and verify the checked-out commit"
 [[local.gate.replay.jobs]]
 source-job = "ci.yml:dylints"
 key = "CI/Dylint workspace"
-steps = ["Start installing native webview development packages", "Checkout candidate source", "Set up uv", "Select CI mode and verify the checked-out commit", "Verify selected source SHA", "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Set up soldr", "Restore native pkg-config search path", "Select the pinned Dylint compiler", "Decide whether the lint libraries need their own tests", "Finish installing native webview development packages", "Verify nightly checksum invalidation", "Lint every client-style target", "Cancel the run (this job failed)"]
+steps = ["Checkout candidate source", "Start installing native webview development packages", "Set up uv", "Select CI mode and verify the checked-out commit", "Verify selected source SHA", "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Set up soldr", "Restore native pkg-config search path", "Select the pinned Dylint compiler", "Decide whether the lint libraries need their own tests", "Finish installing native webview development packages", "Verify nightly checksum invalidation", "Lint every client-style target", "Cancel the run (this job failed)"]
 lanes = ["dylint-minimal"]
 minimal-skip-steps = ["Cancel the run (this job failed)"]
 minimal-mode-step = "Select CI mode and verify the checked-out commit"

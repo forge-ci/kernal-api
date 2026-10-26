@@ -40,7 +40,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.candidate_sha }}
       - name: Verify selected source SHA
-        run: test "$(git rev-parse HEAD)" = "${{ inputs.candidate_sha }}"
+        run: python3 ci/verify_source_sha.py "${{ inputs.candidate_sha }}"
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           # Release runs never write caches (ci.toml [cache].write-on = main).

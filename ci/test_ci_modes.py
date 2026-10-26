@@ -55,7 +55,7 @@ class ModeTests(unittest.TestCase):
             "ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
             text,
         )
-        self.assertIn('"$(git rev-parse HEAD)" = "${{ steps.mode.outputs.sha }}"', text)
+        self.assertIn('ci/verify_source_sha.py "${{ steps.mode.outputs.sha }}"', text)
         for job in ("build", "test"):
             body = re.search(rf"(?ms)^  {job}:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
             self.assertIn("needs.linux.outputs.mode == 'full'", body)
@@ -64,9 +64,7 @@ class ModeTests(unittest.TestCase):
         dylints = re.search(r"(?ms)^  dylints:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
         self.assertNotIn("needs.linux", dylints)
         self.assertIn("python 3.12 ci/ci_mode.py", dylints)
-        self.assertIn(
-            '"$(git rev-parse HEAD)" = "${{ steps.mode.outputs.sha }}"', dylints
-        )
+        self.assertIn('ci/verify_source_sha.py "${{ steps.mode.outputs.sha }}"', dylints)
         self.assertIn("steps.mode.outputs.mode != 'minimal'", text)
         self.assertIn("steps.mode.outputs.mode == 'full'", text)
         self.assertIn("name: Full coverage", text)
@@ -85,10 +83,12 @@ class ModeTests(unittest.TestCase):
             ["needs.verify.outputs.skip_dylints != 'true'"],
         )
         self.assertNotIn("matrix:", dylints)
-        self.assertIn('echo "::error::Dylint lanes failed: ${failed[*]}"', dylints)
-        self.assertIn('test -s "$logs/workspace-dylint.log"', dylints)
+        self.assertIn("run: python3 ci/dylint_steps.py lanes", dylints)
+        lanes = (WORKFLOW.parents[2] / "ci/dylint_steps.py").read_text(encoding="utf-8")
+        self.assertIn('raise gha.StepError(f"Dylint lanes failed: {\' \'.join(failed)}")', lanes)
+        self.assertIn('workspace_log = logs / "workspace-dylint.log"', lanes)
         self.assertEqual(
-            text.count('"$(git rev-parse HEAD)" = "${{ needs.linux.outputs.sha }}"'), 2
+            text.count('ci/verify_source_sha.py "${{ needs.linux.outputs.sha }}"'), 2
         )
         linux = re.search(r"(?ms)^  linux:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
         for name in (

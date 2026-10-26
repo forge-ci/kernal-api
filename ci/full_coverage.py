@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import subprocess
 import sys
 from urllib.request import Request, urlopen
 
@@ -93,10 +94,20 @@ def run_jobs():
         page += 1
 
 
+def checked_out_sha() -> str:
+    """HEAD of the checkout this job verifies (stdout iterated, not captured)."""
+    with subprocess.Popen(["git", "rev-parse", "HEAD"], stdout=subprocess.PIPE, text=True) as git:
+        assert git.stdout is not None
+        sha = "".join(git.stdout).strip()
+    if git.returncode != 0 or not sha:
+        raise SystemExit("cannot read the checked-out HEAD")
+    return sha
+
+
 def main():
     errors = failures(
         os.environ["EXPECTED_SHA"],
-        os.environ["CHECKED_OUT_SHA"],
+        os.environ.get("CHECKED_OUT_SHA") or checked_out_sha(),
         json.loads(os.environ["CI_NEEDS_JSON"]),
         run_jobs(),
     )
