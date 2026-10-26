@@ -253,14 +253,13 @@ jobs:
         env:
           CARGO_HOME: ${{ runner.temp }}/kernal-boundary-scan-cargo
         # The lint's own rust-toolchain.toml is the one Dylint nightly pin.
+        # Run from the lint crate so its .cargo/config.toml applies (RUST-016).
+        working-directory: dylints/kernal_api_platform_boundary
         run: |
-          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' \
-            dylints/kernal_api_platform_boundary/rust-toolchain.toml)"
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
           soldr rustup toolchain install "$toolchain" --profile minimal \
             --component rustc-dev,llvm-tools-preview,rust-src
-          soldr rustup run "$toolchain" cargo test --locked \
-            --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml \
-            --lib -- --skip ui
+          soldr rustup run "$toolchain" cargo test --locked --lib -- --skip ui
       - name: Check the Dylint libraries' formatting
         if: needs.verify.outputs.reuse != 'true'
         run: |
@@ -392,9 +391,7 @@ jobs:
         if: steps.mode.outputs.mode == 'full'
         # Resolves a backend feature outside the production graph, so it may
         # update the lockfile and cannot run `--locked`.
-        run: >-
-          soldr cargo test --features http-client,reqwest/gzip
-          --test net http_client::encoded_responses_preserve_wire_bytes_and_headers
+        run: soldr cargo test --features http-client,reqwest/gzip --test net http_client::encoded_responses_preserve_wire_bytes_and_headers  # ci-lint: allow TOOL-002 resolves reqwest/gzip outside the production graph, so it cannot run --locked
       - name: Check the external facade consumers
         if: steps.mode.outputs.mode == 'full'
         run: |
