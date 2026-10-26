@@ -1287,6 +1287,25 @@ impl<T> Sender<T> {
             .map_err(|error| SendError(error.0))
     }
 
+    /// Send a value, waiting at most `timeout` for capacity. An expired wait
+    /// keeps no reservation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the unsent value if every [`Receiver`] has been dropped or the
+    /// channel stays full for the whole timeout. Requires a runtime with its
+    /// timer enabled.
+    pub async fn send_within(&self, value: T, timeout: Duration) -> Result<(), SendTimeoutError<T>> {
+        match self::timeout(timeout, self.inner.reserve()).await {
+            Ok(Ok(permit)) => {
+                permit.send(value);
+                Ok(())
+            }
+            Ok(Err(_)) => Err(SendTimeoutError::Closed(value)),
+            Err(_) => Err(SendTimeoutError::TimedOut(value)),
+        }
+    }
+
     /// Send from a synchronous producer, parking this thread until capacity is
     /// available or `timeout` elapses. No runtime is created, and the bounded
     /// queue is unchanged. An expired wait keeps no reservation.
@@ -1355,6 +1374,22 @@ impl<T> Receiver<T> {
     /// dropped and no values remain buffered.
     pub async fn recv(&mut self) -> Option<T> {
         self.inner.recv().await
+    }
+
+    /// Wait at most `timeout` for the next value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RecvTimeoutError::Disconnected`] once every [`Sender`] has
+    /// been dropped and nothing remains buffered, or
+    /// [`RecvTimeoutError::TimedOut`] if no value arrived in time. Requires a
+    /// runtime with its timer enabled.
+    pub async fn recv_within(&mut self, timeout: Duration) -> Result<T, RecvTimeoutError> {
+        match self::timeout(timeout, self.inner.recv()).await {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => Err(RecvTimeoutError::Disconnected),
+            Err(_) => Err(RecvTimeoutError::TimedOut),
+        }
     }
 
     /// Take the next value without waiting.
@@ -1502,6 +1537,28 @@ impl std::task::Wake for ThreadWaker {
     fn wake_by_ref(self: &Arc<Self>) {
         self.0.unpark();
     }
+}
+
+/// A bounded-time send failed, retaining the unsent value.
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+pub enum SendTimeoutError<T> {
+    /// Every receiver for the channel has been dropped.
+    #[error("the kernal-api channel receiver has been dropped")]
+    Closed(T),
+    /// The channel stayed full until the send timed out.
+    #[error("the kernal-api channel stayed full until the send timed out")]
+    TimedOut(T),
+}
+
+/// A bounded-time receive produced no value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum RecvTimeoutError {
+    /// No value arrived before the timeout; at least one sender remains.
+    #[error("no value arrived on the kernal-api channel before the timeout")]
+    TimedOut,
+    /// Every sender has been dropped and no value remains buffered.
+    #[error("the kernal-api channel sender has been dropped")]
+    Disconnected,
 }
 
 /// A value could not be sent through a bounded channel without waiting.
