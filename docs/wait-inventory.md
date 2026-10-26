@@ -23,7 +23,7 @@ Status key:
 | `Semaphore::acquire`, `acquire_many` | no | unbounded; bounded `acquire_within` / `acquire_many_within(.., timeout)` exist (`SemaphoreAcquireTimedOut`, an expired waiter holds no permits) | Migrate zccache (`cache_system.rs`, `handle_compile_multi.rs`, `handle_link.rs`, `compile_progress.rs`), then remove the unbounded forms. |
 | `Sender::send`, `Receiver::recv` (bounded channel) | no | unbounded; bounded `send_within` (`SendTimeoutError` returns the value, no reservation kept) and `recv_within` (`RecvTimeoutError::{TimedOut, Disconnected}`) exist | Migrate callers, then remove the unbounded forms. |
 | `Sender::blocking_send` | yes | **fixed**: required `timeout`; `TimedOut(value)` returns the unsent value and keeps no reservation | none |
-| `UnboundedReceiver::recv`, `BroadcastReceiver::recv`, `OneshotReceiver: Future` | no | unbounded | Bounded receive or an owner lifetime. |
+| `UnboundedReceiver::recv`, `BroadcastReceiver::recv`, `OneshotReceiver: Future` | no | unbounded; bounded `UnboundedReceiver::recv_within` (`RecvTimeoutError`) and `BroadcastReceiver::recv_within` (`BroadcastRecvTimeoutError`, lag and closure kept) exist; oneshot still unbounded | Bounded oneshot receive, then remove the unbounded forms. |
 | `Notify::notified`, `owned_notified` | no | unbounded | Bounded wait. |
 | `Mutex::lock`, `lock_owned` (`mutex.rs`) | no | unbounded; hands out guards that cross `.await`; bounded `lock_within` / `lock_owned_within` (`LockTimedOut`) exist | Acquisition budget done; still needed: state callbacks returning owned data, opaque permits for exclusion across `.await`, hold watchdog, removal of the unbounded forms. |
 | `Mutex::blocking_lock` | yes | unbounded | Same, with a hold watchdog. |

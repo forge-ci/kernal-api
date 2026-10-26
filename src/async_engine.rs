@@ -50,7 +50,7 @@ mod rw_lock;
 mod signals;
 mod task_local;
 pub use broadcast::{
-    broadcast_channel, BroadcastReceiver, BroadcastRecvError, BroadcastSender,
+    broadcast_channel, BroadcastReceiver, BroadcastRecvError, BroadcastRecvTimeoutError, BroadcastSender,
     BroadcastTryRecvError,
 };
 #[cfg(feature = "event-stream")]
@@ -1474,6 +1474,19 @@ impl<T> UnboundedReceiver<T> {
     /// been dropped and no values remain buffered.
     pub async fn recv(&mut self) -> Option<T> {
         self.inner.recv().await
+    }
+
+    /// Wait at most `timeout` for the next value.
+    ///
+    /// # Errors
+    ///
+    /// As [`Receiver::recv_within`].
+    pub async fn recv_within(&mut self, timeout: Duration) -> Result<T, RecvTimeoutError> {
+        match self::timeout(timeout, self.inner.recv()).await {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => Err(RecvTimeoutError::Disconnected),
+            Err(_) => Err(RecvTimeoutError::TimedOut),
+        }
     }
 
     /// Take the next value without waiting.
