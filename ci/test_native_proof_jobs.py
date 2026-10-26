@@ -285,7 +285,7 @@ class NativeProofJobsTests(unittest.TestCase):
         checks = self.job("linux")
         self.assertIn("ci.test_native_proof ci.test_native_proof_jobs", checks)
         self.assertIn("ci.test_nextest_config ci.test_deny_warnings", checks)
-        self.assertIn("tests/screenshot-target-repair.ps1", checks)
+        self.assertIn("ci.test_build_guest", checks)
 
     def test_guest_building_screenshot_cli_runs_only_on_linux(self):
         # The one screenshot proof that compiles its own guest is skipped on

@@ -33,7 +33,7 @@ cmd = "soldr cargo test --locked --all-features"
 
 [task.threaded-smoke-red]
 stack = "linux"
-cmd = "bash scripts/build-threaded-smoke.sh"
+cmd = "python3 scripts/build_threaded_smoke.py"
 
 [task.package]
 stack = "linux"

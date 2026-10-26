@@ -98,8 +98,8 @@ soldr cargo test --locked --features wasm-sketch-host operations::tests --lib
 ```
 
 The native hub test and the Cargo-built guest both transfer 64 MiB. Run the
-guest proof with `CARGO_TARGET_DIR="$PWD/target/threaded-proof" bash
-scripts/build-threaded-smoke.sh` on Unix (PowerShell counterpart on Windows).
+guest proof with `CARGO_TARGET_DIR="$PWD/target/threaded-proof" python3
+scripts/build_threaded_smoke.py` on every host.
 On Linux x86-64 on 2026-09-12, the in-process proof passed in 5.52 seconds and
 the worker proof in 9.33 seconds, including compilation/admission overhead
 inside each test. The transfer uses an explicit finite fuel budget of

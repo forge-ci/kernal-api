@@ -260,6 +260,18 @@ platform-code     = ["src/platform_win*.rs", "src/platform_win/**", "src/platfor
 [publish]
 pypi = { auth = "token", environment = "release", mode = "real" }
 
+# -- GEN-005: the one shell script that cannot be Python (forge-ci/ci.yml#94) --------
+# Every other tracked .sh/.ps1 moved to ci/*.py. This one is the payload a macOS
+# Recovery guest executes: Recovery ships bash 3.2 and no Python, Rust toolchain,
+# Xcode CLT or Homebrew, and boots exactly one script. ci/test_macos_x64_guest.py
+# pins it bash-3.2-compatible; ci/macos-x64/verify-guest-results.py decides the verdict.
+[[exceptions]]
+rule    = "GEN-005"
+path    = "ci/macos-x64/recovery-guest.sh"
+reason  = "executed inside a macOS Recovery guest (bash 3.2, no Python interpreter), not on a runner"
+issue   = "https://github.com/forge-ci/ci.yml/issues/94"
+expires = "2027-06-30"
+
 # -- LAYOUT-001 migration debt (zackees/ci.yml#95, policy-rust.md) ----------------
 # One entry per file still in dylints/kernal_api_platform_boundary/src/baseline.txt
 # (kernal-api#152's shrink-only migration baseline). Delete an entry as its file empties;

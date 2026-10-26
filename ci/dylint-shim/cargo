@@ -1,7 +1,12 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""`cargo` on PATH for the Dylint job: run the pinned nightly's cargo.
 
-toolchain="${RUSTUP_TOOLCHAIN:-nightly-2026-05-28}"
-# The test harness launches this shim from inside an already soldr-wrapped
-# build. Re-entering soldr here is forbidden (and used to hide a stale pin).
-exec rustup run "${toolchain}" cargo "$@"
+The test harness launches this shim from inside an already soldr-wrapped
+build. Re-entering soldr here is forbidden (and used to hide a stale pin).
+"""
+
+import os
+import sys
+
+toolchain = os.environ.get("RUSTUP_TOOLCHAIN") or "nightly-2026-05-28"
+os.execvp("rustup", ["rustup", "run", toolchain, "cargo", *sys.argv[1:]])

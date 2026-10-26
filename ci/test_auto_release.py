@@ -102,7 +102,7 @@ class AutoReleaseTests(unittest.TestCase):
             workflow,
         )
         self.assertIn(
-            "bash ci/verify_conpty_assets.sh target/conpty-assets", workflow
+            "ci/verify_conpty_assets.py target/conpty-assets", workflow
         )
         self.assertIn("uv run --no-project --python 3.12 ci/crate_release.py package", workflow)
         caller = (ROOT / ".github/workflows/auto-release.yml").read_text()

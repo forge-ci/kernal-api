@@ -16,8 +16,7 @@ expands the `threaded-rust-v1` admission surface. The root instance enters
 `wasi_thread_start(tid, arg)` once. It deliberately performs no output,
 environment, filesystem, network, ambient clock, or randomness operations.
 
-Run `scripts/build-threaded-smoke.ps1` on Windows or
-`scripts/build-threaded-smoke.sh` on Unix. Both scripts use Soldr's `rustup`
+Run `scripts/build_threaded_smoke.py` on any host. It uses Soldr's `rustup`
 front end to provision `wasm32-wasip1-threads`, build into a temporary or
 caller-managed target directory, and run the real artifact through the public
 admission profile, then run the same artifact inside the killable worker.
@@ -46,7 +45,7 @@ failure from closed-profile admission failure.
 On 2026-09-12, both execution paths passed on native Linux x86-64 using:
 
 ```sh
-CARGO_TARGET_DIR="$PWD/target/threaded-proof" bash scripts/build-threaded-smoke.sh
+CARGO_TARGET_DIR="$PWD/target/threaded-proof" python3 scripts/build_threaded_smoke.py
 ```
 
 This is Linux evidence only, not native Windows or macOS evidence for #28.

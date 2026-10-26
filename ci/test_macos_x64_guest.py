@@ -215,7 +215,7 @@ class StageGuestShareTests(unittest.TestCase):
     """The share payload is the guest's only input; a bad URL is a silent 404."""
 
     def setUp(self):
-        self.text = (GUEST_DIR / "stage-guest-share.sh").read_text(encoding="utf-8")
+        self.text = (GUEST_DIR / "stage_guest_share.py").read_text(encoding="utf-8")
 
     def test_checksum_url_is_not_the_tarball_url_with_a_suffix(self):
         """nextest names the checksum asset after the stem, not the tarball.
@@ -225,10 +225,10 @@ class StageGuestShareTests(unittest.TestCase):
         a 404 that reads like a missing release rather than a bad URL.
         """
         self.assertNotIn('.tar.gz.sha256', self.text)
-        self.assertIn("${STEM}.sha256", self.text)
+        self.assertIn("{self.stem}.sha256", self.text)
 
     def test_verifies_the_download_before_staging_it(self):
-        self.assertIn("sha256sum --check", self.text)
+        self.assertIn("verify_checksum(tarball, checksum)", self.text)
 
     def test_rejects_a_payload_that_is_not_a_macho(self):
         """A same-named Linux binary must not reach the guest."""

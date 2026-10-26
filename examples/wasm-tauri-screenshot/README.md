@@ -47,7 +47,7 @@ files, and zero worker/native-resource counters without force. This Linux proof
 does not substitute for the remaining native Windows/macOS failure matrix.
 
 For the containment-only blocking variant, build with
-`build-guest.sh --block-after-capture` (PowerShell: `-BlockAfterCapture`) and
+`build_guest.py --block-after-capture` and
 set `KERNAL_API_SCREENSHOT_BLOCK_ARTIFACT_WASM` to the admitted artifact under
 `kernal-api-wasm-tauri-guest-block`. This guest waits on an unnotified condition
 variable after receiving the native snapshot. Never run that variant in the
@@ -74,12 +74,12 @@ with `tauri-webview-test-support` accept the explicit `--diagnostic-in-process`
 mode used by the detailed timing/failure proofs; that mode is not containment
 for arbitrary untrusted Wasm. Worker launch failure never falls back to it.
 
-Build the actual guest on a Unix host with the pinned target installed:
+Build the actual guest (any host, Python 3.11+) with the pinned target installed:
 
 ```sh
 soldr rustup target add wasm32-wasip1-threads
-CARGO_TARGET_DIR="$PWD/target/screenshot-proof" bash examples/wasm-tauri-screenshot/build-guest.sh
-CARGO_TARGET_DIR="$PWD/target/screenshot-proof" bash examples/wasm-tauri-screenshot/build-guest.sh --trap-after-capture
+CARGO_TARGET_DIR="$PWD/target/screenshot-proof" python3 examples/wasm-tauri-screenshot/build_guest.py
+CARGO_TARGET_DIR="$PWD/target/screenshot-proof" python3 examples/wasm-tauri-screenshot/build_guest.py --trap-after-capture
 ```
 
 The build produces one module with generated ABI metadata; metadata embedding
@@ -92,19 +92,20 @@ KERNAL_API_SCREENSHOT_ARTIFACT_WASM="$PWD/target/screenshot-proof/kernal-api-was
   soldr cargo test --locked --features wasm-sketch-host --test wasm_tauri_screenshot -- --ignored
 ```
 
-PowerShell 7 uses the equivalent checked-in entry point and absolute storage:
+On Windows (PowerShell) the same entry point takes absolute storage:
 
 ```powershell
 soldr rustup target add wasm32-wasip1-threads
 $env:CARGO_TARGET_DIR = Join-Path (Get-Location).Path 'target/screenshot-proof'
-./examples/wasm-tauri-screenshot/build-guest.ps1
+python examples/wasm-tauri-screenshot/build_guest.py
 $env:KERNAL_API_SCREENSHOT_ARTIFACT_WASM = Join-Path $env:CARGO_TARGET_DIR 'kernal-api-wasm-tauri-guest/wasm32-wasip1-threads/release/kernal-api-wasm-tauri-guest.admitted.wasm'
 soldr cargo test --locked --features wasm-sketch-host --test wasm_tauri_screenshot -- --ignored
 ```
 
-Both scripts require the pinned Wasm target to be installed, preserve the
-caller's build storage, and fail on build/metadata errors. The PowerShell
-entry restores the caller's working directory and `SOLDR_LINKER` setting.
+The script requires the pinned Wasm target to be installed, preserves the
+caller's build storage, and fails on build/metadata errors. It runs
+every tool in a child process, so the caller's working directory and `SOLDR_LINKER`
+setting are never changed.
 Building a guest this way does not prove native Windows webview execution.
 The existing Windows threaded-artifact CI lane invokes this script and the
 host-only admission test without enabling GUI dependencies. The script's

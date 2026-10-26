@@ -239,10 +239,7 @@ jobs:
             ci.test_native_proof ci.test_native_proof_jobs ci.test_macos_x64_guest \
             ci.test_ci_modes ci.test_release_ci_gate \
             ci.test_nextest_config ci.test_deny_warnings ci.test_target_features ci.test_local_gate ci.test_replay_evidence \
-            ci.test_cache_policy ci.test_prune_obsolete_cook_caches
-          bash tests/screenshot-build-arguments.sh
-          bash tests/screenshot-target-repair.sh
-          pwsh -NoProfile -File tests/screenshot-target-repair.ps1
+            ci.test_cache_policy ci.test_prune_obsolete_cook_caches ci.test_build_guest
       # The platform boundary (#152) is a source rule, so its repository scan
       # parses every enforced package's modules -- cfg-elided Windows and
       # macOS files included -- without compiling the product. That makes it
@@ -317,7 +314,7 @@ jobs:
       - name: Verify checked-in guest, host, and ABI manifest generation
         if: steps.mode.outputs.mode == 'full'
         run: |
-          bash ci/check_wasm_abi_generation.sh
+          uv run --no-project --python 3.12 ci/check_wasm_abi_generation.py
           soldr cargo test --locked --manifest-path tools/wasm-abi-generator/Cargo.toml
       - name: Check every feature in isolation
         if: steps.mode.outputs.mode == 'full'
@@ -1063,7 +1060,6 @@ jobs:
           rustc_path="$(soldr rustup which --toolchain "$DYLINT_TOOLCHAIN" rustc)"
           echo "RUSTC=${rustc_path}" >> "${GITHUB_ENV}"
           echo "RUSTUP_TOOLCHAIN=${DYLINT_TOOLCHAIN}" >> "${GITHUB_ENV}"
-          chmod +x ci/dylint-shim/cargo
           echo "${GITHUB_WORKSPACE}/ci/dylint-shim" >> "${GITHUB_PATH}"
       # The lint libraries' own suites (UI + unit tests) depend only on
       # `dylints/**`; the platform lint's repository scan already runs in
