@@ -54,9 +54,7 @@ def passed(result: Result) -> None:
 
 def rejected(result: Result, reason: str) -> None:
     if not result.code or reason not in result.output:
-        raise RuntimeError(
-            f"changed input was not rejected: {reason}\n{result.output[-4000:]}"
-        )
+        raise RuntimeError(f"changed input was not rejected: {reason}\n{result.output[-4000:]}")
 
 
 def write_older(path: Path, value: str) -> None:
@@ -98,9 +96,7 @@ def probe(root: Path) -> None:
     unchanged = check(root)
     passed(unchanged)
     if "Fresh dylint-freshness-probe" not in unchanged.output:
-        raise RuntimeError(
-            f"identical sources recompiled after mtime change\n{unchanged.output[-4000:]}"
-        )
+        raise RuntimeError(f"identical sources recompiled after mtime change\n{unchanged.output[-4000:]}")
     original = source.read_text(encoding="utf-8")
     write_older(source, original.replace("true", "nope", 1))
     rejected(check(root), "E0425")
@@ -116,9 +112,7 @@ def probe(root: Path) -> None:
     rejected(check(root, feature=True), "changed feature")
     passed(check(root))
     original_config = config.read_text(encoding="utf-8")
-    config.write_text(
-        original_config + '\n[build]\nrustflags=["--cfg", "broken_config"]\n'
-    )
+    config.write_text(original_config + '\n[build]\nrustflags=["--cfg", "broken_config"]\n')
     rejected(check(root), "changed config")
     config.write_text(original_config, encoding="utf-8")
     passed(check(root))
@@ -132,16 +126,11 @@ def probe(root: Path) -> None:
     )
     watched = root / "build-input.txt"
     watched.write_text("A", encoding="utf-8")
-    source.write_text(
-        original
-        + "const _: () = assert!(env!(\"BUILD_VALUE\").as_bytes()[0] == b'A');\n"
-    )
+    source.write_text(original + "const _: () = assert!(env!(\"BUILD_VALUE\").as_bytes()[0] == b'A');\n")
     passed(check(root))
     watched.write_text("B", encoding="utf-8")
     rejected(check(root), "E0080")
-    print(
-        "PASS checksum freshness: unchanged source; changed source/includes/env/feature/config/build input"
-    )
+    print("PASS checksum freshness: unchanged source; changed source/includes/env/feature/config/build input")
 
 
 def main() -> None:

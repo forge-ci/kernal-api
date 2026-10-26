@@ -18,7 +18,9 @@ class AutoReleaseTests(unittest.TestCase):
         with tempfile.TemporaryFile(mode="w+") as output:
             subprocess.run(
                 ["git", "ls-files", "**/Cargo.toml", "**/Cargo.lock", "Cargo.lock"],
-                cwd=ROOT, stdout=output, check=True,
+                cwd=ROOT,
+                stdout=output,
+                check=True,
             )
             output.seek(0)
             tracked = output.read().splitlines()
@@ -103,9 +105,7 @@ class AutoReleaseTests(unittest.TestCase):
             "target/conpty-assets/conpty-sidecar.sha256.toml",
             workflow,
         )
-        self.assertIn(
-            "ci/verify_conpty_assets.py target/conpty-assets", workflow
-        )
+        self.assertIn("ci/verify_conpty_assets.py target/conpty-assets", workflow)
         self.assertIn("uv run --no-project --python 3.12 ci/crate_release.py package", workflow)
         caller = (ROOT / ".github/workflows/auto-release.yml").read_text()
         self.assertIn("ci/crate_release.py publish", caller)

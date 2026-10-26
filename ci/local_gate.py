@@ -47,9 +47,7 @@ def bosn_command(*arguments: str) -> list[str]:
 def verify_pr_base(ref: str) -> None:
     """A feature branch used as its own base can silently omit diff-gated tests."""
     if ref != "refs/remotes/origin/main":
-        raise ValueError(
-            "origin/HEAD must name main; run git remote set-head origin -a"
-        )
+        raise ValueError("origin/HEAD must name main; run git remote set-head origin -a")
 
 
 def verify_native_host(host: NativeHost) -> None:
@@ -59,9 +57,7 @@ def verify_native_host(host: NativeHost) -> None:
         or host.machine.lower() not in {"x86_64", "amd64"}
         or host.docker_platform.lower() not in {"linux/x86_64", "linux/amd64"}
     ):
-        raise ValueError(
-            "minimal Linux attestation requires a native Linux x64 host and Docker daemon"
-        )
+        raise ValueError("minimal Linux attestation requires a native Linux x64 host and Docker daemon")
 
 
 @dataclass(frozen=True)
@@ -148,9 +144,7 @@ class RunProof:
         )
 
 
-def verify_run(
-    proof: RunProof, workspace: Path, sha: str, git_tree: str, *, job: str = "linux"
-) -> None:
+def verify_run(proof: RunProof, workspace: Path, sha: str, git_tree: str, *, job: str = "linux") -> None:
     """Reject unrelated, dirty, partial, failed, or upstream-act runs."""
     if (
         proof.workspace != workspace.resolve()
@@ -253,9 +247,7 @@ def main() -> None:
     run_fast_guards()
     verify_native_host(
         native_host(
-            output(
-                ["docker", "info", "--format", "{{.OSType}}/{{.Architecture}}"]
-            ).strip(),
+            output(["docker", "info", "--format", "{{.OSType}}/{{.Architecture}}"]).strip(),
         )
     )
     sha = output(["git", "rev-parse", "HEAD"]).strip()

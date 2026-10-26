@@ -39,9 +39,7 @@ TARGETS = LINUX_TARGETS + (
 )
 
 COMPILER_TEST = "wasm::compiler_dispatch::tests::compiler_actual_guest_spawns_drains_hashes_persists_and_waits"
-COMPONENT_TESTS = (
-    "wasm::component_compiler::tests::actual_guest_spawns_drains_hashes_waits_and_closes",
-)
+COMPONENT_TESTS = ("wasm::component_compiler::tests::actual_guest_spawns_drains_hashes_waits_and_closes",)
 COMPONENT_ENCODER_OUTPUT = (
     "validated component: {bytes} bytes; two kernel imports; not executed\n"
     "Wasmtime 45 component compilation passed; not instantiated or executed\n"
@@ -71,7 +69,12 @@ ALL_FEATURES = ("--features", TARGET_FEATURES) if TARGET_FEATURES else ("--all-f
 GRAPHS = {
     "all": (*ALL_FEATURES, "--lib", "--test", "wasm_tauri_screenshot", "--test", "wasm_worker_containment"),
     "production": (
-        "--features", "wasm-sketch-worker", "--test", "wasm_tauri_screenshot", "--test", "wasm_worker_containment",
+        "--features",
+        "wasm-sketch-worker",
+        "--test",
+        "wasm_tauri_screenshot",
+        "--test",
+        "wasm_worker_containment",
     ),
 }
 
@@ -113,9 +116,7 @@ def capture(arguments: list, *, env: dict[str, str] | None = None, cwd: Path = R
     arguments = [str(argument) for argument in arguments]
     print("Running: " + " ".join(arguments), flush=True)
     try:
-        return subprocess.run(
-            arguments, cwd=cwd, env=env, check=True, text=True, stdout=subprocess.PIPE
-        ).stdout
+        return subprocess.run(arguments, cwd=cwd, env=env, check=True, text=True, stdout=subprocess.PIPE).stdout
     except subprocess.CalledProcessError as error:
         print(error.stdout or "", end="", flush=True)
         raise
@@ -126,8 +127,13 @@ def stream(arguments: list, *, env: dict[str, str] | None = None, cwd: Path = RE
     arguments = [str(argument) for argument in arguments]
     print("Running: " + " ".join(arguments), flush=True)
     process = subprocess.Popen(
-        arguments, cwd=cwd, env=env, text=True, errors="replace",
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        arguments,
+        cwd=cwd,
+        env=env,
+        text=True,
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
     assert process.stdout is not None
     lines = []
@@ -180,7 +186,7 @@ def artifact_file(messages: str, name: str, suffix: str) -> Path:
 def rust_host() -> str:
     for line in capture(["soldr", "rustc", "-vV"]).splitlines():
         if line.startswith("host: "):
-            return line[len("host: "):].strip()
+            return line[len("host: ") :].strip()
     raise ValueError("soldr rustc -vV did not report a host")
 
 
@@ -202,9 +208,7 @@ def detect_host_triple() -> str:
     system = platform.system()
     translated = False
     if system == "Darwin":
-        probe = subprocess.run(
-            ["sysctl", "-n", "sysctl.proc_translated"], text=True, capture_output=True, check=False
-        )
+        probe = subprocess.run(["sysctl", "-n", "sysctl.proc_translated"], text=True, capture_output=True, check=False)
         translated = probe.stdout.strip() == "1"
     return host_triple(
         system,
@@ -267,9 +271,17 @@ def build(target: str, archive: Path, work: Path) -> None:
             }
     tools = capture(
         [
-            "soldr", "cargo", "build", "--locked", "--release", "--message-format=json",
-            "--manifest-path", "benchmarks/wasm-sketch/component-tools/Cargo.toml",
-            "--features", "engine-probe", *target_arguments,
+            "soldr",
+            "cargo",
+            "build",
+            "--locked",
+            "--release",
+            "--message-format=json",
+            "--manifest-path",
+            "benchmarks/wasm-sketch/component-tools/Cargo.toml",
+            "--features",
+            "engine-probe",
+            *target_arguments,
         ]
     )
     manifest["component_tools"] = stage(
@@ -289,8 +301,15 @@ def embed_threaded_metadata(built: Path, admitted: Path) -> None:
     shutil.copyfile(built, admitted)
     capture(
         [
-            "soldr", "cargo", "run", "--locked", "--manifest-path", "tools/wasm-abi-generator/Cargo.toml",
-            "--", "--embed-threaded-metadata", admitted,
+            "soldr",
+            "cargo",
+            "run",
+            "--locked",
+            "--manifest-path",
+            "tools/wasm-abi-generator/Cargo.toml",
+            "--",
+            "--embed-threaded-metadata",
+            admitted,
         ]
     )
 
@@ -304,10 +323,23 @@ def guests(out: Path, work: Path) -> None:
     guest_env = dict(os.environ, SOLDR_LINKER="default")
     compiler = capture(
         [
-            "soldr", "cargo", "build", "--locked", "--manifest-path",
-            "benchmarks/wasm-sketch/compiler-guest/Cargo.toml", "--features", "guest-proof",
-            "--bin", "kernal-compiler-guest-proof", "--target", THREADS, "--release", "-j1",
-            "--target-dir", work / "compiler-guest", "--message-format=json",
+            "soldr",
+            "cargo",
+            "build",
+            "--locked",
+            "--manifest-path",
+            "benchmarks/wasm-sketch/compiler-guest/Cargo.toml",
+            "--features",
+            "guest-proof",
+            "--bin",
+            "kernal-compiler-guest-proof",
+            "--target",
+            THREADS,
+            "--release",
+            "-j1",
+            "--target-dir",
+            work / "compiler-guest",
+            "--message-format=json",
         ],
         env=guest_env,
     )
@@ -316,9 +348,20 @@ def guests(out: Path, work: Path) -> None:
     )
     component = capture(
         [
-            "soldr", "cargo", "build", "--locked", "--manifest-path",
-            "benchmarks/wasm-sketch/component-guest/Cargo.toml", "--features", "compiler-proof",
-            "--target", UNKNOWN, "--release", "-j1", "--target-dir", work / "component-guest",
+            "soldr",
+            "cargo",
+            "build",
+            "--locked",
+            "--manifest-path",
+            "benchmarks/wasm-sketch/component-guest/Cargo.toml",
+            "--features",
+            "compiler-proof",
+            "--target",
+            UNKNOWN,
+            "--release",
+            "-j1",
+            "--target-dir",
+            work / "component-guest",
             "--message-format=json",
         ],
         env=guest_env,
@@ -326,8 +369,18 @@ def guests(out: Path, work: Path) -> None:
     shutil.copyfile(artifact_file(component, "kernal_component_probe", ".wasm"), out / GUESTS["component-core"])
     threaded = capture(
         [
-            "soldr", "cargo", "build", "--locked", "--manifest-path", "Cargo.toml", "--target", THREADS,
-            "--release", "--target-dir", work / "threaded-smoke", "--message-format=json",
+            "soldr",
+            "cargo",
+            "build",
+            "--locked",
+            "--manifest-path",
+            "Cargo.toml",
+            "--target",
+            THREADS,
+            "--release",
+            "--target-dir",
+            work / "threaded-smoke",
+            "--message-format=json",
         ],
         env=guest_env,
         cwd=REPO / "guests" / "threaded-smoke",
@@ -341,9 +394,11 @@ def guests(out: Path, work: Path) -> None:
         ("screenshot-trap", ["--trap-after-capture"]),
         ("screenshot-block", ["--block-after-capture"]),
     ):
-        printed = capture(
-            [sys.executable, "examples/wasm-tauri-screenshot/build_guest.py", *flags], env=screenshot_env
-        ).strip().splitlines()
+        printed = (
+            capture([sys.executable, "examples/wasm-tauri-screenshot/build_guest.py", *flags], env=screenshot_env)
+            .strip()
+            .splitlines()
+        )
         admitted = Path(printed[-1]) if printed else Path()
         if not admitted.is_absolute() or not admitted.is_file():
             raise ValueError(f"{key} guest build did not print an admitted artifact")
@@ -470,7 +525,12 @@ def run_screenshot(root: Path, manifest: dict, guest_dir: Path, work: Path) -> N
     output = stream([role_test(root, manifest, "compiler-host"), THREADED_TEST], env=base)
     require_passed(output, "the threaded artifact admission proof", exactly=1)
     output = stream(
-        [role_test(root, manifest, "worker-containment"), "cargo_built_threaded_guest_", "--ignored", "--test-threads=1"],
+        [
+            role_test(root, manifest, "worker-containment"),
+            "cargo_built_threaded_guest_",
+            "--ignored",
+            "--test-threads=1",
+        ],
         env=role_env(root, manifest, "worker-containment", base),
     )
     require_passed(output, "threaded worker containment")

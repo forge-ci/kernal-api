@@ -58,10 +58,19 @@ class FakeCargo:
         if "benchmarks/wasm-sketch/component-tools/Cargo.toml" in arguments:
             lines.append(compiler_artifact("kernal-component-tools", executable("kernal-component-tools")))
             return "\n".join(lines)
-        graph = next(name for name, cargo in proof.GRAPHS.items() if arguments[-len(cargo):] == list(cargo))
+        graph = next(name for name, cargo in proof.GRAPHS.items() if arguments[-len(cargo) :] == list(cargo))
         roles = [role for role in proof.ROLES if role.graph == graph]
         # The library itself is never selected as a test harness.
-        lines.append(json.dumps({"reason": "compiler-artifact", "target": {"name": "kernal_api", "kind": ["lib"]}, "profile": {"test": False}, "executable": None}))
+        lines.append(
+            json.dumps(
+                {
+                    "reason": "compiler-artifact",
+                    "target": {"name": "kernal_api", "kind": ["lib"]},
+                    "profile": {"test": False},
+                    "executable": None,
+                }
+            )
+        )
         # Cargo reports each unit once per graph, however many roles use it.
         for test_target in dict.fromkeys(role.test_target for role in roles):
             lines.append(compiler_artifact(test_target, executable(f"{test_target}-0123"), test=True, kind="test"))
@@ -75,7 +84,10 @@ def make_bundle(root, target):
     manifest = {"target": target, "roles": {}, "component_tools": "component-tools/kernal-component-tools"}
     files = [manifest["component_tools"]]
     for role in proof.ROLES:
-        entry = {"test": f"{role.name}/{role.test_target}", "bins": {binary: f"{role.name}/{binary}" for binary in role.bins}}
+        entry = {
+            "test": f"{role.name}/{role.test_target}",
+            "bins": {binary: f"{role.name}/{binary}" for binary in role.bins},
+        }
         manifest["roles"][role.name] = entry
         files += [entry["test"], *entry["bins"].values()]
     for relative in files:
@@ -143,7 +155,11 @@ class SelectionTests(unittest.TestCase):
         worker = Path.cwd() / "worker"
         one = compiler_artifact("worker", worker)
         self.assertEqual(proof.select_executable(one, "worker", test=False, kind="bin"), worker)
-        for messages, test in ((one + "\n" + one, False), (one, True), (compiler_artifact("worker", "relative/worker"), False)):
+        for messages, test in (
+            (one + "\n" + one, False),
+            (one, True),
+            (compiler_artifact("worker", "relative/worker"), False),
+        ):
             with self.assertRaisesRegex(ValueError, "exactly one"):
                 proof.select_executable(messages, "worker", test=test)
 
@@ -191,8 +207,10 @@ class BuildTests(unittest.TestCase):
             roles["screenshot"]["bins"]["kernal-wasm-worker"],
             roles["worker-containment-support"]["bins"]["kernal-wasm-worker"],
         )
-        self.assertEqual(sorted(path.relative_to(extracted).as_posix() for path in extracted.rglob("*") if path.is_file()),
-                         sorted(set(staged) | {proof.MANIFEST}))
+        self.assertEqual(
+            sorted(path.relative_to(extracted).as_posix() for path in extracted.rglob("*") if path.is_file()),
+            sorted(set(staged) | {proof.MANIFEST}),
+        )
 
     def test_the_all_graph_follows_the_build_job_target_features(self):
         """In `build`, `all` is the target graph the archive built, not `--all-features`."""
@@ -251,10 +269,13 @@ class RunTests(unittest.TestCase):
         work = self.run_suite("compiler", host)
         commands = [arguments for arguments, _ in host.calls]
         self.assertFalse(any(command[0] in {"soldr", "cargo", "rustc"} for command in commands))
-        core = next(env for arguments, env in host.calls if proof.COMPILER_TEST in arguments and "--list" not in arguments)
+        core = next(
+            env for arguments, env in host.calls if proof.COMPILER_TEST in arguments and "--list" not in arguments
+        )
         self.assertTrue(core["KERNAL_COMPILER_GUEST_WASM"].endswith(proof.GUESTS["compiler"]))
         component_runs = [
-            env for arguments, env in host.calls
+            env
+            for arguments, env in host.calls
             if "--list" not in arguments and any(test in arguments for test in proof.COMPONENT_TESTS)
         ]
         # One run per Component proof: the cache-hit proof left with the
@@ -275,11 +296,15 @@ class RunTests(unittest.TestCase):
     def test_screenshot_suite_supplies_each_graphs_own_binaries(self):
         host = FakeHost()
         self.run_suite("screenshot", host, system="Linux")
-        ignored = [(arguments, env) for arguments, env in host.calls if "--ignored" in arguments and "--list" not in arguments]
+        ignored = [
+            (arguments, env) for arguments, env in host.calls if "--ignored" in arguments and "--list" not in arguments
+        ]
         screenshot, screenshot_env = ignored[0]
         self.assertEqual(screenshot[:5], ["dbus-run-session", "--", "xvfb-run", "-a", "env"])
         self.assertTrue(screenshot_env["NEXTEST_BIN_EXE_kernal-wasm-worker"].endswith("screenshot/kernal-wasm-worker"))
-        self.assertTrue(screenshot_env["NEXTEST_BIN_EXE_kernal-api-wasm-tauri"].endswith("screenshot/kernal-api-wasm-tauri"))
+        self.assertTrue(
+            screenshot_env["NEXTEST_BIN_EXE_kernal-api-wasm-tauri"].endswith("screenshot/kernal-api-wasm-tauri")
+        )
         # dash (xvfb-run's /bin/sh) drops hyphenated variable names, so the
         # binaries must reach the harness as `env` arguments.
         harness = next(index for index, argument in enumerate(screenshot) if argument.endswith("wasm_tauri_screenshot"))
@@ -301,8 +326,14 @@ class RunTests(unittest.TestCase):
         )
         self.assertIn("--nocapture", admission)
         containment_env = next(env for arguments, env in host.calls if "cargo_built_threaded_guest_" in arguments)
-        self.assertTrue(containment_env["NEXTEST_BIN_EXE_kernal-wasm-worker"].endswith("worker-containment/kernal-wasm-worker"))
-        parent_death = [arguments for arguments, _ in host.calls if proof.PARENT_DEATH_TEST in arguments and "--list" not in arguments]
+        self.assertTrue(
+            containment_env["NEXTEST_BIN_EXE_kernal-wasm-worker"].endswith("worker-containment/kernal-wasm-worker")
+        )
+        parent_death = [
+            arguments
+            for arguments, _ in host.calls
+            if proof.PARENT_DEATH_TEST in arguments and "--list" not in arguments
+        ]
         self.assertEqual(len(parent_death), 1)
         self.assertIn("--exact", parent_death[0])
 
@@ -310,7 +341,9 @@ class RunTests(unittest.TestCase):
         host = FakeHost()
         self.run_suite("screenshot", host, system="Windows")
         self.assertFalse(any(arguments[0] in {"dbus-run-session", "env"} for arguments, _ in host.calls))
-        ignored = next(arguments for arguments, _ in host.calls if "--ignored" in arguments and "--nocapture" in arguments)
+        ignored = next(
+            arguments for arguments, _ in host.calls if "--ignored" in arguments and "--nocapture" in arguments
+        )
         self.assertEqual(ignored[ignored.index("--skip") + 1], proof.GUEST_BUILDING_SCREENSHOT_TEST)
 
 
@@ -440,8 +473,14 @@ class GuestTests(unittest.TestCase):
                 return f"cargo noise\n{built}\n"
             if "--embed-threaded-metadata" in arguments:
                 return ""
-            name = arguments[arguments.index("--bin") + 1] if "--bin" in arguments else (
-                "kernal_component_probe" if "component-guest" in " ".join(arguments) else "kernal-api-threaded-smoke"
+            name = (
+                arguments[arguments.index("--bin") + 1]
+                if "--bin" in arguments
+                else (
+                    "kernal_component_probe"
+                    if "component-guest" in " ".join(arguments)
+                    else "kernal-api-threaded-smoke"
+                )
             )
             return compiler_artifact(name, built)
 

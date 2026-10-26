@@ -39,14 +39,10 @@ def is_running_process_name(name: str) -> bool:
 def is_running_process_dependency(name: str, value: Any) -> bool:
     """Identify direct and renamed dependency entries for the substrate."""
 
-    return is_running_process_name(name) or (
-        isinstance(value, Mapping) and value.get("package") == "running-process"
-    )
+    return is_running_process_name(name) or (isinstance(value, Mapping) and value.get("package") == "running-process")
 
 
-def dependency_release_violation(
-    name: str, value: Any, context: str, *, replacement: bool
-) -> str | None:
+def dependency_release_violation(name: str, value: Any, context: str, *, replacement: bool) -> str | None:
     """Return one release-policy violation for a process-substrate binding."""
 
     if not is_running_process_dependency(name, value):
@@ -66,31 +62,22 @@ def dependency_release_violation(
 
     version = value.get("version") if isinstance(value, Mapping) else value
     if version != REQUIRED_RUNNING_PROCESS_VERSION:
-        return (
-            f"{location}: running-process must use exact registry version "
-            f"{REQUIRED_RUNNING_PROCESS_VERSION}"
-        )
+        return f"{location}: running-process must use exact registry version {REQUIRED_RUNNING_PROCESS_VERSION}"
     return None
 
 
-def dependency_table_release_violations(
-    table: Mapping[str, Any], context: str, *, replacement: bool
-) -> List[str]:
+def dependency_table_release_violations(table: Mapping[str, Any], context: str, *, replacement: bool) -> List[str]:
     """Return process-substrate release violations from one Cargo table."""
 
     findings: List[str] = []
     for key, value in table.items():
-        violation = dependency_release_violation(
-            str(key), value, context, replacement=replacement
-        )
+        violation = dependency_release_violation(str(key), value, context, replacement=replacement)
         if violation is not None:
             findings.append(violation)
     return findings
 
 
-def dependency_tables_at(
-    manifest: Mapping[str, Any], context: str
-) -> List[Tuple[Mapping[str, Any], str]]:
+def dependency_tables_at(manifest: Mapping[str, Any], context: str) -> List[Tuple[Mapping[str, Any], str]]:
     """Collect normal, build, and dev dependency tables at a Cargo scope."""
 
     tables: List[Tuple[Mapping[str, Any], str]] = []
@@ -110,9 +97,7 @@ def running_process_release_violations(manifest: Mapping[str, Any]) -> List[str]
         if scope_name in DEPENDENCY_TABLES and isinstance(scope, Mapping):
             tables.append((scope, str(scope_name), False))
         elif scope_name == "workspace" and isinstance(scope, Mapping):
-            tables.extend(
-                (table, context, False) for table, context in dependency_tables_at(scope, "workspace")
-            )
+            tables.extend((table, context, False) for table, context in dependency_tables_at(scope, "workspace"))
         elif scope_name == "target" and isinstance(scope, Mapping):
             for target_name, target in scope.items():
                 if isinstance(target, Mapping):
@@ -129,9 +114,7 @@ def running_process_release_violations(manifest: Mapping[str, Any]) -> List[str]
 
     findings: List[str] = []
     for table, context, replacement in tables:
-        findings.extend(
-            dependency_table_release_violations(table, context, replacement=replacement)
-        )
+        findings.extend(dependency_table_release_violations(table, context, replacement=replacement))
     return findings
 
 
@@ -164,11 +147,7 @@ def tracked_cargo_manifests(repository: Path) -> List[Path]:
         detail = result.stderr.decode(errors="replace").strip()
         raise RuntimeError(f"cannot list tracked Cargo manifests: {detail}")
 
-    return [
-        repository / Path(raw.decode())
-        for raw in result.stdout.split(b"\0")
-        if raw
-    ]
+    return [repository / Path(raw.decode()) for raw in result.stdout.split(b"\0") if raw]
 
 
 def release_blockers(manifests: Iterable[Path]) -> List[Issue]:

@@ -22,22 +22,19 @@ class MeasurementTests(unittest.TestCase):
             time_path = Path("/usr/bin/time")
 
             def successful_time(command, **kwargs):
-                self.assertEqual(command[:7], [str(time_path), "-f", "%M", "-o",
-                                                str(rss), "--", "soldr"])
+                self.assertEqual(command[:7], [str(time_path), "-f", "%M", "-o", str(rss), "--", "soldr"])
                 self.assertEqual(kwargs["env"]["LC_ALL"], "C")
                 rss.write_text("42\n", encoding="utf-8")
                 return subprocess.CompletedProcess(command, 0, "ok", "")
 
             with patch("measure_core.subprocess.run", side_effect=successful_time):
-                _, output = run(["soldr", "--no-cache", "cargo", "build"], root, log,
-                                gnu_time=time_path, rss_log=rss)
+                _, output = run(["soldr", "--no-cache", "cargo", "build"], root, log, gnu_time=time_path, rss_log=rss)
             self.assertEqual(output, "ok")
             self.assertEqual(build_rss(rss.read_text(encoding="utf-8")), 42 * 1024)
 
     def test_recorded_diagnostics_have_distinct_edits_and_exact_summaries(self):
         results = Path(__file__).parent / "results"
-        for name in ("core-debug-diagnostic.json", "core-release-diagnostic.json",
-                     "core-release-rss-diagnostic.json"):
+        for name in ("core-debug-diagnostic.json", "core-release-diagnostic.json", "core-release-rss-diagnostic.json"):
             path = results / name
             with self.subTest(path=path.name):
                 record = json.loads(path.read_text(encoding="utf-8"))
@@ -53,8 +50,10 @@ class MeasurementTests(unittest.TestCase):
                     self.assertIsNone(record["peak_compiler_rss_bytes"])
 
     def test_reused_artifact_cannot_be_counted_as_an_edit(self):
-        samples = [{"wall_ns": index + 1, "source_sha256": f"source-{index}",
-                    "module_sha256": f"module-{index}"} for index in range(10)]
+        samples = [
+            {"wall_ns": index + 1, "source_sha256": f"source-{index}", "module_sha256": f"module-{index}"}
+            for index in range(10)
+        ]
         self.assertEqual(edit_summary(samples)["p50_ns"], 5.5)
         for field in ("source_sha256", "module_sha256"):
             repeated = [dict(sample) for sample in samples]
@@ -63,12 +62,23 @@ class MeasurementTests(unittest.TestCase):
                 edit_summary(repeated)
 
     def test_admission_record_matches_the_actual_module_and_profile(self):
-        record = {"schema": 1, "profile": "threaded-rust-v1", "executed": False,
-                  "module_bytes": 123, "compiler_setup_ns": 0, "admission_ns": 42}
+        record = {
+            "schema": 1,
+            "profile": "threaded-rust-v1",
+            "executed": False,
+            "module_bytes": 123,
+            "compiler_setup_ns": 0,
+            "admission_ns": 42,
+        }
         self.assertEqual(validate_admission(record, 123), record)
-        for field, invalid in [("schema", True), ("profile", "another-profile"),
-                               ("executed", True), ("module_bytes", 124),
-                               ("admission_ns", -1), ("compiler_setup_ns", False)]:
+        for field, invalid in [
+            ("schema", True),
+            ("profile", "another-profile"),
+            ("executed", True),
+            ("module_bytes", 124),
+            ("admission_ns", -1),
+            ("compiler_setup_ns", False),
+        ]:
             with self.subTest(field=field), self.assertRaises(ValueError):
                 validate_admission({**record, field: invalid}, 123)
         with self.assertRaises(ValueError):
@@ -82,8 +92,9 @@ class MeasurementTests(unittest.TestCase):
             summary([1] * 9)
 
     def test_edit_changes_one_real_argument(self):
-        self.assertEqual(edit_source("kernal_api_v1_bindings::clock_sleep(10)", 10, 11),
-                         "kernal_api_v1_bindings::clock_sleep(11)")
+        self.assertEqual(
+            edit_source("kernal_api_v1_bindings::clock_sleep(10)", 10, 11), "kernal_api_v1_bindings::clock_sleep(11)"
+        )
         with self.assertRaises(ValueError):
             edit_source("no anchor", 10, 11)
         with self.assertRaises(ValueError):

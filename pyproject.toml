@@ -35,5 +35,8 @@ include = [
   "/README.md",
 ]
 
+[tool.ruff]
+line-length = 120
+
 [tool.ruff.lint]
 select = ["C901", "RUF100"]

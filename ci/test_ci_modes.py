@@ -23,17 +23,13 @@ class ModeTests(unittest.TestCase):
         self.assertEqual(ci_mode.select("push", {}, sha), ("minimal", sha))
         self.assertEqual(ci_mode.select("merge_group", {}, sha), ("minimal", sha))
         self.assertEqual(
-            ci_mode.select(
-                "workflow_dispatch", {"inputs": {"candidate_sha": sha}}, "b" * 40
-            ),
+            ci_mode.select("workflow_dispatch", {"inputs": {"candidate_sha": sha}}, "b" * 40),
             ("full", sha),
         )
 
     def test_dispatch_requires_exact_sha(self):
         with self.assertRaisesRegex(ValueError, "40 hexadecimal"):
-            ci_mode.select(
-                "workflow_dispatch", {"inputs": {"candidate_sha": "main"}}, "a" * 40
-            )
+            ci_mode.select("workflow_dispatch", {"inputs": {"candidate_sha": "main"}}, "a" * 40)
 
     def test_workflow_wires_modes_and_exact_checkout(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -85,11 +81,9 @@ class ModeTests(unittest.TestCase):
         self.assertNotIn("matrix:", dylints)
         self.assertIn("run: python3 ci/dylint_steps.py lanes", dylints)
         lanes = (WORKFLOW.parents[2] / "ci/dylint_steps.py").read_text(encoding="utf-8")
-        self.assertIn('raise gha.StepError(f"Dylint lanes failed: {\' \'.join(failed)}")', lanes)
+        self.assertIn("raise gha.StepError(f\"Dylint lanes failed: {' '.join(failed)}\")", lanes)
         self.assertIn('workspace_log = logs / "workspace-dylint.log"', lanes)
-        self.assertEqual(
-            text.count('ci/verify_source_sha.py "${{ needs.linux.outputs.sha }}"'), 2
-        )
+        self.assertEqual(text.count('ci/verify_source_sha.py "${{ needs.linux.outputs.sha }}"'), 2)
         linux = re.search(r"(?ms)^  linux:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
         for name in (
             "Check every feature in isolation",
@@ -102,34 +96,21 @@ class ModeTests(unittest.TestCase):
             with self.subTest(step=name):
                 step = linux.split(f"- name: {name}\n", 1)[1].split("\n      - ", 1)[0]
                 self.assertIn("if: steps.mode.outputs.mode == 'full'", step)
-        extra = linux.split(
-            "- name: Test JSON with unified arbitrary-precision backend feature\n", 1
-        )[1]
-        self.assertIn(
-            "if: steps.mode.outputs.mode != 'minimal'", extra.split("\n      - ", 1)[0]
-        )
+        extra = linux.split("- name: Test JSON with unified arbitrary-precision backend feature\n", 1)[1]
+        self.assertIn("if: steps.mode.outputs.mode != 'minimal'", extra.split("\n      - ", 1)[0])
 
 
 class FullCoverageTests(unittest.TestCase):
     def test_skipped_macos_execution_fails_closed(self):
         sha = "a" * 40
-        jobs = [
-            {"name": name, "conclusion": "success", "steps": []}
-            for name in full_coverage.REQUIRED_JOBS
-        ]
+        jobs = [{"name": name, "conclusion": "success", "steps": []} for name in full_coverage.REQUIRED_JOBS]
         needs = {name: {"result": "success"} for name in full_coverage.REQUIRED_NEEDS}
         self.assertTrue(
-            any(
-                "Run this host's prebuilt tests" in error
-                for error in full_coverage.failures(sha, sha, needs, jobs)
-            )
+            any("Run this host's prebuilt tests" in error for error in full_coverage.failures(sha, sha, needs, jobs))
         )
         for job in jobs:
             if job["name"].startswith("Test ("):
-                job["steps"] = [
-                    {"name": name, "conclusion": "success"}
-                    for name in full_coverage.REQUIRED_TEST_STEPS
-                ]
+                job["steps"] = [{"name": name, "conclusion": "success"} for name in full_coverage.REQUIRED_TEST_STEPS]
         self.assertEqual(full_coverage.failures(sha, sha, needs, jobs), [])
 
     def test_required_legs_match_workflow_matrices(self):
@@ -155,38 +136,20 @@ class FullCoverageTests(unittest.TestCase):
                 "name": name,
                 "conclusion": "success",
                 "steps": (
-                    [
-                        {"name": step, "conclusion": "success"}
-                        for step in full_coverage.REQUIRED_TEST_STEPS
-                    ]
+                    [{"name": step, "conclusion": "success"} for step in full_coverage.REQUIRED_TEST_STEPS]
                     if name.startswith("Test (")
                     else []
                 ),
             }
             for name in full_coverage.REQUIRED_JOBS
         ]
-        needs = {
-            name: {"result": "success"}
-            for name in ("linux", "build", "test", "dylints")
-        }
+        needs = {name: {"result": "success"} for name in ("linux", "build", "test", "dylints")}
         self.assertEqual(full_coverage.failures(sha, sha, needs, jobs), [])
-        self.assertIn(
-            "source SHA", full_coverage.failures(sha, "b" * 40, needs, jobs)[0]
-        )
+        self.assertIn("source SHA", full_coverage.failures(sha, "b" * 40, needs, jobs)[0])
         jobs.pop()
-        self.assertTrue(
-            any(
-                "missing" in error
-                for error in full_coverage.failures(sha, sha, needs, jobs)
-            )
-        )
+        self.assertTrue(any("missing" in error for error in full_coverage.failures(sha, sha, needs, jobs)))
         jobs[0]["conclusion"] = "skipped"
-        self.assertTrue(
-            any(
-                "skipped" in error
-                for error in full_coverage.failures(sha, sha, needs, jobs)
-            )
-        )
+        self.assertTrue(any("skipped" in error for error in full_coverage.failures(sha, sha, needs, jobs)))
         needs["test"]["result"] = "failure"
         self.assertIn("test: failure", full_coverage.failures(sha, sha, needs, jobs))
 

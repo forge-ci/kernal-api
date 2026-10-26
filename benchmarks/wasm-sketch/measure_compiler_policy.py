@@ -6,6 +6,7 @@ same request-key input in shared/compiler_policy.rs.  This runner retains
 artifacts and command logs, never edits the user's checkout, and does not
 choose a runtime.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -61,16 +62,22 @@ def main() -> None:
     args = parser.parse_args()
     if args.edits < 10:
         parser.error("--edits must be at least 10")
-    helpers = {name: path.resolve() for name, path in {
-        "admission": args.admission, "embedder": args.embedder, "encoder": args.encoder,
-    }.items()}
+    helpers = {
+        name: path.resolve()
+        for name, path in {
+            "admission": args.admission,
+            "embedder": args.embedder,
+            "encoder": args.encoder,
+        }.items()
+    }
     if any(not path.is_file() for path in helpers.values()):
         parser.error("build the admission, metadata, and engine-probe encoder executables first")
     gnu_time = args.gnu_time.resolve() if args.gnu_time else None
     time_version = None
     if gnu_time:
-        version = subprocess.run([str(gnu_time), "--version"], capture_output=True, text=True,
-                                 check=True, env={"LC_ALL": "C"})
+        version = subprocess.run(
+            [str(gnu_time), "--version"], capture_output=True, text=True, check=True, env={"LC_ALL": "C"}
+        )
         if "GNU Time" not in version.stdout:
             parser.error("--gnu-time must name GNU time (not BSD time or a shell builtin)")
         time_version = version.stdout.splitlines()[0]
@@ -117,8 +124,7 @@ def main() -> None:
         label = "cold" if index == 0 else "noop" if index == 1 else f"edit-{index - 1}"
         if index >= 2:
             following = previous + 1
-            shared.write_text(edit_source(shared.read_text(encoding="utf-8"), previous, following),
-                              encoding="utf-8")
+            shared.write_text(edit_source(shared.read_text(encoding="utf-8"), previous, following), encoding="utf-8")
             previous = following
         source_digest = sha256(shared)
 
@@ -126,16 +132,39 @@ def main() -> None:
         core_admitted = output / f"{label}.core.admitted.wasm"
         core_rss = output / f"{label}.core-build.rss-kib" if gnu_time else None
         core_start = time.monotonic_ns()
-        core_build_ns, _ = run([
-            "soldr", "--no-cache", "cargo", "build", "--locked", "--release",
-            "--target", "wasm32-wasip1-threads", "--target-dir", str(target / "core"),
-            "--features", "guest-proof", "--bin", "kernal-compiler-guest-proof", "-j", "1",
-        ], core_guest, output / f"{label}.core-build.log", gnu_time=gnu_time, rss_log=core_rss)
+        core_build_ns, _ = run(
+            [
+                "soldr",
+                "--no-cache",
+                "cargo",
+                "build",
+                "--locked",
+                "--release",
+                "--target",
+                "wasm32-wasip1-threads",
+                "--target-dir",
+                str(target / "core"),
+                "--features",
+                "guest-proof",
+                "--bin",
+                "kernal-compiler-guest-proof",
+                "-j",
+                "1",
+            ],
+            core_guest,
+            output / f"{label}.core-build.log",
+            gnu_time=gnu_time,
+            rss_log=core_rss,
+        )
         shutil.copyfile(core_artifact, core_admitted)
-        metadata_ns, _ = run([str(helpers["embedder"]), "--embed-threaded-metadata", str(core_admitted)],
-                             source, output / f"{label}.core-metadata.log")
-        admission_ns, admission_output = run([str(helpers["admission"]), str(core_admitted)], source,
-                                             output / f"{label}.core-admission.log")
+        metadata_ns, _ = run(
+            [str(helpers["embedder"]), "--embed-threaded-metadata", str(core_admitted)],
+            source,
+            output / f"{label}.core-metadata.log",
+        )
+        admission_ns, admission_output = run(
+            [str(helpers["admission"]), str(core_admitted)], source, output / f"{label}.core-admission.log"
+        )
         admission = validate_admission(json.loads(admission_output), core_admitted.stat().st_size)
         core_wall_ns = time.monotonic_ns() - core_start
 
@@ -143,32 +172,59 @@ def main() -> None:
         component = output / f"{label}.component.wasm"
         component_rss = output / f"{label}.component-build.rss-kib" if gnu_time else None
         component_start = time.monotonic_ns()
-        component_build_ns, _ = run([
-            "soldr", "--no-cache", "cargo", "build", "--locked", "--release",
-            "--target", "wasm32-unknown-unknown", "--target-dir", str(target / "component"),
-            "--features", "compiler-proof", "-j", "1",
-        ], component_guest, output / f"{label}.component-build.log",
-                                      gnu_time=gnu_time, rss_log=component_rss)
-        encoding_ns, encoding_output = run([str(helpers["encoder"]), str(component_artifact), str(component)],
-                                           source, output / f"{label}.component-encode.log")
+        component_build_ns, _ = run(
+            [
+                "soldr",
+                "--no-cache",
+                "cargo",
+                "build",
+                "--locked",
+                "--release",
+                "--target",
+                "wasm32-unknown-unknown",
+                "--target-dir",
+                str(target / "component"),
+                "--features",
+                "compiler-proof",
+                "-j",
+                "1",
+            ],
+            component_guest,
+            output / f"{label}.component-build.log",
+            gnu_time=gnu_time,
+            rss_log=component_rss,
+        )
+        encoding_ns, encoding_output = run(
+            [str(helpers["encoder"]), str(component_artifact), str(component)],
+            source,
+            output / f"{label}.component-encode.log",
+        )
         validate_output(encoding_output, component.stat().st_size)
         component_wall_ns = time.monotonic_ns() - component_start
-        records.append({
-            "label": label,
-            "source_sha256": source_digest,
-            "core": {
-                "wall_ns": core_wall_ns, "build_ns": core_build_ns, "metadata_ns": metadata_ns,
-                "admission_command_ns": admission_ns, "build_peak_rss_bytes": command_memory(core_rss),
-                "module_sha256": sha256(core_admitted), "module_bytes": core_admitted.stat().st_size,
-                "admission": admission,
-            },
-            "component": {
-                "wall_ns": component_wall_ns, "build_ns": component_build_ns,
-                "encode_and_compile_command_ns": encoding_ns,
-                "build_peak_rss_bytes": command_memory(component_rss),
-                "module_sha256": sha256(component), "module_bytes": component.stat().st_size,
-            },
-        })
+        records.append(
+            {
+                "label": label,
+                "source_sha256": source_digest,
+                "core": {
+                    "wall_ns": core_wall_ns,
+                    "build_ns": core_build_ns,
+                    "metadata_ns": metadata_ns,
+                    "admission_command_ns": admission_ns,
+                    "build_peak_rss_bytes": command_memory(core_rss),
+                    "module_sha256": sha256(core_admitted),
+                    "module_bytes": core_admitted.stat().st_size,
+                    "admission": admission,
+                },
+                "component": {
+                    "wall_ns": component_wall_ns,
+                    "build_ns": component_build_ns,
+                    "encode_and_compile_command_ns": encoding_ns,
+                    "build_peak_rss_bytes": command_memory(component_rss),
+                    "module_sha256": sha256(component),
+                    "module_bytes": component.stat().st_size,
+                },
+            }
+        )
         (output / "result.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         print(f"{label}: core {core_wall_ns / 1e9:.3f}s; component {component_wall_ns / 1e9:.3f}s", flush=True)
 
@@ -178,15 +234,19 @@ def main() -> None:
         module_hashes = [sample["module_sha256"] for sample in candidate_samples]
         if len(set(module_hashes)) != len(module_hashes):
             raise ValueError(f"{candidate} edit samples repeat a module hash")
-        document[f"{candidate}_edit_summary"] = edit_summary([
-            {"wall_ns": sample["wall_ns"], "source_sha256": record["source_sha256"],
-             "module_sha256": sample["module_sha256"]}
-            for record, sample in zip(edits, candidate_samples)
-        ])
+        document[f"{candidate}_edit_summary"] = edit_summary(
+            [
+                {
+                    "wall_ns": sample["wall_ns"],
+                    "source_sha256": record["source_sha256"],
+                    "module_sha256": sample["module_sha256"],
+                }
+                for record, sample in zip(edits, candidate_samples)
+            ]
+        )
     if gnu_time:
         document["build_memory"]["peak_rss_bytes"] = max(
-            sample[candidate]["build_peak_rss_bytes"]
-            for sample in records for candidate in ("core", "component")
+            sample[candidate]["build_peak_rss_bytes"] for sample in records for candidate in ("core", "component")
         )
     document["status"] = "complete-matched-diagnostic-only"
     (output / "result.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")

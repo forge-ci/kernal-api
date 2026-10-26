@@ -84,11 +84,7 @@ def tree(features: str, *, normal_only: bool = False) -> set[str]:
     if features:
         command.extend(("--features", features))
     completed = subprocess.run(command, check=True, text=True, capture_output=True)
-    return {
-        line.split(maxsplit=1)[0]
-        for line in completed.stdout.splitlines()
-        if line and not line.startswith("[")
-    }
+    return {line.split(maxsplit=1)[0] for line in completed.stdout.splitlines() if line and not line.startswith("[")}
 
 
 def consumer_features(edges: str, *extra: str) -> set[str]:
@@ -111,11 +107,7 @@ def consumer_features(edges: str, *extra: str) -> set[str]:
         *extra,
     ]
     completed = subprocess.run(command, check=True, text=True, capture_output=True)
-    rows = [
-        line[1:].split("|", 1)
-        for line in completed.stdout.splitlines()
-        if line.startswith("1kernal-api ")
-    ]
+    rows = [line[1:].split("|", 1) for line in completed.stdout.splitlines() if line.startswith("1kernal-api ")]
     if len(rows) != 1:
         raise SystemExit(f"expected one kernal-api {edges} edge, found {len(rows)}")
     return {feature for feature in rows[0][1].split(",") if feature}
@@ -176,15 +168,10 @@ def main() -> int:  # noqa: C901 -- Existing dependency-boundary checks; ratchet
         failures.append("secure-random graph omits its OS entropy backend")
     unexpected_entropy = sorted(
         (entropy_graph - default_graph)
-        & (
-            SKETCH_AND_WEBVIEW_PACKAGES
-            | {"crash-handler", "console-subscriber", "mimalloc-pprof", "framehop"}
-        )
+        & (SKETCH_AND_WEBVIEW_PACKAGES | {"crash-handler", "console-subscriber", "mimalloc-pprof", "framehop"})
     )
     if unexpected_entropy:
-        failures.append(
-            f"secure-random adds unrelated facilities: {', '.join(unexpected_entropy)}"
-        )
+        failures.append(f"secure-random adds unrelated facilities: {', '.join(unexpected_entropy)}")
     failures.extend(build_resources_consumer_failures())
     failures.extend(rustls_client_failures())
     for feature, package in CASES:

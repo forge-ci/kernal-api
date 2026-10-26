@@ -30,9 +30,7 @@ def validate_output(output: str, module_bytes: int) -> None:
         "Wasmtime 45 component compilation passed; not instantiated or executed",
     ]
     if output.splitlines() != expected:
-        raise ValueError(
-            "encoder must validate and engine-compile this exact component without execution"
-        )
+        raise ValueError("encoder must validate and engine-compile this exact component without execution")
 
 
 def main() -> None:
@@ -69,14 +67,10 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=False)
     source = output / "source"
     source.mkdir()
-    revision = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
-    ).strip()
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     archive = output / "source.tar"
     with archive.open("wb") as stream:
-        subprocess.run(
-            ["git", "archive", revision], cwd=repo, stdout=stream, check=True
-        )
+        subprocess.run(["git", "archive", revision], cwd=repo, stdout=stream, check=True)
     subprocess.run(["tar", "-xf", str(archive), "-C", str(source)], check=True)
     guest = source / "benchmarks/wasm-sketch/component-guest"
     # The default candidate dispatches through lib.rs into this portable
@@ -117,9 +111,7 @@ def main() -> None:
         if index >= 2:
             following = previous + 1
             guest_source.write_text(
-                edit_source(
-                    guest_source.read_text(encoding="utf-8"), previous, following
-                ),
+                edit_source(guest_source.read_text(encoding="utf-8"), previous, following),
                 encoding="utf-8",
             )
             previous = following
@@ -167,19 +159,13 @@ def main() -> None:
                 "module_sha256": hashlib.sha256(component.read_bytes()).hexdigest(),
             }
         )
-        (output / "result.json").write_text(
-            json.dumps(document, indent=2) + "\n", encoding="utf-8"
-        )
+        (output / "result.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         print(f"{label}: {elapsed / 1_000_000_000:.3f}s", flush=True)
     document["edit_summary"] = edit_summary(records[2:])
     if gnu_time:
-        document["build_memory"]["peak_rss_bytes"] = max(
-            sample["build_peak_rss_bytes"] for sample in records
-        )
+        document["build_memory"]["peak_rss_bytes"] = max(sample["build_peak_rss_bytes"] for sample in records)
     document["status"] = "complete-diagnostic-only"
-    (output / "result.json").write_text(
-        json.dumps(document, indent=2) + "\n", encoding="utf-8"
-    )
+    (output / "result.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

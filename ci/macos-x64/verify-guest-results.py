@@ -93,8 +93,7 @@ def evaluate(collected: Path) -> tuple[bool, str]:
 
     if total < MINIMUM_TESTS_RUN:
         return False, (
-            f"only {total} tests ran (floor {MINIMUM_TESTS_RUN}); the partition looks "
-            f"collapsed rather than filtered"
+            f"only {total} tests ran (floor {MINIMUM_TESTS_RUN}); the partition looks collapsed rather than filtered"
         )
     if passed < total - skipped:
         return False, f"{total - skipped - passed} tests did not pass in the guest"
@@ -102,8 +101,7 @@ def evaluate(collected: Path) -> tuple[bool, str]:
     missing = missing_tests(log)
     if missing:
         return False, (
-            "the guest ran, but the run does not prove Intel coverage; missing from the "
-            f"log: {', '.join(missing)}"
+            f"the guest ran, but the run does not prove Intel coverage; missing from the log: {', '.join(missing)}"
         )
 
     version_file = collected / "nextest-version.txt"

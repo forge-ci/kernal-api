@@ -28,10 +28,12 @@ class TargetFeatureTests(unittest.TestCase):
         tables = [manifest["dependencies"]] + [
             platform.get("dependencies", {}) for platform in manifest.get("target", {}).values()
         ]
-        optional = {name for table in tables for name, spec in table.items()
-                    if isinstance(spec, dict) and spec.get("optional")}
-        named = {entry[4:] for entries in manifest["features"].values()
-                 for entry in entries if entry.startswith("dep:")}
+        optional = {
+            name for table in tables for name, spec in table.items() if isinstance(spec, dict) and spec.get("optional")
+        }
+        named = {
+            entry[4:] for entries in manifest["features"].values() for entry in entries if entry.startswith("dep:")
+        }
         self.assertEqual(optional - named, set())
 
     def test_script_prints_a_comma_list(self):
@@ -43,7 +45,7 @@ class TargetFeatureTests(unittest.TestCase):
     def test_the_build_matrix_links_the_target_graph_not_all_features(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         start = workflow.index("    name: Build (${{ matrix.target }})")
-        build = workflow[start:workflow.index("\n  test:\n", start)]
+        build = workflow[start : workflow.index("\n  test:\n", start)]
         self.assertIn("ci/target_features.py", build)
         self.assertNotIn("--all-features", build)
         # Lint and the smoke binary inline; the archive's two builds in ci/build_steps.py.

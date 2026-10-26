@@ -119,13 +119,15 @@ def main() -> int:
         os.utime(edit, None)
         incremental = timed_build(source, target, args.features, f"incremental-{number}")
         incremental_cache = cache_reuse()
-        samples.append({
-            "clean": clean,
-            "incremental": incremental,
-            "cache_before": before,
-            "clean_cache": clean_cache,
-            "incremental_cache": incremental_cache,
-        })
+        samples.append(
+            {
+                "clean": clean,
+                "incremental": incremental,
+                "cache_before": before,
+                "clean_cache": clean_cache,
+                "incremental_cache": incremental_cache,
+            }
+        )
     package = run(["soldr", "cargo", "package", "--locked", "--allow-dirty", "--no-verify"], source)
     crate_files = sorted((source / "target" / "package").glob("kernal-api-*.crate"))
     record = {
@@ -134,7 +136,10 @@ def main() -> int:
         "source": str(source),
         "git_revision": version(["git", "rev-parse", "HEAD"], source),
         "host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine()},
-        "toolchain": {"rustc": version(["soldr", "rustc", "--version"], source), "soldr": version(["soldr", "--version"], source)},
+        "toolchain": {
+            "rustc": version(["soldr", "rustc", "--version"], source),
+            "soldr": version(["soldr", "--version"], source),
+        },
         "features": args.features or "default (no optional features)",
         "repeat": args.repeat,
         "samples": samples,

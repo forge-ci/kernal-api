@@ -32,9 +32,7 @@ def main() -> None:
             raise ValueError("release source must be the candidate commit")
         tags = subprocess.check_output(["git", "tag", "--list", tag], text=True)
         if tags.strip():
-            tagged = subprocess.check_output(
-                ["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], text=True
-            ).strip()
+            tagged = subprocess.check_output(["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], text=True).strip()
             if tagged != head:
                 raise ValueError("existing release tag points to a different commit")
         return
@@ -46,9 +44,7 @@ def main() -> None:
         before = os.environ["RELEASE_BEFORE"]
         if not re.fullmatch(r"[0-9a-f]{40}", before) or set(before) == {"0"}:
             raise ValueError("automatic release requires a valid previous commit")
-        previous = subprocess.check_output(
-            ["git", "show", f"{before}:Cargo.toml"], text=True
-        )
+        previous = subprocess.check_output(["git", "show", f"{before}:Cargo.toml"], text=True)
         # The first usable release may follow the namespace reservation.
         previous_tag = "v" + tomllib.loads(previous)["package"]["version"]
     proceed = should_release(tag, previous_tag, manual)

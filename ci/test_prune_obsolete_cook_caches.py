@@ -47,9 +47,7 @@ class CookCacheRetentionTests(unittest.TestCase):
                 "2026-09-02T00:00:00Z",
             ),
         ]
-        self.assertEqual(
-            retired_old_dylint_outputs(entries, current, set(), budget=12, now=now), []
-        )
+        self.assertEqual(retired_old_dylint_outputs(entries, current, set(), budget=12, now=now), [])
         self.assertEqual(
             retired_old_dylint_outputs(entries, current, set(), budget=10, now=now),
             [entries[0]],
@@ -108,9 +106,7 @@ class CookCacheRetentionTests(unittest.TestCase):
                 created_at="2026-09-01T00:00:00Z",
             ),
         ]
-        self.assertEqual(
-            retired_old_dylint_outputs(entries, current, set(), budget=1, now=now), []
-        )
+        self.assertEqual(retired_old_dylint_outputs(entries, current, set(), budget=1, now=now), [])
 
     def test_dylint_retention_accounts_for_exclusions_and_stops_in_lru_order(self):
         current = self.CURRENT_FIXTURE_LOCK_HASH
@@ -139,12 +135,8 @@ class CookCacheRetentionTests(unittest.TestCase):
             retired_old_dylint_outputs(entries, current, set(), budget=12, now=now),
             [entries[2]],
         )
-        self.assertEqual(
-            retired_old_dylint_outputs(entries, current, {2}, budget=12, now=now), []
-        )
-        self.assertEqual(
-            retired_old_dylint_outputs(entries, current, {1}, budget=1, now=now), []
-        )
+        self.assertEqual(retired_old_dylint_outputs(entries, current, {2}, budget=12, now=now), [])
+        self.assertEqual(retired_old_dylint_outputs(entries, current, {1}, budget=1, now=now), [])
         empty_anchor = [Cache(1, prefix + current, "refs/heads/main", 0), entries[1]]
         self.assertEqual(
             retired_old_dylint_outputs(empty_anchor, current, set(), budget=1, now=now),
@@ -209,9 +201,7 @@ class CookCacheRetentionTests(unittest.TestCase):
             "refs/heads/main",
             110,
         )
-        self.assertEqual(
-            lock_generation_shape(build_old)[:2], lock_generation_shape(build_new)[:2]
-        )
+        self.assertEqual(lock_generation_shape(build_old)[:2], lock_generation_shape(build_new)[:2])
 
         registry_old = Cache(
             5,
@@ -326,9 +316,7 @@ class CookCacheRetentionTests(unittest.TestCase):
             110,
         )
         self.assertEqual(
-            superseded_lock_generation_caches(
-                [old, current], self.CURRENT_FIXTURE_LOCK_HASH
-            ),
+            superseded_lock_generation_caches([old, current], self.CURRENT_FIXTURE_LOCK_HASH),
             [old],
         )
 
@@ -405,9 +393,7 @@ class CookCacheRetentionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            superseded_lock_generation_caches(
-                [current, stale_late_write], self.CURRENT_FIXTURE_LOCK_HASH
-            ),
+            superseded_lock_generation_caches([current, stale_late_write], self.CURRENT_FIXTURE_LOCK_HASH),
             [stale_late_write],
         )
         require_lock_generations_retired([current], self.CURRENT_FIXTURE_LOCK_HASH)
@@ -455,9 +441,7 @@ class CookCacheRetentionTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            retired_cross_target_cook_bases(
-                [*caches, native, unrelated, old, pr], "0.9.23"
-            ),
+            retired_cross_target_cook_bases([*caches, native, unrelated, old, pr], "0.9.23"),
             caches,
         )
 
@@ -523,11 +507,7 @@ class CookCacheRetentionTests(unittest.TestCase):
     def test_prune_refuses_to_delete_old_generation_without_current_replacement(self):
         class FakeGitHub:
             def __init__(self):
-                self.entries = [
-                    Cache(
-                        1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900
-                    )
-                ]
+                self.entries = [Cache(1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900)]
                 self.deletions = []
 
             def caches(self):
@@ -535,9 +515,7 @@ class CookCacheRetentionTests(unittest.TestCase):
 
             def delete_cache(self, cache_id):
                 self.deletions.append(cache_id)
-                self.entries = [
-                    entry for entry in self.entries if entry.cache_id != cache_id
-                ]
+                self.entries = [entry for entry in self.entries if entry.cache_id != cache_id]
                 return True
 
         api = FakeGitHub()
@@ -548,18 +526,14 @@ class CookCacheRetentionTests(unittest.TestCase):
 
     def test_versions_and_budget_use_gib_units(self):
         self.assertEqual(version_tuple("v0.9.23"), (0, 9, 23))
-        self.assertEqual(
-            cache_version("cook-base-v2-linux-x64-soldrv0.9.23-xlinux"), "0.9.23"
-        )
+        self.assertEqual(cache_version("cook-base-v2-linux-x64-soldrv0.9.23-xlinux"), "0.9.23")
         self.assertEqual(BUDGET_BYTES, 10_200_547_328)
 
     def test_prune_deletes_only_obsolete_and_disabled_main_cook_bases(self):
         class FakeGitHub:
             def __init__(self):
                 self.entries = [
-                    Cache(
-                        1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900
-                    ),
+                    Cache(1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900),
                     Cache(
                         2,
                         "cook-base-v2-linux-x64-soldrv0.9.23-xlinux",
@@ -590,9 +564,7 @@ class CookCacheRetentionTests(unittest.TestCase):
                 return list(self.entries)
 
             def delete_cache(self, cache_id):
-                self.entries = [
-                    entry for entry in self.entries if entry.cache_id != cache_id
-                ]
+                self.entries = [entry for entry in self.entries if entry.cache_id != cache_id]
                 return True
 
             def usage_bytes(self):
@@ -681,9 +653,7 @@ class CookCacheRetentionTests(unittest.TestCase):
 
             def delete_cache(self, cache_id):
                 self.deleted.append(cache_id)
-                self.entries = [
-                    entry for entry in self.entries if entry.cache_id != cache_id
-                ]
+                self.entries = [entry for entry in self.entries if entry.cache_id != cache_id]
                 return True
 
             def usage_bytes(self):
@@ -699,9 +669,7 @@ class CookCacheRetentionTests(unittest.TestCase):
 
         self.assertEqual(api.deleted, [1, 3, 8])
         self.assertEqual((deleted, reclaimed), (3, 390))
-        self.assertEqual(
-            {entry.cache_id for entry in api.entries}, {2, 4, 5, 6, 7, 9, 10}
-        )
+        self.assertEqual({entry.cache_id for entry in api.entries}, {2, 4, 5, 6, 7, 9, 10})
 
     def test_prune_keeps_unique_generation_when_no_same_shape_replacement_exists(self):
         class FakeGitHub:
@@ -749,18 +717,14 @@ class CookCacheRetentionTests(unittest.TestCase):
         from urllib.error import HTTPError
 
         api = GitHub("zackees/kernal-api", "test-token")
-        missing = HTTPError(
-            "https://api.github.com/cache/1", 404, "Not Found", None, None
-        )
+        missing = HTTPError("https://api.github.com/cache/1", 404, "Not Found", None, None)
         with patch("ci.prune_obsolete_cook_caches.urlopen", side_effect=missing):
             self.assertFalse(api.delete_cache(1))
 
         class ConcurrentGitHub:
             def __init__(self):
                 self.entries = [
-                    Cache(
-                        1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900
-                    ),
+                    Cache(1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900),
                     Cache(
                         2,
                         "cook-base-v2-linux-x64-soldrv0.9.23-xlinux",
@@ -776,9 +740,7 @@ class CookCacheRetentionTests(unittest.TestCase):
 
             def delete_cache(self, cache_id):
                 # Another cleanup already deleted the candidate after our snapshot.
-                self.entries = [
-                    entry for entry in self.entries if entry.cache_id != cache_id
-                ]
+                self.entries = [entry for entry in self.entries if entry.cache_id != cache_id]
                 return False
 
             def usage_bytes(self):
@@ -822,9 +784,7 @@ class CookCacheRetentionTests(unittest.TestCase):
                 polls=1,
                 interval=0,
             )
-        self.assertEqual(
-            (usage, endpoint, listed), (BUDGET_BYTES + 1, BUDGET_BYTES + 1, 10)
-        )
+        self.assertEqual((usage, endpoint, listed), (BUDGET_BYTES + 1, BUDGET_BYTES + 1, 10))
 
     def test_live_budget_fails_when_either_source_exceeds_cap(self):
         from unittest.mock import patch
@@ -869,9 +829,7 @@ class CookCacheRetentionTests(unittest.TestCase):
                     "refs/heads/main",
                     10,
                 )
-                self.stale = Cache(
-                    1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900
-                )
+                self.stale = Cache(1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900)
 
             def caches(self):
                 self.read_count += 1
@@ -978,16 +936,12 @@ class CookCacheRetentionTests(unittest.TestCase):
         self.assertEqual(api.read_count, 3)
 
     def test_cleanup_job_runs_after_all_producers_and_uses_their_soldr_version(self):
-        workflow = (
-            Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
-        ).read_text()
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
 
         guards = (Path(__file__).resolve().parents[1] / "ci/linux_steps.py").read_text()
         self.assertIn("ci/linux_steps.py ci-guards", workflow)
         self.assertIn('"ci.test_prune_obsolete_cook_caches"', guards)
-        self.assertIn(
-            "soldr_version: ${{ steps.setup_soldr.outputs.soldr-version }}", workflow
-        )
+        self.assertIn("soldr_version: ${{ steps.setup_soldr.outputs.soldr-version }}", workflow)
         self.assertIn("needs: [linux, build, test, dylints, full-coverage]", workflow)
         self.assertIn("github.event_name == 'push'", workflow)
         self.assertIn("github.ref == 'refs/heads/main'", workflow)
@@ -1035,31 +989,17 @@ class CookCacheRetentionTests(unittest.TestCase):
                 "2026-09-01T00:00",
             ),
         ]
+        self.assertEqual(over_budget_orphaned_lock_caches(caches, current, set(), budget=20), [])
         self.assertEqual(
-            over_budget_orphaned_lock_caches(caches, current, set(), budget=20), []
-        )
-        self.assertEqual(
-            [
-                c.cache_id
-                for c in over_budget_orphaned_lock_caches(
-                    caches, current, set(), budget=16
-                )
-            ],
+            [c.cache_id for c in over_budget_orphaned_lock_caches(caches, current, set(), budget=16)],
             [2],
         )
         self.assertEqual(
-            [
-                c.cache_id
-                for c in over_budget_orphaned_lock_caches(
-                    caches, current, set(), budget=1
-                )
-            ],
+            [c.cache_id for c in over_budget_orphaned_lock_caches(caches, current, set(), budget=1)],
             [2, 1],
         )
         # Entries already chosen by another rule count as reclaimed.
-        self.assertEqual(
-            over_budget_orphaned_lock_caches(caches, current, {2}, budget=16), []
-        )
+        self.assertEqual(over_budget_orphaned_lock_caches(caches, current, {2}, budget=16), [])
 
 
 if __name__ == "__main__":

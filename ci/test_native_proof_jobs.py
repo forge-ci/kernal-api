@@ -211,9 +211,7 @@ class NativeProofJobsTests(unittest.TestCase):
 
     def test_compiler_and_screenshot_proofs_keep_separate_budgets(self):
         compiler = self.step("test", "Run actual Core and Component compiler-policy guest proofs")
-        screenshot = self.step(
-            "test", "Run offline native Wasm screenshot, admission, and worker containment proofs"
-        )
+        screenshot = self.step("test", "Run offline native Wasm screenshot, admission, and worker containment proofs")
         self.assertIn("timeout-minutes: 20", compiler)
         self.assertIn("timeout-minutes: 30", screenshot)
 
@@ -293,8 +291,12 @@ class NativeProofJobsTests(unittest.TestCase):
         self.assertIn("ci/linux_steps.py ci-guards", self.job("linux"))
         guards = self.script("linux_steps.py")
         for module in (
-            "ci.test_native_proof", "ci.test_native_proof_jobs", "ci.test_nextest_config",
-            "ci.test_deny_warnings", "ci.test_build_guest", "ci.test_workflow_steps",
+            "ci.test_native_proof",
+            "ci.test_native_proof_jobs",
+            "ci.test_nextest_config",
+            "ci.test_deny_warnings",
+            "ci.test_build_guest",
+            "ci.test_workflow_steps",
         ):
             with self.subTest(module=module):
                 self.assertIn(f'"{module}"', guards)
@@ -391,7 +393,6 @@ class NativeProofJobsTests(unittest.TestCase):
         # Every prepare runs on Linux (#273), so no job may carry a conditional
         # cache switch: one would mean a lane moved back to a Windows prepare.
         self.assertEqual(re.findall(r"(?m)^\s+cache: (\$\{\{.*\}\})", text), [])
-
 
     def test_dylints_runs_one_pinned_linux_workspace_pass(self):
         """One required Dylint pass uses the matching published nightly."""
