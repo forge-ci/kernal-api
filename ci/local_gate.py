@@ -23,7 +23,7 @@ else:
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ".github/workflows/ci.yml"
-CI_LINT = "ci-lint @ git+https://github.com/zackees/ci.yml@29087cb90ddebb84cd5f4b2e0f85380e76c743e5"
+CI_LINT = "ci-lint @ git+https://github.com/forge-ci/ci.yml@6de2d6f84297e3dc16b4001da1a61a9459c38b18"
 
 
 def bosn_command(*arguments: str) -> list[str]:
@@ -255,7 +255,8 @@ def main() -> None:
             "--json",
         )
     )
-    run_id = submitted.get("run")
+    # bosn >= 0.1.2x returns the run record, keyed by "id".
+    run_id = submitted.get("run", submitted.get("id"))
     if not isinstance(run_id, str) or not run_id:
         raise ValueError("bosn did not return a run ID")
     print(f"bosn local gate run: {run_id}", flush=True)
