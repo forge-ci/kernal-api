@@ -548,6 +548,18 @@ impl InheritedListener {
     }
 }
 
+/// Run one async IPC operation against a timeout, reporting expiry as
+/// [`io::ErrorKind::TimedOut`].
+#[cfg(feature = "ipc-async")]
+async fn within<T>(
+    timeout: std::time::Duration,
+    operation: impl std::future::Future<Output = io::Result<T>>,
+) -> io::Result<T> {
+    crate::async_engine::timeout(timeout, operation)
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "IPC operation did not finish within its timeout"))?
+}
+
 #[cfg(feature = "ipc-async")]
 pub struct AsyncStream(pub(crate) interprocess::local_socket::tokio::Stream);
 
@@ -557,6 +569,31 @@ impl AsyncStream {
         interprocess::local_socket::tokio::Stream::connect(name(endpoint.display())?)
             .await
             .map(Self)
+    }
+
+    /// [`Self::connect`], failing with [`io::ErrorKind::TimedOut`] if the
+    /// connection is not established within `timeout`.
+    pub async fn connect_within(endpoint: &Endpoint, timeout: std::time::Duration) -> io::Result<Self> {
+        within(timeout, Self::connect(endpoint)).await
+    }
+
+    /// [`Self::read`], failing with [`io::ErrorKind::TimedOut`] if no bytes
+    /// arrive within `timeout`.
+    pub async fn read_within(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
+        within(timeout, self.read(buffer)).await
+    }
+
+    /// [`Self::read_exact`] within `timeout`. On expiry the bytes already read
+    /// into `buffer` are consumed from the stream and the error is
+    /// [`io::ErrorKind::TimedOut`].
+    pub async fn read_exact_within(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
+        within(timeout, self.read_exact(buffer)).await
+    }
+
+    /// [`Self::write_all`] within `timeout`. On expiry part of `bytes` may
+    /// already have been written and the error is [`io::ErrorKind::TimedOut`].
+    pub async fn write_all_within(&mut self, bytes: &[u8], timeout: std::time::Duration) -> io::Result<()> {
+        within(timeout, self.write_all(bytes)).await
     }
 
     pub fn peer_identity(&self) -> io::Result<PeerIdentity> {

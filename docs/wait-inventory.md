@@ -87,7 +87,7 @@ peer blocks them forever. Accept-side waits are service-lifetime listeners.
 | `platform::ipc::Stream` `Read` | yes | optional (`set_recv_timeout`, default `None`) | Bound by default or require one. |
 | `platform::ipc::Stream` `Write` / `flush` | yes | unbounded; the transport exposes only a receive timeout | A write budget. |
 | `platform::ipc::Stream::transfer_to_backend` | yes | non-blocking on Linux (`MSG_DONTWAIT`); Windows not yet checked | Confirm on Windows. |
-| `AsyncStream::connect`, `read`, `read_exact`, `write_all`, `flush`, `shutdown`, and the `AsyncReadHalf` / `AsyncWriteHalf` forms | no | unbounded; callers may wrap them in `async_engine::timeout` | `_within` forms, then migrate callers. |
+| `AsyncStream::connect`, `read`, `read_exact`, `write_all`, `flush`, `shutdown`, and the `AsyncReadHalf` / `AsyncWriteHalf` forms | no | unbounded; bounded `AsyncStream::connect_within`, `read_within`, `read_exact_within`, `write_all_within` exist (`TimedOut`) | Bound `flush`, `shutdown` and the split halves; migrate callers. |
 | `LocalSocketStream::connect` (owner-only) | no | unbounded; callers own deadlines | A connect budget. |
 | `LocalPipeClient::open` (Windows) | yes (one syscall) | bounded by design: pipe-busy is returned, not waited on | None. |
 | `legacy_send_fd_to` | yes | connect unbounded (send is non-blocking) | Bound the connect or remove the deprecated function. |
