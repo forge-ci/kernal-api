@@ -253,13 +253,16 @@ jobs:
         env:
           CARGO_HOME: ${{ runner.temp }}/kernal-boundary-scan-cargo
         # The lint's own rust-toolchain.toml is the one Dylint nightly pin.
-        # Run from the lint crate so its .cargo/config.toml applies (RUST-016).
-        working-directory: dylints/kernal_api_platform_boundary
+        # Deliberately NOT run from the lint crate: its .cargo/config.toml sets
+        # `linker = dylint-link`, which this scan job does not install, so every
+        # build script fails to link. The scan is plain lib unit tests and
+        # needs no Dylint linker.
         run: |
-          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' \
+            dylints/kernal_api_platform_boundary/rust-toolchain.toml)"
           soldr rustup toolchain install "$toolchain" --profile minimal \
             --component rustc-dev,llvm-tools-preview,rust-src
-          soldr rustup run "$toolchain" cargo test --locked --lib -- --skip ui
+          soldr rustup run "$toolchain" cargo test --locked --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib -- --skip ui  # ci-lint: allow RUST-016 lib unit tests only; the crate's config.toml dylint-link linker is not installed in this job
       - name: Check the Dylint libraries' formatting
         if: needs.verify.outputs.reuse != 'true'
         run: |
