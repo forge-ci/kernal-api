@@ -83,7 +83,7 @@ peer blocks them forever. Accept-side waits are service-lifetime listeners.
 | `broker_v2::negotiate` | yes | bounded (`deadline`) | None. |
 | `broker_v2::Connection` `Read` | yes | optional (`set_read_timeout`, default `None`) | Bound by default or require one. |
 | `broker_v2::Connection` `Write` | yes | unbounded; no send timeout | A write budget. |
-| `platform::ipc::Stream::connect` | yes | unbounded; on Windows the local-socket layer waits on a busy pipe without limit | A connect budget. |
+| `platform::ipc::Stream::connect` | yes | unbounded; on Windows the local-socket layer waits on a busy pipe without limit; bounded `Stream::connect_within(endpoint, timeout)` exists (`TimedOut`) | Use it in `broker_v2` and `broker_client`, then migrate callers. |
 | `platform::ipc::Stream` `Read` | yes | optional (`set_recv_timeout`, default `None`) | Bound by default or require one. |
 | `platform::ipc::Stream` `Write` / `flush` | yes | unbounded; the transport exposes only a receive timeout | A write budget. |
 | `platform::ipc::Stream::transfer_to_backend` | yes | non-blocking on Linux (`MSG_DONTWAIT`); Windows not yet checked | Confirm on Windows. |

@@ -10,7 +10,7 @@ use interprocess::local_socket::prelude::*;
 #[cfg(feature = "ipc-async")]
 use interprocess::local_socket::tokio::prelude::*;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, PeerCreds, ToFsName};
-use interprocess::TryClone;
+use interprocess::{ConnectWaitMode, TryClone};
 #[cfg(feature = "ipc-async")]
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -185,6 +185,16 @@ impl std::fmt::Debug for Stream {
 impl Stream {
     pub fn connect(endpoint: &Endpoint) -> io::Result<Self> {
         interprocess::local_socket::Stream::connect(name(endpoint.display())?).map(Self)
+    }
+
+    /// Connect, waiting at most `timeout` for the listener to take the
+    /// connection; returns [`io::ErrorKind::TimedOut`] on expiry.
+    pub fn connect_within(endpoint: &Endpoint, timeout: std::time::Duration) -> io::Result<Self> {
+        interprocess::local_socket::ConnectOptions::new()
+            .name(name(endpoint.display())?)
+            .wait_mode(ConnectWaitMode::Timeout(timeout))
+            .connect_sync()
+            .map(Self)
     }
 
     pub fn try_clone(&self) -> io::Result<Self> {
