@@ -121,3 +121,31 @@ fn blocking_lock_serves_synchronous_threads() {
     }
     assert_eq!(*lock.blocking_lock(), 4);
 }
+
+#[tokio::test(start_paused = true)]
+async fn bounded_lock_times_out_while_held_and_succeeds_once_released() {
+    use kernal_api::async_engine::LockTimedOut;
+    use std::time::Duration;
+
+    let lock = Arc::new(Mutex::new(0_u32));
+    let held = lock.lock().await;
+    let start = tokio::time::Instant::now();
+    assert!(matches!(
+        lock.lock_within(Duration::from_secs(2)).await,
+        Err(LockTimedOut)
+    ));
+    assert!(matches!(
+        Arc::clone(&lock)
+            .lock_owned_within(Duration::from_secs(1))
+            .await,
+        Err(LockTimedOut)
+    ));
+    assert_eq!(start.elapsed(), Duration::from_secs(3));
+    drop(held);
+    *lock.lock_within(Duration::ZERO).await.unwrap() += 1;
+    let owned = Arc::clone(&lock)
+        .lock_owned_within(Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(*owned, 1);
+}

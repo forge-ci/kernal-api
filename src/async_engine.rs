@@ -679,6 +679,12 @@ pub async fn timeout_at<F: Future>(
         .map_err(|_| DeadlineElapsed)
 }
 
+/// A bounded [`Mutex`] or [`RwLock`] acquisition expired before the lock
+/// became available.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the kernal-api lock was not acquired before the timeout")]
+pub struct LockTimedOut;
+
 /// The configured deadline elapsed before an operation completed.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("the kernal-api async operation exceeded its deadline")]
