@@ -84,3 +84,23 @@ async fn broadcast_receive_times_out_and_keeps_lag_and_closure() {
         Err(BroadcastRecvTimeoutError::Closed)
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn oneshot_receive_times_out_and_stays_usable() {
+    let (sender, mut receiver) = async_engine::oneshot_channel::<u8>();
+    let start = tokio::time::Instant::now();
+    assert_eq!(
+        receiver.recv_within(Duration::from_secs(2)).await,
+        Err(RecvTimeoutError::TimedOut)
+    );
+    assert_eq!(start.elapsed(), Duration::from_secs(2));
+    sender.send(7).unwrap();
+    assert_eq!(receiver.recv_within(Duration::ZERO).await, Ok(7));
+
+    let (sender, mut receiver) = async_engine::oneshot_channel::<u8>();
+    drop(sender);
+    assert_eq!(
+        receiver.recv_within(Duration::from_secs(1)).await,
+        Err(RecvTimeoutError::Disconnected)
+    );
+}

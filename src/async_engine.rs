@@ -1647,6 +1647,22 @@ impl<T> OneshotReceiver<T> {
             tokio::sync::oneshot::error::TryRecvError::Closed => TryRecvError::Disconnected,
         })
     }
+
+    /// Wait at most `timeout` for the value. An expired wait consumes
+    /// nothing, so the receiver can wait again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RecvTimeoutError::Disconnected`] if the [`OneshotSender`] was
+    /// dropped without sending, or [`RecvTimeoutError::TimedOut`] if nothing
+    /// arrived in time. Requires a runtime with its timer enabled.
+    pub async fn recv_within(&mut self, timeout: Duration) -> Result<T, RecvTimeoutError> {
+        match self::timeout(timeout, &mut self.inner).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(_)) => Err(RecvTimeoutError::Disconnected),
+            Err(_) => Err(RecvTimeoutError::TimedOut),
+        }
+    }
 }
 
 impl<T> Future for OneshotReceiver<T> {
