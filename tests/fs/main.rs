@@ -7,6 +7,7 @@
 
 // Aliased: the category also has a `readiness_marker` test module.
 mod blake3_facade;
+mod bounded_file_lock;
 mod context_file_observation;
 mod directory_cursor;
 mod directory_walk_parallelism;
