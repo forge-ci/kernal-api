@@ -1120,11 +1120,11 @@ jobs:
           lanes=(workspace-dylint)
           if [ "${RUN_LINT_LIBRARY_TESTS}" = true ]; then
             lanes=(facade-boundary-tests platform-boundary-tests workspace-dylint)
-            soldr rustup run "$DYLINT_TOOLCHAIN" cargo test \
-              --manifest-path dylints/kernal_api_boundary/Cargo.toml \
+            # Run from the crate so its .cargo/config.toml applies (RUST-016).
+            (cd dylints/kernal_api_boundary && soldr rustup run "$DYLINT_TOOLCHAIN" cargo test) \
               >"$logs/facade-boundary-tests.log" 2>&1 & pids[facade-boundary-tests]=$!
-            soldr rustup run "$DYLINT_TOOLCHAIN" cargo test \
-              --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml \
+            # Run from the crate so its .cargo/config.toml applies (RUST-016).
+            (cd dylints/kernal_api_platform_boundary && soldr rustup run "$DYLINT_TOOLCHAIN" cargo test) \
               >"$logs/platform-boundary-tests.log" 2>&1 & pids[platform-boundary-tests]=$!
           fi
           soldr cargo dylint --all --workspace -- --all-features --all-targets \
