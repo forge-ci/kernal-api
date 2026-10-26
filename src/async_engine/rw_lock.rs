@@ -91,6 +91,34 @@ impl<T> RwLock<T> {
         }
     }
 
+    /// Acquire an owned shared guard, waiting at most `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::read_within`].
+    pub async fn read_owned_within(
+        self: Arc<Self>,
+        timeout: std::time::Duration,
+    ) -> Result<OwnedRwLockReadGuard<T>, super::LockTimedOut> {
+        super::timeout(timeout, self.read_owned())
+            .await
+            .map_err(|_| super::LockTimedOut)
+    }
+
+    /// Acquire an owned exclusive guard, waiting at most `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::read_within`].
+    pub async fn write_owned_within(
+        self: Arc<Self>,
+        timeout: std::time::Duration,
+    ) -> Result<OwnedRwLockWriteGuard<T>, super::LockTimedOut> {
+        super::timeout(timeout, self.write_owned())
+            .await
+            .map_err(|_| super::LockTimedOut)
+    }
+
     /// Block this thread until a shared guard is available.
     ///
     /// # Panics

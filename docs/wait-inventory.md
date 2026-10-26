@@ -27,7 +27,7 @@ Status key:
 | `Notify::notified`, `owned_notified` | no | unbounded | Bounded wait. |
 | `Mutex::lock`, `lock_owned` (`mutex.rs`) | no | unbounded; hands out guards that cross `.await`; bounded `lock_within` / `lock_owned_within` (`LockTimedOut`) exist | Acquisition budget done; still needed: state callbacks returning owned data, opaque permits for exclusion across `.await`, hold watchdog, removal of the unbounded forms. |
 | `Mutex::blocking_lock` | yes | unbounded | Same, with a hold watchdog. |
-| `RwLock::read`, `write`, `read_owned`, `write_owned` (`rw_lock.rs`) | no | unbounded; hands out guards; bounded `read_within` / `write_within` (`LockTimedOut`) exist | As `Mutex`; owned bounded forms still to add. |
+| `RwLock::read`, `write`, `read_owned`, `write_owned` (`rw_lock.rs`) | no | unbounded; hands out guards; bounded `read_within` / `write_within` / `read_owned_within` / `write_owned_within` (`LockTimedOut`) exist | As `Mutex`. |
 | `RwLock::blocking_read`, `blocking_write` | yes | unbounded | Same, with a hold watchdog. |
 | `wait_for_interrupt`, `InterruptSignal::wait`, signal `recv` | no | unbounded by design | Classify as a service-lifetime listener. |
 | `sleep`, `sleep_until`, `Interval::tick` | no | bounded | none |

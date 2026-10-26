@@ -139,3 +139,42 @@ async fn bounded_read_and_write_time_out_against_the_opposite_holder() {
     drop(writer);
     assert_eq!(*lock.read_within(Duration::ZERO).await.unwrap(), 5);
 }
+
+#[tokio::test(start_paused = true)]
+async fn bounded_owned_guards_time_out_against_the_opposite_holder() {
+    use kernal_api::async_engine::LockTimedOut;
+
+    let lock = Arc::new(RwLock::new(1_u32));
+    let reader = Arc::clone(&lock)
+        .read_owned_within(Duration::ZERO)
+        .await
+        .unwrap();
+    let start = tokio::time::Instant::now();
+    assert!(matches!(
+        Arc::clone(&lock)
+            .write_owned_within(Duration::from_secs(2))
+            .await,
+        Err(LockTimedOut)
+    ));
+    assert_eq!(start.elapsed(), Duration::from_secs(2));
+    drop(reader);
+    let mut writer = Arc::clone(&lock)
+        .write_owned_within(Duration::ZERO)
+        .await
+        .unwrap();
+    *writer += 1;
+    assert!(matches!(
+        Arc::clone(&lock)
+            .read_owned_within(Duration::from_secs(1))
+            .await,
+        Err(LockTimedOut)
+    ));
+    drop(writer);
+    assert_eq!(
+        *Arc::clone(&lock)
+            .read_owned_within(Duration::ZERO)
+            .await
+            .unwrap(),
+        2
+    );
+}
