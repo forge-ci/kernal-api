@@ -103,7 +103,7 @@ def apt_background_plan(packages: list[str]) -> tuple[list[list[list[str]]], lis
     sources off the Azure mirror and updates again before fetching.
     """
     update, install = apt_commands(packages, APT_RESILIENCE)
-    download = capped(APT_DOWNLOAD_SECONDS, [*install, "--download-only"])
+    fetch = capped(APT_DOWNLOAD_SECONDS, [*install, "--download-only"])
     capped_update = capped(APT_UPDATE_SECONDS, update)
     switch_mirror = [
         "sudo",
@@ -115,8 +115,8 @@ def apt_background_plan(packages: list[str]) -> tuple[list[list[list[str]]], lis
         f" | xargs -r sed -i 's/azure\\.archive\\.ubuntu\\.com/{APT_FALLBACK_MIRROR}/g'",
     ]
     downloads = [
-        [capped_update, download],
-        [switch_mirror, capped_update, download],
+        [capped_update, fetch],
+        [switch_mirror, capped_update, fetch],
     ]
     finish = [
         ["sudo", "timeout", str(APT_CONFIGURE_SECONDS), "dpkg", "--configure", "-a"],
