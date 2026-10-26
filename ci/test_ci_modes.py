@@ -72,11 +72,13 @@ class ModeTests(unittest.TestCase):
         # sentinel job that waits for a runner after Dylint finishes.
         self.assertNotIn("  dylint-coverage:", text)
         dylints = re.search(r"(?ms)^  dylints:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
-        # Only a valid per-job attestation may suppress this job. The trust
-        # policy forces extended/full labels to execute it remotely.
+        # Only a valid per-job attestation may suppress this job on a PR or a
+        # queue run; the trust policy forces extended/full labels to execute it
+        # remotely. A main push skips it (GEN-022 step 6, forge-ci/ci.yml#432):
+        # the queue proved the tree and `dylint-cache-writer` runs the pass.
         self.assertEqual(
             re.findall(r"(?m)^    if: (.*)$", dylints),
-            ["needs.verify.outputs.skip_dylints != 'true'"],
+            ["needs.verify.outputs.skip_dylints != 'true' && github.event_name != 'push'"],
         )
         self.assertNotIn("matrix:", dylints)
         self.assertIn("run: python3 ci/dylint_steps.py lanes", dylints)

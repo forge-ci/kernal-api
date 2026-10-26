@@ -18,10 +18,6 @@ VERIFY = ReplayJob(
         "Checkout pinned ci-lint",
         "Set up uv",
         "Verify local gate attestation",
-        # Unconditional in the workflow: `reuse-check` declines anything that is
-        # not a push to the default branch at its first precondition, so it is a
-        # real (if trivially passing) step in PR replay.
-        "Verified default-branch reuse",
     ),
 )
 LINUX = ReplayJob(
