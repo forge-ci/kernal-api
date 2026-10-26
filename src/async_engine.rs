@@ -1250,22 +1250,41 @@ impl<T> Sender<T> {
     }
 
     /// Send from a synchronous producer, parking this thread until capacity is
-    /// available. No runtime is created, and the bounded queue is unchanged.
-    ///
-    /// There is no independent timeout. The consumer must close or drop the
-    /// receiver to wake waiting producers when cancelling its work.
+    /// available or `timeout` elapses. No runtime is created, and the bounded
+    /// queue is unchanged. An expired wait keeps no reservation.
     ///
     /// # Errors
     ///
-    /// Returns the unsent value if the receiver closes or is dropped, or if
-    /// this thread has entered a runtime. Use [`Self::send`] inside a runtime.
-    pub fn blocking_send(&self, value: T) -> Result<(), BlockingSendError<T>> {
+    /// Returns the unsent value if the receiver closes or is dropped, if
+    /// `timeout` elapses first, or if this thread has entered a runtime. Use
+    /// [`Self::send`] inside a runtime.
+    pub fn blocking_send(&self, value: T, timeout: Duration) -> Result<(), BlockingSendError<T>> {
         if RuntimeHandle::current().is_ok() {
             return Err(BlockingSendError::AsyncContext(value));
         }
-        self.inner
-            .blocking_send(value)
-            .map_err(|error| BlockingSendError::Closed(error.0))
+        let started = std::time::Instant::now();
+        // Poll one reservation future and park between polls, as Tokio's own
+        // `blocking_send` does, but against a deadline. An unpark that lands
+        // before the park is kept by the thread token, so no wakeup is lost.
+        let waker = std::task::Waker::from(Arc::new(ThreadWaker(std::thread::current())));
+        let mut context = Context::from_waker(&waker);
+        let mut reserve = std::pin::pin!(self.inner.reserve());
+        loop {
+            match reserve.as_mut().poll(&mut context) {
+                Poll::Ready(Ok(permit)) => {
+                    permit.send(value);
+                    return Ok(());
+                }
+                Poll::Ready(Err(_)) => return Err(BlockingSendError::Closed(value)),
+                Poll::Pending => {
+                    let elapsed = started.elapsed();
+                    if elapsed >= timeout {
+                        return Err(BlockingSendError::TimedOut(value));
+                    }
+                    std::thread::park_timeout(timeout - elapsed);
+                }
+            }
+        }
     }
 
     /// Send a value without waiting for capacity.
@@ -1429,6 +1448,22 @@ pub enum BlockingSendError<T> {
     /// Blocking is forbidden on a thread that has entered a runtime.
     #[error("blocking channel send cannot run inside a runtime")]
     AsyncContext(T),
+    /// No capacity became available before the timeout.
+    #[error("the kernal-api channel stayed full until the send timed out")]
+    TimedOut(T),
+}
+
+/// Unparks the synchronous sender's thread when its reservation can progress.
+struct ThreadWaker(std::thread::Thread);
+
+impl std::task::Wake for ThreadWaker {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
 }
 
 /// A value could not be sent through a bounded channel without waiting.
