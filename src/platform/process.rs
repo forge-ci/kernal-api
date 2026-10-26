@@ -1006,6 +1006,30 @@ pub enum StdioSource<'a> {
     Pipe,
 }
 
+/// Poll `try_wait` with capped backoff until it reports an exit or `timeout`
+/// elapses.
+fn wait_within(
+    timeout: std::time::Duration,
+    mut try_wait: impl FnMut() -> std::io::Result<Option<i32>>,
+) -> std::io::Result<i32> {
+    let started = std::time::Instant::now();
+    let mut pause = std::time::Duration::from_millis(1);
+    loop {
+        if let Some(code) = try_wait()? {
+            return Ok(code);
+        }
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "child did not exit within its timeout",
+            ));
+        }
+        std::thread::sleep(pause.min(timeout - elapsed));
+        pause = (pause * 2).min(std::time::Duration::from_millis(20));
+    }
+}
+
 /// Handle for a detached child that is not terminated when dropped.
 pub struct DaemonChild {
     pub(crate) pid: u32,
@@ -1034,6 +1058,14 @@ impl DaemonChild {
     /// Wait for the child and return its numeric exit code.
     pub fn wait(&mut self) -> std::io::Result<i32> {
         self.inner.wait()
+    }
+
+    /// Wait at most `timeout` for the child and return its numeric exit code.
+    ///
+    /// Returns [`std::io::ErrorKind::TimedOut`] if the child is still running
+    /// when the timeout elapses; the child is left running and unreaped.
+    pub fn wait_within(&mut self, timeout: std::time::Duration) -> std::io::Result<i32> {
+        wait_within(timeout, || self.inner.try_wait())
     }
 
     /// Return the exit code if the child has finished without blocking.
@@ -1102,6 +1134,14 @@ impl SpawnedChild {
     /// Wait for the child and return its numeric exit code.
     pub fn wait(&mut self) -> std::io::Result<i32> {
         self.inner.wait()
+    }
+
+    /// Wait at most `timeout` for the child and return its numeric exit code.
+    ///
+    /// Returns [`std::io::ErrorKind::TimedOut`] if the child is still running
+    /// when the timeout elapses; the child is left running and unreaped.
+    pub fn wait_within(&mut self, timeout: std::time::Duration) -> std::io::Result<i32> {
+        wait_within(timeout, || self.inner.try_wait())
     }
 
     /// Return the exit code if the child has finished without blocking.

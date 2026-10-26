@@ -41,7 +41,7 @@ Status key:
 | `PlatformChild::wait`, `kill` (`src/lib.rs`) | no | unbounded; bounded `wait_within(timeout)` exists (`TimedOut`, child left running and killable) | Migrate callers, bound `kill`'s reap, then remove the unbounded `wait`. |
 | `PlatformChild::wait_with_output_bounded` | no | output bounded, time unbounded (waits for natural exit and EOF) | A time budget; stalled-child and descendant-held-pipe policy. |
 | `ProcessSession` post-exit drain | no | optional (`ProcessPostExitDrain::WaitForEof` vs `AbandonAfter`) | Remove the unbounded default from ordinary product use. |
-| `platform::process::DaemonChild::wait`, `SpawnedChild::wait` | yes | unbounded | Bounded wait. `try_wait` already exists. |
+| `platform::process::DaemonChild::wait`, `SpawnedChild::wait` | yes | unbounded; bounded `wait_within` (polls `try_wait`, `TimedOut`, child left running) exists | Migrate callers, then remove the unbounded form. |
 | `sync_spawn_group::SpawnedInner::wait` (Unix) | yes | unbounded, but the child lock is no longer held while blocked | **fixed** (#448): `kill` is no longer blocked by a concurrent `wait`. A time budget is still required. |
 | `platform_win::sync_spawn` `wait` | yes | unbounded | Bounded wait. |
 | `SpawnHandle::wait(timeout, cancelled)` (`independent_spawn.rs`) | yes | bounded | none |
