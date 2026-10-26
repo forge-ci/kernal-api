@@ -96,7 +96,7 @@ fn build_resources_is_an_opt_in_feature_of_the_one_package() {
     );
 }
 
-fn rust_sources(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn rust_sources(root: &Path) -> Vec<PathBuf> {
     let mut pending = vec![root.to_path_buf()];
     let mut sources = Vec::new();
     while let Some(directory) = pending.pop() {
