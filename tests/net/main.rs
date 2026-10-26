@@ -8,6 +8,7 @@
 mod archive_facade;
 mod async_biased_race;
 mod async_blocking_channel;
+mod async_bounded_channel;
 mod async_broadcast;
 mod async_fair_race;
 mod async_mutex;
