@@ -43,7 +43,9 @@ def verify_checks(raw: JsonValue, workspace: Path, sha: str, git_tree: str, job:
     if job not in {"linux", "dylints"}:
         raise ValueError("unknown minimal replay job")
     expected = ReplayExpectation(
-        repository="zackees/kernal-api", workspace=workspace,
+        # The record names the checkout's origin; either spelling is this repository (#436).
+        repository="forge-ci/kernal-api", repository_aliases=("zackees/kernal-api",),
+        workspace=workspace,
         sha=sha, git_tree=git_tree, workflow=".github/workflows/ci.yml",
         selected_job=job, mode="minimal",
         required_jobs=(VERIFY, LINUX if job == "linux" else DYLINT),

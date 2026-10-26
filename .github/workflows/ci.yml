@@ -73,7 +73,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 81892aaffe35fce54355b02f70de647153c55e45
+          ref: dc6fff550ddb3e538457e41b90cf8eb74695cda0
           path: .ci-lint
           persist-credentials: false
       - name: Set up uv
@@ -175,7 +175,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 81892aaffe35fce54355b02f70de647153c55e45
+          ref: dc6fff550ddb3e538457e41b90cf8eb74695cda0
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -1016,7 +1016,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 81892aaffe35fce54355b02f70de647153c55e45
+          ref: dc6fff550ddb3e538457e41b90cf8eb74695cda0
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -1248,7 +1248,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: 81892aaffe35fce54355b02f70de647153c55e45
+          ref: dc6fff550ddb3e538457e41b90cf8eb74695cda0
           path: .ci-lint
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
@@ -1258,5 +1258,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PYTHONPATH: .ci-lint
-        # --default-branch: ci-lint's inference builds a relative API URL.
-        run: uv run --no-project --python 3.12 python -m ci_lint cache janitor --repo . --default-branch main
+        run: uv run --no-project --python 3.12 python -m ci_lint cache janitor --repo .
