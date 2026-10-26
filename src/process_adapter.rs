@@ -299,6 +299,15 @@ pub(crate) fn run_bounded(
     timeout: Option<Duration>,
     output_limit: usize,
 ) -> Result<BoundedProcessOutput, BoundedProcessError> {
+    // A bounded run means a deadline: `None` is kept in the signature only so
+    // existing `Some(budget)` callers compile, and is refused before any
+    // native effect rather than waiting forever on a silent child (#433).
+    if timeout.is_none() {
+        return Err(BoundedProcessError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a bounded run requires a deadline",
+        )));
+    }
     // A bounded run is synchronous and owns no place to park a watcher task,
     // so the one owner it cannot serve is refused instead of being quietly
     // downgraded to the spawner it was not asked to bind to.

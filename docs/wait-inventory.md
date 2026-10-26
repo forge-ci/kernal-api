@@ -37,7 +37,7 @@ Status key:
 
 | API | Blocks a native thread | Status | Required result |
 | --- | --- | --- | --- |
-| `run_bounded_command`, `run_bounded_command_async` (`src/lib.rs`) | yes / lane | optional (`impl Into<Option<Duration>>`, `None` = no deadline) | A required budget. Output is already capped by `output_limit`. |
+| `run_bounded_command`, `run_bounded_command_async` (`src/lib.rs`) | yes / lane | **fixed**: deadline required; `None` is refused with `InvalidInput` before spawning (the signature still takes `impl Into<Option<Duration>>` so `Some(budget)` callers compile) | none |
 | `PlatformChild::wait`, `kill` (`src/lib.rs`) | no | unbounded | Bounded wait. |
 | `PlatformChild::wait_with_output_bounded` | no | output bounded, time unbounded (waits for natural exit and EOF) | A time budget; stalled-child and descendant-held-pipe policy. |
 | `ProcessSession` post-exit drain | no | optional (`ProcessPostExitDrain::WaitForEof` vs `AbandonAfter`) | Remove the unbounded default from ordinary product use. |
