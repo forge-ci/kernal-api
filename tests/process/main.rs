@@ -6,6 +6,7 @@
 //! See AGENTS.md for the rule.
 
 mod ape_launch;
+mod bounded_child_wait;
 mod executable_naming;
 mod foreground_command;
 mod interrupt_notification;
