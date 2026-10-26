@@ -1,0 +1,75 @@
+# Lock, wait, process and IPC inventory
+
+The public and internal wait surface that issue #433 must make bounded.
+Each row records the owner, whether a native thread blocks, the current time
+policy and what the issue requires. Line references are to `main` when this
+file was last updated. Keep the file in step with the code: a slice that
+closes a row updates it in the same PR.
+
+Status key:
+
+- **bounded:** the caller must supply a budget, or the wait is finite by construction.
+- **optional:** a budget exists but `None` means no deadline.
+- **unbounded:** no budget parameter; the wait can last forever.
+- **fixed:** a closed #433 slice.
+
+## Async engine (`src/async_engine.rs`, `src/async_engine/`)
+
+| API | Blocks a native thread | Status | Required result |
+| --- | --- | --- | --- |
+| `Runtime::run` | yes (`block_on`) | unbounded | A deadline or service-lifetime policy on the root future. |
+| `Task<T>: Future`, `join`, `JoinSet::join_next` | no | unbounded | Bounded join or a typed owner lifetime. |
+| `launch_blocking` / `RuntimeHandle::launch_blocking` | lane thread | unbounded | Timing out the await cannot stop the closure. Document that, and bound the closures callers pass. |
+| `Semaphore::acquire`, `acquire_many` | no | unbounded | Acquisition budget; `try_acquire` is already non-blocking. |
+| `Sender::send`, `Receiver::recv` (bounded channel) | no | unbounded | A budget that hands back the unsent value on expiry. |
+| `Sender::blocking_send` | yes | unbounded | A timeout parameter that returns the value on expiry. |
+| `UnboundedReceiver::recv`, `BroadcastReceiver::recv`, `OneshotReceiver: Future` | no | unbounded | Bounded receive or an owner lifetime. |
+| `Notify::notified`, `owned_notified` | no | unbounded | Bounded wait. |
+| `Mutex::lock`, `lock_owned` (`mutex.rs`) | no | unbounded; hands out guards that cross `.await` | State callbacks returning owned data, plus opaque permits for exclusion across `.await`. |
+| `Mutex::blocking_lock` | yes | unbounded | Same, with a hold watchdog. |
+| `RwLock::read`, `write`, `read_owned`, `write_owned` (`rw_lock.rs`) | no | unbounded; hands out guards | Same as `Mutex`. |
+| `RwLock::blocking_read`, `blocking_write` | yes | unbounded | Same, with a hold watchdog. |
+| `wait_for_interrupt`, `InterruptSignal::wait`, signal `recv` | no | unbounded by design | Classify as a service-lifetime listener. |
+| `sleep`, `sleep_until`, `Interval::tick` | no | bounded | none |
+| `timeout`, `timeout_at`, `Deadline`, `cancellable`, `connection_timeout`, `connection_until`, `progress_timeout` | no | bounded | Building blocks the bounded APIs above should use. |
+
+## Process lifecycle
+
+| API | Blocks a native thread | Status | Required result |
+| --- | --- | --- | --- |
+| `run_bounded_command`, `run_bounded_command_async` (`src/lib.rs`) | yes / lane | optional (`impl Into<Option<Duration>>`, `None` = no deadline) | A required budget. Output is already capped by `output_limit`. |
+| `PlatformChild::wait`, `kill` (`src/lib.rs`) | no | unbounded | Bounded wait. |
+| `PlatformChild::wait_with_output_bounded` | no | output bounded, time unbounded (waits for natural exit and EOF) | A time budget; stalled-child and descendant-held-pipe policy. |
+| `ProcessSession` post-exit drain | no | optional (`ProcessPostExitDrain::WaitForEof` vs `AbandonAfter`) | Remove the unbounded default from ordinary product use. |
+| `platform::process::DaemonChild::wait`, `SpawnedChild::wait` | yes | unbounded | Bounded wait. `try_wait` already exists. |
+| `sync_spawn_group::SpawnedInner::wait` (Unix) | yes | unbounded, but the child lock is no longer held while blocked | **fixed** (#448): `kill` is no longer blocked by a concurrent `wait`. A time budget is still required. |
+| `platform_win::sync_spawn` `wait` | yes | unbounded | Bounded wait. |
+| `SpawnHandle::wait(timeout, cancelled)` (`independent_spawn.rs`) | yes | bounded | none |
+
+## File locks (`src/platform/fs.rs`)
+
+| API | Blocks a native thread | Status | Required result |
+| --- | --- | --- | --- |
+| `lock_exclusive`, `lock_shared`, `lock_exclusive_owned`, `lock_shared_owned` | yes (`flock` / `LockFileEx`) | unbounded | An acquisition budget (a `try_lock_*` poll with deadline, or an interruptible wait). |
+| `try_lock_exclusive`, `try_lock_shared` and the `_owned` variants | no | bounded (non-blocking) | none |
+
+## Webview (`src/tauri.rs`)
+
+| API | Blocks a native thread | Status | Required result |
+| --- | --- | --- | --- |
+| `WebviewHandle::wait_until_loaded`, `wait_until_terminal` | no | bounded (required `Duration`) | none |
+| `WebviewHandle::wait_for_terminal` | no | unbounded | Bounded or classified as an owner-lifetime listener. |
+| `ExternalWebviewHost::run` | UI thread | unbounded by design | Event-loop owner; classify as a service-lifetime exception. |
+
+## Internal waits
+
+| Site | Status | Required result |
+| --- | --- | --- |
+| `platform::terminal_input::wait_for_terminal_input_event` | optional (`timeout: Option<Duration>`) | A required budget, or a documented listener exception. |
+| `platform::ipc` and `broker_*` | not yet audited | Inventory the endpoint accept, connect, read and write waits. |
+
+## Enforcement
+
+None of these properties is enforced by a lint yet. The deny-level Dylints
+required by #433 are still outstanding. `kernal_api_boundary` and
+`kernal_api_platform_boundary` enforce placement only.
