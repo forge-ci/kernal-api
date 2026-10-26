@@ -163,7 +163,7 @@ full-labels = ["ci-full", "ci-test"]
 audit-rate = 10
 
 [local.gate.replay]
-repository = "zackees/kernal-api"
+repository = "forge-ci/kernal-api"
 # Match jobs by their qualified identity (`jobID` + matrix), which current bosn
 # reports, rather than by display key.
 qualified = true
