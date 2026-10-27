@@ -32,8 +32,10 @@ from pathlib import Path
 
 try:
     from ci import gha
+    from ci.runner_setup import NEXTEST_VERSION
 except ImportError:  # run as a script: ci/ is sys.path[0]
     import gha
+    from runner_setup import NEXTEST_VERSION
 
 
 def features() -> str:
@@ -60,6 +62,12 @@ def archive_config(target: str) -> Path:
 
 
 def archive(target: str, cross: str) -> int:
+    # Test runners install this exact release to read the archive format.
+    nextest_env = dict(os.environ)
+    nextest_env["SOLDR_FORCE_MANAGED_CARGO_SUBCOMMANDS"] = "1"
+    producer = gha.stdout_of(["soldr", "cargo", "nextest", "--version"], env=nextest_env)
+    if f"release: {NEXTEST_VERSION}" not in producer.splitlines():
+        raise gha.StepError(f"archive producer must be cargo-nextest {NEXTEST_VERSION}; got {producer}")
     target_args = ["--target", cross] if cross else []
     config_args: list[str] = []
     if target.endswith("-pc-windows-msvc"):
@@ -78,7 +86,8 @@ def archive(target: str, cross: str) -> int:
             *config_args,
             "--archive-file",
             f"kernal-tests-{target}.tar.zst",
-        ]
+        ],
+        env=nextest_env,
     )
     return 0
 

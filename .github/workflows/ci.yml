@@ -633,10 +633,9 @@ jobs:
           name: native-proof-${{ matrix.target }}
           path: ${{ runner.temp }}/native-proof-bundle
       - name: Install cargo-nextest
-        # ci/runner_setup.py NEXTEST_URLS picks by "${{ runner.os }}-${{ runner.arch }}":
-        # https://get.nexte.st/latest/linux ;; https://get.nexte.st/latest/linux-arm ;;
-        # https://get.nexte.st/latest/windows ;; https://get.nexte.st/latest/windows-arm ;;
-        # https://get.nexte.st/latest/mac ;;
+        # ci/runner_setup.py NEXTEST_ASSETS selects a pinned GitHub release
+        # by "${{ runner.os }}-${{ runner.arch }}" and checks its SHA-256.
+        # ci/build_steps.py asserts the archive producer uses the same release.
         run: uv run --no-project --python 3.12 ci/runner_setup.py nextest-install
       # The runner's volumes are NTFS, which cannot share blocks. Format a
       # ReFS volume so the Windows extent-sharing tests prove block-clone
