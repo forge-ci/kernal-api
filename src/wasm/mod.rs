@@ -5458,33 +5458,19 @@ mod result_precedence_tests {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SketchCompilerError {
+    #[error("the Wasm stack limit must be nonzero")]
     InvalidStackLimit,
+    #[error("execution limits must admit one 1 GiB threaded Rust session and one root")]
     InvalidExecutionLimits,
+    #[error("epoch limits must have a nonzero deadline, tick, and quota")]
     InvalidEpochLimits,
+    #[error("fuel limits must reserve nonzero root and all bounded child slices")]
     InvalidFuelLimits,
+    #[error("the sketch compiler is unavailable")]
     Unavailable,
 }
-impl fmt::Display for SketchCompilerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::InvalidStackLimit => "the Wasm stack limit must be nonzero",
-            Self::InvalidExecutionLimits => {
-                "execution limits must admit one 1 GiB threaded Rust session and one root"
-            }
-            Self::InvalidEpochLimits => {
-                "epoch limits must have a nonzero deadline, tick, and quota"
-            }
-            Self::InvalidFuelLimits => {
-                "fuel limits must reserve nonzero root and all bounded child slices"
-            }
-            Self::Unavailable => "the sketch compiler is unavailable",
-        })
-    }
-}
-impl std::error::Error for SketchCompilerError {}
-
 /// Stable bounded diagnostics; no parser or engine message crosses this facade.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SketchModuleError {
