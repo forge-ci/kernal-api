@@ -98,7 +98,6 @@ pub fn path_identity(path: &Path) -> io::Result<Option<FileIdentity>> {
 
     let file = std::fs::OpenOptions::new()
         .read(true)
-        .write(true)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .open(path)?;
     file_identity(&file)
@@ -679,4 +678,17 @@ pub fn read_context_regular_file_bounded(
         bytes,
         metadata: crate::platform::fs::context_regular_file_metadata(&after, identity)?,
     })
+}
+
+#[cfg(test)]
+mod identity_tests {
+    #[test]
+    fn running_executable_identity_needs_no_write_access() {
+        let path = std::env::current_exe().expect("running test executable");
+        let file = std::fs::File::open(&path).expect("read-only executable handle");
+        assert_eq!(
+            super::path_identity(&path).expect("identity while executable is running"),
+            super::file_identity(&file).expect("opened executable identity")
+        );
+    }
 }
