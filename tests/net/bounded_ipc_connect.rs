@@ -70,3 +70,44 @@ async fn bounded_async_ipc_operations_time_out_on_a_silent_peer() {
     assert!(started.elapsed() < Duration::from_secs(10));
     server.abort();
 }
+
+/// A peer that never reads fills the transport buffer; a send timeout turns
+/// the writer's otherwise endless block into an error. Windows named pipes
+/// support no I/O timeouts and report that instead.
+#[test]
+fn a_send_timeout_bounds_a_writer_whose_peer_never_reads() {
+    let endpoint = Endpoint::test("send-timeout").unwrap();
+    let listener = Listener::bind(&endpoint).unwrap();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let server = std::thread::spawn(move || {
+        let _stream = listener.accept().unwrap();
+        released.recv().ok();
+    });
+    let mut client = Stream::connect_within(&endpoint, Duration::from_secs(30)).unwrap();
+    match client.set_send_timeout(Some(Duration::from_millis(100))) {
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
+        Err(error) => panic!("set_send_timeout: {error}"),
+        Ok(()) => {
+            let chunk = vec![0_u8; 64 * 1024];
+            let started = Instant::now();
+            let error = loop {
+                if let Err(error) = client.write(&chunk) {
+                    break error;
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(10),
+                    "writes never blocked"
+                );
+            };
+            assert!(
+                matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ),
+                "{error}"
+            );
+        }
+    }
+    release.send(()).unwrap();
+    server.join().unwrap();
+}

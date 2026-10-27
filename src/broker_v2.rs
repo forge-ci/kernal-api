@@ -325,6 +325,12 @@ impl Connection {
         self.stream.set_recv_timeout(timeout)
     }
 
+    /// Bound blocking writes (None = wait indefinitely). Unsupported on
+    /// Windows named pipes; see [`ipc::Stream::set_send_timeout`].
+    pub fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.stream.set_send_timeout(timeout)
+    }
+
     /// The underlying facade IPC stream.
     #[must_use]
     pub fn into_stream(self) -> ipc::Stream {
