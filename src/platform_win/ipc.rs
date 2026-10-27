@@ -317,6 +317,15 @@ impl Stream {
         interprocess::local_socket::traits::Stream::set_recv_timeout(&self.0, timeout)
     }
 
+    /// Bound how long a send may block (`None` waits indefinitely).
+    ///
+    /// Named pipes support no I/O timeouts, so this returns
+    /// [`io::ErrorKind::Unsupported`] on this host, as
+    /// [`Self::set_recv_timeout`] does.
+    pub fn set_send_timeout(&self, timeout: Option<std::time::Duration>) -> io::Result<()> {
+        interprocess::local_socket::traits::Stream::set_send_timeout(&self.0, timeout)
+    }
+
     pub fn peer_identity(&self) -> io::Result<PeerIdentity> {
         self.0.peer_creds().map(peer_identity)
     }

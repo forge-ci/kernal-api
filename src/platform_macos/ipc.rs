@@ -214,6 +214,15 @@ impl Stream {
         interprocess::local_socket::traits::Stream::set_recv_timeout(&self.0, timeout)
     }
 
+    /// Bound how long a send may block (`None` waits indefinitely).
+    ///
+    /// A peer that stops reading fills the transport buffer and would
+    /// otherwise hold the writer forever. An expired send fails with
+    /// [`io::ErrorKind::WouldBlock`] or [`io::ErrorKind::TimedOut`].
+    pub fn set_send_timeout(&self, timeout: Option<std::time::Duration>) -> io::Result<()> {
+        interprocess::local_socket::traits::Stream::set_send_timeout(&self.0, timeout)
+    }
+
     /// Consume the stream and hand back the descriptor that backs it.
     ///
     /// The transfer of ownership is the point: a caller that wants to run its
