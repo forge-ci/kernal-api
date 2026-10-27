@@ -65,10 +65,10 @@ class ReleaseProcessSubstrateFixtures(unittest.TestCase):
             self.findings("invalid-registry.toml"),
             [
                 "dependencies.git-process: non-registry Git source for running-process",
-                "dependencies.caret-process: running-process must use exact registry version =4.10.16",
-                "dependencies.wrong-process: running-process must use exact registry version =4.10.16",
-                "dependencies.zero-process: running-process must use exact registry version =4.10.16",
-                "dependencies.missing-process: running-process must use exact registry version =4.10.16",
+                "dependencies.caret-process: running-process must use exact registry version =4.10.20",
+                "dependencies.wrong-process: running-process must use exact registry version =4.10.20",
+                "dependencies.zero-process: running-process must use exact registry version =4.10.20",
+                "dependencies.missing-process: running-process must use exact registry version =4.10.20",
             ],
         )
 

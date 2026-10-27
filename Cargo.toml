@@ -372,7 +372,7 @@ wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macr
 # facade-owned semantic types. The opt-in `independent-spawn` feature is the
 # narrowly scoped exception: its live handles and options cross this boundary
 # unchanged, so callers and the substrate share type identity.
-running-process = { version = "=4.10.16", default-features = false, features = ["kernel-substrate", "ape-loader"] }
+running-process = { version = "=4.10.20", default-features = false, features = ["kernel-substrate", "ape-loader"] }
 # `rayon` backs native parallel memory-mapped hashing; its global pool is lazy.
 # Keep native SIMD enabled: Soldr supplies the clang/SDK needed by BLAKE3's
 # ARM64 NEON C backend, including Linux-hosted Windows ARM64 cross-checks.

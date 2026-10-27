@@ -179,7 +179,7 @@ fn process_substrate_is_exact_feature_minimal_and_private() {
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("read manifest");
     assert!(
         manifest.contains(
-            "running-process = { version = \"=4.10.16\", default-features = false, features = [\"kernel-substrate\", \"ape-loader\"] }"
+            "running-process = { version = \"=4.10.20\", default-features = false, features = [\"kernel-substrate\", \"ape-loader\"] }"
         ),
         "the facade must retain the exact published running-process pin and minimal default feature set"
     );

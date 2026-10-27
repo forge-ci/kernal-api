@@ -27,7 +27,7 @@ have an async runtime to do that work. It must never depend on `kernal-api`.
 `running-process`, selects shared implementation versions, adds facilities such
 as hashing and profiling, and turns backend behavior into stable application
 contracts. The phase-1 bounded process adapter has landed: it uses the exact
-published `running-process` 4.10.16 release with its lightweight
+published `running-process` 4.10.20 release with its lightweight
 `kernel-substrate` feature, as a mandatory dependency. The facade-owned
 `independent-spawn` capability is an explicit feature. First-party
 applications eventually depend on `kernal-api` only.

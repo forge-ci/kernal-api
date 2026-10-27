@@ -27,7 +27,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 Issue = Tuple[str, str]
 DEPENDENCY_TABLES = ("dependencies", "build-dependencies", "dev-dependencies")
-REQUIRED_RUNNING_PROCESS_VERSION = "=4.10.16"
+REQUIRED_RUNNING_PROCESS_VERSION = "=4.10.20"
 
 
 def is_running_process_name(name: str) -> bool:

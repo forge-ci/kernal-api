@@ -6,7 +6,7 @@ native/process substrate, and adds stable application contracts for async
 execution, hashing, diagnostics, profiling, symbolization, allocation,
 networking, storage, and other common capabilities. The private
 `running-process` phase-1 adapter has landed: this crate depends on the exact
-published `running-process` 4.10.16 registry release unconditionally. Like
+published `running-process` 4.10.20 registry release unconditionally. Like
 Tokio, it is a private backend: no `running-process` type appears in this
 crate's public API, including the facade-owned placement contract behind the
 explicit `independent-spawn` feature.
@@ -49,7 +49,7 @@ direct use of implementation crates owned by this package.
 ## Rust features
 
 The base crate contains the async process/host facade. Its bounded process
-adapter uses `running-process` 4.10.16; that dependency is mandatory, not
+adapter uses `running-process` 4.10.20; that dependency is mandatory, not
 feature-gated. Backend types, `running-process` included, remain private.
 With `independent-spawn`,
 `SpawnMode::Inherited` remains the default; `SpawnMode::Independent` requires
