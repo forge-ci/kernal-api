@@ -344,9 +344,9 @@ dependencies = [
 
 [[package]]
 name = "running-process"
-version = "4.10.16"
+version = "4.10.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c040ca81d60235a6027ef3115629049829464758e1011500902c8a2355727812"
+checksum = "5bd593727c580946bd825f06916220d6ece7d9f055d2b056afa195ccc44a9f88"
 dependencies = [
  "libc",
  "running-process-platform-internal",
@@ -359,9 +359,9 @@ dependencies = [
 
 [[package]]
 name = "running-process-platform-internal"
-version = "4.10.16"
+version = "4.10.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ef39418f8c71399ea811c5daba36f2325516cc02c3b2169473400411941ed5f"
+checksum = "23731ed2a4ece92c24d7f3cbd8bfb83496107a5e1006540a6cbc4b02020fd0b9"
 dependencies = [
  "libc",
  "miniz_oxide",
