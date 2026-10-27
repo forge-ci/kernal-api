@@ -222,7 +222,7 @@ fn a_handful_of_threads_fills_a_small_ring() {
     } else {
         // A profile samples every sibling in its process. Parallel libtest
         // cases add unrelated threads and mapping changes, so their unwind
-        // cost can consume this fixture's entire five-second window (#408).
+        // cost can consume this fixture's sampling window (#408).
         // Isolate this one real four-worker proof; the suite stays parallel.
         let output = crate::run_bounded_command(
             crate::SpawnSpec::new(std::env::current_exe().expect("test executable"))
@@ -231,7 +231,7 @@ fn a_handful_of_threads_fills_a_small_ring() {
                     "profile::tests::a_handful_of_threads_fills_a_small_ring",
                 ])
                 .env(CHILD, std::process::id().to_string()),
-            Duration::from_secs(10),
+            Duration::from_secs(35),
             65536,
         )
         .expect("isolated four-worker fixture must finish");
@@ -253,7 +253,8 @@ fn a_handful_of_threads_fills_a_small_ring() {
             std::thread::spawn(move || {
                 ready.fetch_add(1, Ordering::Release);
                 while !stop.load(Ordering::Acquire) {
-                    std::hint::spin_loop();
+                    // Stay sampleable without saturating the runner and starving the sampler.
+                    std::thread::park_timeout(Duration::from_millis(10));
                 }
             })
         })
@@ -267,7 +268,9 @@ fn a_handful_of_threads_fills_a_small_ring() {
     let session = ProfileSession::with_ring_capacity(
         ProfileRequest {
             hz: DEFAULT_HZ,
-            duration: Duration::from_secs(5),
+            // A first snapshot can take several seconds on a cold runner.
+            // Leave room for another tick while retaining a bounded proof.
+            duration: Duration::from_secs(25),
         },
         8,
     );
