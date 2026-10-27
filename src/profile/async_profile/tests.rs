@@ -86,6 +86,7 @@ fn an_adapter_that_produced_nothing_says_so_rather_than_returning_an_empty_profi
     assert!(error.to_string().contains("look identical"));
 }
 
+#[cfg(feature = "tokio-console")]
 #[test]
 fn the_tokio_adapter_names_the_missing_instrumentation_not_just_the_refused_connection() {
     // A missing `console_subscriber::init()` is the overwhelmingly common
