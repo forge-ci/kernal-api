@@ -110,35 +110,18 @@ impl std::str::FromStr for Blake3Digest {
 
 /// Failure parsing a [`Blake3Digest`] from its canonical hexadecimal
 /// encoding.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum Blake3HexDecodeError {
     /// The input was not exactly `BLAKE3_DIGEST_LENGTH * 2` bytes long.
+    #[error("BLAKE3 hex digest must be {} characters, got {length}", BLAKE3_DIGEST_LENGTH * 2)]
     InvalidLength {
         /// The number of bytes actually supplied.
         length: usize,
     },
     /// The input contained a byte outside `[0-9a-fA-F]`.
+    #[error("BLAKE3 hex digest contained a non-hexadecimal character")]
     InvalidCharacter,
 }
-
-impl fmt::Display for Blake3HexDecodeError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidLength { length } => {
-                write!(
-                    formatter,
-                    "BLAKE3 hex digest must be {} characters, got {length}",
-                    BLAKE3_DIGEST_LENGTH * 2
-                )
-            }
-            Self::InvalidCharacter => {
-                formatter.write_str("BLAKE3 hex digest contained a non-hexadecimal character")
-            }
-        }
-    }
-}
-
-impl std::error::Error for Blake3HexDecodeError {}
 
 /// Hash an in-memory byte slice with BLAKE3.
 pub fn blake3_bytes(bytes: &[u8]) -> Blake3Digest {
