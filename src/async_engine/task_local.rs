@@ -61,24 +61,16 @@ impl<T: 'static> TaskLocal<T> {
 }
 
 /// Why a task-local binding could not be read.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum TaskLocalAccessError {
     /// No enclosing [`TaskLocal::scope`] installed a value, or the backing
     /// thread-local storage is being (or has been) destroyed.
+    #[error("task-local value is unbound")]
     Unbound,
     /// The binding is currently mutably borrowed by an active scope poll.
+    #[error("task-local value is already mutably borrowed")]
     Borrowed,
 }
-
-impl std::fmt::Display for TaskLocalAccessError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Unbound => "task-local value is unbound",
-            Self::Borrowed => "task-local value is already mutably borrowed",
-        })
-    }
-}
-impl std::error::Error for TaskLocalAccessError {}
 
 /// Future returned by [`TaskLocal::scope`].
 pub struct TaskLocalScope<T: 'static, F: Future> {

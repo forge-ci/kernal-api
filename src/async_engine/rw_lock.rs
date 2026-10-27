@@ -314,13 +314,6 @@ debug_guard!(
 );
 
 /// A non-waiting lock attempt found the lock busy.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("rwlock is busy")]
 pub struct RwLockTryLockError;
-
-impl std::fmt::Display for RwLockTryLockError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("rwlock is busy")
-    }
-}
-
-impl std::error::Error for RwLockTryLockError {}
