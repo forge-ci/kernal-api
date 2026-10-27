@@ -1302,38 +1302,17 @@ pub struct ProcessOutput {
 }
 
 /// Failure returned by [`PlatformChild::wait_with_output_bounded`].
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ProcessCaptureError {
     /// The returned stdout/stderr pair would have exceeded its shared limit.
+    #[error("captured process output exceeded the {limit}-byte limit")]
     OutputLimitExceeded {
         /// Aggregate stdout/stderr capture limit.
         limit: usize,
     },
     /// Waiting for or capturing from the started child failed.
-    Io(io::Error),
-}
-
-impl std::fmt::Display for ProcessCaptureError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::OutputLimitExceeded { limit } => {
-                write!(
-                    formatter,
-                    "captured process output exceeded the {limit}-byte limit"
-                )
-            }
-            Self::Io(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for ProcessCaptureError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::OutputLimitExceeded { .. } => None,
-            Self::Io(error) => Some(error),
-        }
-    }
+    #[error("{0}")]
+    Io(#[source] io::Error),
 }
 
 /// Status-preserving output from [`run_bounded_command`].
@@ -1447,70 +1426,34 @@ impl ProcessSessionExit {
 pub type ProcessExit = BoundedProcessExit;
 
 /// Failure returned by [`run_bounded_command`].
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BoundedProcessError {
     /// The command exceeded its requested wall-clock timeout and was cleaned up.
+    #[error("bounded command timed out")]
     TimedOut,
     /// Captured stdout and stderr exceeded their shared byte limit.
+    #[error("bounded command output exceeded the {limit}-byte limit")]
     OutputLimitExceeded {
         /// Aggregate stdout/stderr capture limit.
         limit: usize,
     },
     /// The command could not be started.
-    Spawn(io::Error),
+    #[error("{0}")]
+    Spawn(#[source] io::Error),
     /// Capturing, waiting for, or cleaning up the command failed.
-    Io(io::Error),
-}
-
-impl std::fmt::Display for BoundedProcessError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TimedOut => formatter.write_str("bounded command timed out"),
-            Self::OutputLimitExceeded { limit } => {
-                write!(
-                    formatter,
-                    "bounded command output exceeded the {limit}-byte limit"
-                )
-            }
-            Self::Spawn(error) | Self::Io(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for BoundedProcessError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::TimedOut | Self::OutputLimitExceeded { .. } => None,
-            Self::Spawn(error) | Self::Io(error) => Some(error),
-        }
-    }
+    #[error("{0}")]
+    Io(#[source] io::Error),
 }
 
 /// Failure returned by [`run_bounded_command_async`].
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BoundedProcessAsyncError {
     /// The one-shot command returned a semantic bounded-process error.
-    Bounded(BoundedProcessError),
+    #[error("{0}")]
+    Bounded(#[source] BoundedProcessError),
     /// The canonical async engine could not join its blocking-lane task.
-    Task(async_engine::TaskError),
-}
-
-impl std::fmt::Display for BoundedProcessAsyncError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Bounded(error) => error.fmt(formatter),
-            Self::Task(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl std::error::Error for BoundedProcessAsyncError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Bounded(error) => Some(error),
-            Self::Task(error) => Some(error),
-        }
-    }
+    #[error("{0}")]
+    Task(#[source] async_engine::TaskError),
 }
 
 /// Run a contained one-shot command with bounded capture.
