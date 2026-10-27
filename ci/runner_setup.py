@@ -21,6 +21,7 @@ Subcommands:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import os
 import subprocess
@@ -29,6 +30,7 @@ import tarfile
 import time
 import urllib.request
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -49,14 +51,43 @@ APT_LOG = "webview-packages.log"
 # Pick by OS *and* architecture. The bare `linux` and `windows` builds are
 # x86-64: on the ARM runners they fail with `Exec format error` before a
 # single test starts. `mac` is universal.
-NEXTEST_URLS = {
-    "Linux-X64": "https://get.nexte.st/latest/linux",
-    "Linux-ARM64": "https://get.nexte.st/latest/linux-arm",
-    "Windows-X64": "https://get.nexte.st/latest/windows",
-    "Windows-ARM64": "https://get.nexte.st/latest/windows-arm",
-    "macOS-X64": "https://get.nexte.st/latest/mac",
-    "macOS-ARM64": "https://get.nexte.st/latest/mac",
+NEXTEST_VERSION = "0.9.140"
+NEXTEST_RELEASE = f"https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-{NEXTEST_VERSION}"
+
+
+@dataclass(frozen=True)
+class NextestAsset:
+    archive: str
+    sha256: str
+
+
+NEXTEST_ASSETS = {
+    "Linux-X64": NextestAsset(
+        "x86_64-unknown-linux-gnu.tar.gz",
+        "4ee9aaa0d0171a985a5d0eb735b87355894c1c455972e9674fb9fdbd1387c9a3",
+    ),
+    "Linux-ARM64": NextestAsset(
+        "aarch64-unknown-linux-gnu.tar.gz",
+        "8b3f4d4560b6b0f83774fecc6be07e47716dbad0eb0bb6c3890f478f4affe4b6",
+    ),
+    "Windows-X64": NextestAsset(
+        "x86_64-pc-windows-msvc.zip",
+        "ec39698dfe5bcfffb7d5da037f226bc1670584ba247123f4e684a0f224fe828d",
+    ),
+    "Windows-ARM64": NextestAsset(
+        "aarch64-pc-windows-msvc.zip",
+        "814ec3759f3abdcfcf7486785ff521de3b4f7b5dd04997a9b363141cb5f44d66",
+    ),
+    "macOS-X64": NextestAsset(
+        "universal-apple-darwin.tar.gz",
+        "58e0a722f9444078fab447783f322acf15a2a771ba785b3fbbe8bacda31c3df9",
+    ),
+    "macOS-ARM64": NextestAsset(
+        "universal-apple-darwin.tar.gz",
+        "58e0a722f9444078fab447783f322acf15a2a771ba785b3fbbe8bacda31c3df9",
+    ),
 }
+
 WEBVIEW2_CLIENT = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 WEBVIEW2_BOOTSTRAPPER = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 
@@ -205,13 +236,16 @@ def download(url: str) -> bytes:
 
 def nextest_install() -> int:
     key = f"{os.environ.get('RUNNER_OS', '')}-{os.environ.get('RUNNER_ARCH', '')}"
-    url = NEXTEST_URLS.get(key)
-    if url is None:
+    asset = NEXTEST_ASSETS.get(key)
+    if asset is None:
         raise gha.StepError(f"no cargo-nextest build for {key}")
     destination = Path.home() / ".cargo" / "bin"
     destination.mkdir(parents=True, exist_ok=True)
+    url = f"{NEXTEST_RELEASE}/cargo-nextest-{NEXTEST_VERSION}-{asset.archive}"
     print(f"downloading {url}")
     payload = download(url)
+    if hashlib.sha256(payload).hexdigest() != asset.sha256:
+        raise gha.StepError(f"cargo-nextest archive digest mismatch for {key}")
     if key.startswith("Windows-"):
         with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             archive.extractall(destination)

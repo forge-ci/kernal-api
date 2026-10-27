@@ -188,7 +188,8 @@ impl<T> Future for Task<T> {
 }
 
 /// Failure returned while joining an async task.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{inner}")]
 pub struct TaskError {
     inner: tokio::task::JoinError,
 }
@@ -208,14 +209,6 @@ impl TaskError {
         self.inner.is_panic()
     }
 }
-
-impl std::fmt::Display for TaskError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.inner.fmt(formatter)
-    }
-}
-
-impl std::error::Error for TaskError {}
 
 /// Owned asynchronous runtime.
 pub struct Runtime {

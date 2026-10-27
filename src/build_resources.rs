@@ -60,7 +60,6 @@
 //! `*-pc-windows-msvc`, and the `RC`/`RC_<target>` environment variables
 //! override both. The target is read from Cargo's `CARGO_CFG_TARGET_OS`.
 
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// Resource id of the application icon group. `IDI_APPLICATION`'s value, which
@@ -142,54 +141,29 @@ impl WindowsAppResources {
 }
 
 /// Why resources could not be embedded.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum WindowsResourceError {
     /// A text field is empty, too long, or contains a control character or `"`.
+    #[error("{field} must be 1-{MAX_TEXT_BYTES} bytes without control characters or quotes")]
     InvalidText { field: &'static str },
     /// The version does not start with numeric `major.minor.patch` parts that
     /// each fit in 16 bits.
+    #[error("version {0:?} must start with numeric major.minor.patch parts of at most 65535")]
     InvalidVersion(String),
     /// A variable Cargo sets for build scripts is missing: this was not called
     /// from a build script.
+    #[error("{0} is not set; Windows resources can only be embedded from a build script")]
     NotInBuildScript(&'static str),
     /// The icon file does not exist.
+    #[error("icon file {} does not exist", .0.display())]
     MissingIcon(PathBuf),
     /// Writing the generated resource script failed.
-    Io(std::io::Error),
+    #[error("cannot write the resource script: {0}")]
+    Io(#[source] std::io::Error),
     /// The resource compiler was unavailable or rejected the script.
+    #[error("cannot compile Windows resources: {0}")]
     Compile(String),
-}
-
-impl fmt::Display for WindowsResourceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidText { field } => write!(
-                f,
-                "{field} must be 1-{MAX_TEXT_BYTES} bytes without control characters or quotes"
-            ),
-            Self::InvalidVersion(version) => write!(
-                f,
-                "version {version:?} must start with numeric major.minor.patch parts of at most 65535"
-            ),
-            Self::NotInBuildScript(variable) => write!(
-                f,
-                "{variable} is not set; Windows resources can only be embedded from a build script"
-            ),
-            Self::MissingIcon(path) => write!(f, "icon file {} does not exist", path.display()),
-            Self::Io(error) => write!(f, "cannot write the resource script: {error}"),
-            Self::Compile(detail) => write!(f, "cannot compile Windows resources: {detail}"),
-        }
-    }
-}
-
-impl std::error::Error for WindowsResourceError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Io(error) => Some(error),
-            _ => None,
-        }
-    }
 }
 
 /// Compiles `resources` and links them into the calling package's binaries.

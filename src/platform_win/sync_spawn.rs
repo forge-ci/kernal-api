@@ -703,18 +703,20 @@ impl StrictWorkerLimits {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("strict worker spawn failed at {stage:?}: {cause}")]
 #[allow(dead_code)]
 pub(crate) struct StrictWorkerSpawnError {
     stage: StrictWorkerSpawnStage,
-    source: io::Error,
+    cause: io::Error,
     cleanup: Option<StrictWorkerCleanupError>,
 }
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("strict worker cleanup failed at {stage:?}: {cause}")]
 #[allow(dead_code)]
 pub(crate) struct StrictWorkerCleanupError {
     stage: StrictWorkerSpawnStage,
-    source: io::Error,
+    cause: io::Error,
 }
 #[allow(dead_code)]
 impl StrictWorkerSpawnError {
@@ -724,20 +726,9 @@ impl StrictWorkerSpawnError {
 #[allow(dead_code)]
 impl StrictWorkerCleanupError {
     pub(crate) fn stage(&self) -> StrictWorkerSpawnStage { self.stage }
-    pub(crate) fn message(&self) -> String { self.source.to_string() }
-    pub(crate) fn raw_os_error(&self) -> Option<i32> { self.source.raw_os_error() }
+    pub(crate) fn message(&self) -> String { self.cause.to_string() }
+    pub(crate) fn raw_os_error(&self) -> Option<i32> { self.cause.raw_os_error() }
 }
-impl std::fmt::Display for StrictWorkerSpawnError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "strict worker spawn failed at {:?}: {}", self.stage, self.source) }
-}
-impl std::error::Error for StrictWorkerSpawnError {}
-impl std::fmt::Display for StrictWorkerCleanupError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "strict worker cleanup failed at {:?}: {}", self.stage, self.source)
-    }
-}
-impl std::error::Error for StrictWorkerCleanupError {}
-
 /// Opaque crate-private worker child. Unlike generic `SpawnedChild`, Drop is
 /// a containment operation: it closes the strict Job and waits/reaps the
 /// direct worker. This covers ordinary CreateProcess descendants; processes
@@ -858,20 +849,20 @@ pub(crate) fn spawn_strict_contained_worker(
     environment: crate::platform::process::SyncEnvironment,
     limits: StrictWorkerLimits,
 ) -> Result<StrictWorkerChild, StrictWorkerSpawnError> {
-    let stdin = resolve_slot(&stdio.stdin, SlotDir::Stdin).map_err(|source| StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::Pipe, source, cleanup: None })?;
-    let stdout = resolve_slot(&stdio.stdout, SlotDir::Stdout).map_err(|source| StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::Pipe, source, cleanup: None })?;
-    let stderr = resolve_slot(&stdio.stderr, SlotDir::Stderr).map_err(|source| StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::Pipe, source, cleanup: None })?;
+    let stdin = resolve_slot(&stdio.stdin, SlotDir::Stdin).map_err(|source| StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::Pipe, cause: source, cleanup: None })?;
+    let stdout = resolve_slot(&stdio.stdout, SlotDir::Stdout).map_err(|source| StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::Pipe, cause: source, cleanup: None })?;
+    let stderr = resolve_slot(&stdio.stderr, SlotDir::Stderr).map_err(|source| StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::Pipe, cause: source, cleanup: None })?;
     // Job setup is intentionally before CreateProcessW: failure here leaves
     // no suspended hostile child to clean up.
     let job = create_strict_worker_job(limits)
-        .map_err(|(stage, source)| StrictWorkerSpawnError { stage, source, cleanup: None })?;
+        .map_err(|(stage, source)| StrictWorkerSpawnError { stage, cause: source, cleanup: None })?;
     let (process, thread, pid) = create_process_inner(command, &stdin.child_handle, &stdout.child_handle, &stderr.child_handle, CreateMode::Contained { show_console: false }, environment)
-        .map_err(|source| StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::CreateSuspended, source, cleanup: None })?;
+        .map_err(|source| StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::CreateSuspended, cause: source, cleanup: None })?;
     let process = OwnedHandle(process);
     let thread = OwnedHandle(thread);
     if let Err(source) = assign_strict_worker_to_job(job.as_raw(), process.as_raw()) {
         let cleanup = terminate_and_reap(&process);
-        return Err(StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::AssignJob, source, cleanup });
+        return Err(StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::AssignJob, cause: source, cleanup });
     }
     #[cfg(test)]
     strict_worker_test_hook::run(process.as_raw(), job.as_raw());
@@ -882,7 +873,7 @@ pub(crate) fn spawn_strict_contained_worker(
         // tree before direct-worker reaping.
         drop(job);
         let cleanup = reap_only(&process);
-        return Err(StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::Resume, source, cleanup });
+        return Err(StrictWorkerSpawnError { stage: StrictWorkerSpawnStage::Resume, cause: source, cleanup });
     }
     drop(thread);
     Ok(StrictWorkerChild {
@@ -989,7 +980,7 @@ fn assign_strict_worker_to_job(job: HANDLE, process: HANDLE) -> io::Result<()> {
 #[allow(dead_code)]
 fn terminate_and_reap(process: &OwnedHandle) -> Option<StrictWorkerCleanupError> {
     let terminate = if unsafe { TerminateProcess(process.as_raw(), 1) } == FALSE {
-        Some(StrictWorkerCleanupError { stage: StrictWorkerSpawnStage::Terminate, source: io::Error::last_os_error() })
+        Some(StrictWorkerCleanupError { stage: StrictWorkerSpawnStage::Terminate, cause: io::Error::last_os_error() })
     } else { None };
     let reap = reap_only(process);
     // A process that already exited between Job close and this retry can
@@ -1004,18 +995,18 @@ fn reap_only(process: &OwnedHandle) -> Option<StrictWorkerCleanupError> {
     if STRICT_WORKER_FORCE_REAP_TIMEOUT.swap(false, std::sync::atomic::Ordering::SeqCst) {
         return Some(StrictWorkerCleanupError {
             stage: StrictWorkerSpawnStage::Reap,
-            source: io::Error::new(io::ErrorKind::TimedOut, "injected strict worker reap timeout"),
+            cause: io::Error::new(io::ErrorKind::TimedOut, "injected strict worker reap timeout"),
         });
     }
     match unsafe { WaitForSingleObject(process.as_raw(), STRICT_WORKER_REAP_TIMEOUT_MS) } {
         WAIT_OBJECT_0 => None,
         WAIT_TIMEOUT_RESULT => Some(StrictWorkerCleanupError {
             stage: StrictWorkerSpawnStage::Reap,
-            source: io::Error::new(io::ErrorKind::TimedOut, "strict worker did not exit after containment cleanup"),
+            cause: io::Error::new(io::ErrorKind::TimedOut, "strict worker did not exit after containment cleanup"),
         }),
         _ => Some(StrictWorkerCleanupError {
             stage: StrictWorkerSpawnStage::Reap,
-            source: io::Error::last_os_error(),
+            cause: io::Error::last_os_error(),
         }),
     }
 }

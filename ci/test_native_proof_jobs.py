@@ -12,7 +12,7 @@ import re
 import unittest
 from pathlib import Path
 
-from ci import native_proof
+from ci import native_proof, runner_setup
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
 HOSTS = {
@@ -301,12 +301,28 @@ class NativeProofJobsTests(unittest.TestCase):
         self.assertIn("the kernal-symbolize test build produced no PDB", archive)
 
     def test_each_replay_host_gets_a_nextest_it_can_execute(self):
-        """The bare `linux` and `windows` nextest builds are x86-64."""
+        """Pinned replay assets match each host and the archive producer."""
         install = self.step("test", "Install cargo-nextest")
         self.assertIn('"${{ runner.os }}-${{ runner.arch }}"', install)
-        for suffix in ("linux", "linux-arm", "windows", "windows-arm", "mac"):
-            with self.subTest(build=suffix):
-                self.assertIn(f"https://get.nexte.st/latest/{suffix} ;;", install)
+        self.assertIn("ci/runner_setup.py nextest-install", install)
+        expected = {
+            "Linux-X64": "x86_64-unknown-linux-gnu.tar.gz",
+            "Linux-ARM64": "aarch64-unknown-linux-gnu.tar.gz",
+            "Windows-X64": "x86_64-pc-windows-msvc.zip",
+            "Windows-ARM64": "aarch64-pc-windows-msvc.zip",
+            "macOS-X64": "universal-apple-darwin.tar.gz",
+            "macOS-ARM64": "universal-apple-darwin.tar.gz",
+        }
+        self.assertEqual(set(runner_setup.NEXTEST_ASSETS), set(expected))
+        for host, archive in expected.items():
+            with self.subTest(host=host):
+                asset = runner_setup.NEXTEST_ASSETS[host]
+                self.assertEqual(asset.archive, archive)
+                self.assertRegex(asset.sha256, r"^[0-9a-f]{64}$")
+        self.assertIn("hashlib.sha256(payload)", self.script("runner_setup.py"))
+        producer = self.script("build_steps.py")
+        self.assertIn("SOLDR_FORCE_MANAGED_CARGO_SUBCOMMANDS", producer)
+        self.assertIn("release: {NEXTEST_VERSION}", producer)
 
     def test_macos_replay_keeps_native_guarantee_tests(self):
         # #347: these prove owner-death containment, verified-control refusal,

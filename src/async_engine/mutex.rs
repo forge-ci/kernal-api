@@ -229,13 +229,6 @@ impl<T: std::fmt::Debug> std::fmt::Debug for OwnedMutexGuard<T> {
 }
 
 /// A non-waiting lock attempt found the mutex held or contended.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("mutex is busy")]
 pub struct MutexTryLockError;
-
-impl std::fmt::Display for MutexTryLockError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("mutex is busy")
-    }
-}
-
-impl std::error::Error for MutexTryLockError {}

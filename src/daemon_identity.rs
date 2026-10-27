@@ -5,7 +5,6 @@
 //! public vocabulary and deliberately does not choose endpoint names, product
 //! protocol identifiers, or daemon lifecycle policy.
 
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use running_process::backend_identity as backend;
@@ -281,7 +280,8 @@ impl DaemonIdentity {
 }
 
 /// Failure while collecting the identity of the current process.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{detail}")]
 pub struct DaemonIdentityError {
     detail: String,
 }
@@ -293,14 +293,6 @@ impl DaemonIdentityError {
         }
     }
 }
-
-impl fmt::Display for DaemonIdentityError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.detail)
-    }
-}
-
-impl std::error::Error for DaemonIdentityError {}
 
 /// Result of an endpoint identity probe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

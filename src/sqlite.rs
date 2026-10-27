@@ -10,7 +10,7 @@ use rusqlite::{
     Connection as RawConnection, Error as RawError, ErrorCode, OpenFlags, ToSql,
 };
 use std::{
-    fmt, fs, io,
+    fs, io,
     mem::size_of,
     path::{Path, PathBuf},
     thread,
@@ -102,50 +102,28 @@ pub struct Checkpoint {
 }
 
 /// Facade failure classification; no backend error type crosses this boundary.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("SQLite is busy")]
     Busy,
+    #[error("refusing to overwrite {}", .0.display())]
     AlreadyExists(PathBuf),
+    #[error("SQLite transaction is no longer active")]
     TransactionInactive,
+    #[error("SQLite busy timeout exceeds the five-second facade maximum")]
     BusyTimeoutTooLarge,
+    #[error("SQLite query limits must be nonzero")]
     InvalidLimits,
+    #[error("SQLite result exceeds {max_rows} rows or {max_bytes} bytes")]
     ResultLimitExceeded { max_rows: usize, max_bytes: usize },
+    #[error("SQLite integrity check failed: {0}")]
     IntegrityCheckFailed(String),
+    #[error("{0}")]
     Io(io::Error),
+    #[error("SQLite error: {0}")]
     Sqlite(String),
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Busy => write!(formatter, "SQLite is busy"),
-            Self::AlreadyExists(path) => {
-                write!(formatter, "refusing to overwrite {}", path.display())
-            }
-            Self::TransactionInactive => {
-                write!(formatter, "SQLite transaction is no longer active")
-            }
-            Self::BusyTimeoutTooLarge => write!(
-                formatter,
-                "SQLite busy timeout exceeds the five-second facade maximum"
-            ),
-            Self::InvalidLimits => write!(formatter, "SQLite query limits must be nonzero"),
-            Self::ResultLimitExceeded {
-                max_rows,
-                max_bytes,
-            } => write!(
-                formatter,
-                "SQLite result exceeds {max_rows} rows or {max_bytes} bytes"
-            ),
-            Self::IntegrityCheckFailed(message) => {
-                write!(formatter, "SQLite integrity check failed: {message}")
-            }
-            Self::Io(error) => error.fmt(formatter),
-            Self::Sqlite(message) => write!(formatter, "SQLite error: {message}"),
-        }
-    }
-}
-impl std::error::Error for Error {}
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
