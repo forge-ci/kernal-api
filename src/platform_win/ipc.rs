@@ -294,7 +294,8 @@ impl Stream {
             pipe_path(endpoint.display()),
             ConnectWaitMode::Timeout(timeout),
         )?;
-        let handle = std::os::windows::io::OwnedHandle::from(pipe);
+        let handle = std::os::windows::io::OwnedHandle::try_from(pipe)
+            .map_err(|_| io::Error::other("cannot take ownership of a shared named pipe stream"))?;
         let stream = interprocess::os::windows::named_pipe::local_socket::Stream::try_from(handle)
             .map_err(|error| io::Error::other(error.to_string()))?;
         Ok(Self(stream.into()))
