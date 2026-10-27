@@ -30,3 +30,43 @@ fn a_bounded_connect_to_a_missing_endpoint_fails_without_waiting() {
     assert_ne!(error.kind(), io::ErrorKind::TimedOut, "{error}");
     assert!(started.elapsed() < Duration::from_secs(10));
 }
+
+#[cfg(feature = "ipc-async")]
+#[tokio::test]
+async fn bounded_async_ipc_operations_time_out_on_a_silent_peer() {
+    use kernal_api::platform::ipc::{AsyncListener, AsyncStream};
+
+    let endpoint = Endpoint::test("bounded-async").unwrap();
+    let listener = AsyncListener::bind(&endpoint).unwrap();
+    let server = tokio::spawn(async move {
+        let mut stream = listener.accept().await.unwrap();
+        let mut byte = [0_u8; 1];
+        stream.read_exact(&mut byte).await.unwrap();
+        stream.write_all(&byte).await.unwrap();
+        // Stay connected so the client's later read sees silence, not EOF.
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    });
+
+    let mut client = AsyncStream::connect_within(&endpoint, Duration::from_secs(30))
+        .await
+        .unwrap();
+    client
+        .write_all_within(&[9], Duration::from_secs(30))
+        .await
+        .unwrap();
+    let mut reply = [0_u8; 1];
+    client
+        .read_exact_within(&mut reply, Duration::from_secs(30))
+        .await
+        .unwrap();
+    assert_eq!(reply, [9]);
+
+    let started = Instant::now();
+    let error = client
+        .read_within(&mut reply, Duration::from_millis(100))
+        .await
+        .expect_err("the peer sends nothing more");
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert!(started.elapsed() < Duration::from_secs(10));
+    server.abort();
+}
