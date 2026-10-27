@@ -6,22 +6,13 @@ pub const MAX_SIMILARITY_INPUT_BYTES: usize = 4096;
 pub const MAX_SIMILARITY_WORK: usize = 1_048_576;
 
 /// Resource rejection before invoking the private scoring implementation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SimilarityError {
+    #[error("similarity input exceeds the byte limit")]
     InputTooLarge,
+    #[error("similarity comparison exceeds the work limit")]
     WorkLimitExceeded,
 }
-
-impl std::fmt::Display for SimilarityError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::InputTooLarge => "similarity input exceeds the byte limit",
-            Self::WorkLimitExceeded => "similarity comparison exceeds the work limit",
-        })
-    }
-}
-
-impl std::error::Error for SimilarityError {}
 
 /// Score two names using Jaro-Winkler similarity, from 0 (unrelated) to 1 (equal).
 ///
@@ -42,4 +33,15 @@ pub fn name_similarity(left: &str, right: &str) -> Result<f64, SimilarityError> 
         return Err(SimilarityError::WorkLimitExceeded);
     }
     Ok(strsim::jaro_winkler(left, right))
+}
+
+#[cfg(test)]
+mod error_message_tests {
+    use super::SimilarityError;
+
+    #[test]
+    fn messages_remain_stable() {
+        assert_eq!(SimilarityError::InputTooLarge.to_string(), "similarity input exceeds the byte limit");
+        assert_eq!(SimilarityError::WorkLimitExceeded.to_string(), "similarity comparison exceeds the work limit");
+    }
 }
