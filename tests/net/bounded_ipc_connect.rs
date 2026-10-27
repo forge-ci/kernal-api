@@ -111,3 +111,40 @@ fn a_send_timeout_bounds_a_writer_whose_peer_never_reads() {
     release.send(()).unwrap();
     server.join().unwrap();
 }
+
+#[cfg(feature = "ipc-async")]
+#[tokio::test]
+async fn bounded_split_halves_flush_and_shutdown() {
+    use kernal_api::platform::ipc::{AsyncListener, AsyncStream};
+
+    let endpoint = Endpoint::test("bounded-halves").unwrap();
+    let listener = AsyncListener::bind(&endpoint).unwrap();
+    let server = tokio::spawn(async move {
+        let mut stream = listener.accept().await.unwrap();
+        let mut byte = [0_u8; 1];
+        stream.read_exact(&mut byte).await.unwrap();
+        stream.write_all(&byte).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    });
+
+    let budget = Duration::from_secs(30);
+    let client = AsyncStream::connect_within(&endpoint, budget)
+        .await
+        .unwrap();
+    let (mut reader, mut writer) = client.into_split();
+    writer.write_all_within(&[5], budget).await.unwrap();
+    writer.flush_within(budget).await.unwrap();
+    let mut reply = [0_u8; 1];
+    reader.read_exact_within(&mut reply, budget).await.unwrap();
+    assert_eq!(reply, [5]);
+
+    let started = Instant::now();
+    let error = reader
+        .read_within(&mut reply, Duration::from_millis(100))
+        .await
+        .expect_err("the peer sends nothing more");
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    assert!(started.elapsed() < Duration::from_secs(10));
+    writer.shutdown_within(budget).await.unwrap();
+    server.abort();
+}
