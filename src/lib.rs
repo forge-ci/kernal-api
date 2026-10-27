@@ -1506,6 +1506,28 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
+    #[test]
+    fn bounded_error_messages_and_sources_stay_stable() {
+        use std::error::Error as _;
+        use std::io;
+
+        let timeout = BoundedProcessError::TimedOut;
+        assert_eq!(timeout.to_string(), "bounded command timed out");
+        assert!(timeout.source().is_none());
+
+        let spawn = BoundedProcessError::Spawn(io::Error::other("spawn sentinel"));
+        assert_eq!(spawn.to_string(), "spawn sentinel");
+        assert_eq!(spawn.source().unwrap().to_string(), "spawn sentinel");
+
+        let async_error = BoundedProcessAsyncError::Bounded(spawn);
+        assert_eq!(async_error.to_string(), "spawn sentinel");
+        assert_eq!(async_error.source().unwrap().to_string(), "spawn sentinel");
+
+        let capture = super::ProcessCaptureError::Io(io::Error::other("capture sentinel"));
+        assert_eq!(capture.to_string(), "capture sentinel");
+        assert_eq!(capture.source().unwrap().to_string(), "capture sentinel");
+    }
+
     fn fixture_command() -> SpawnSpec {
         #[cfg(windows)]
         {
