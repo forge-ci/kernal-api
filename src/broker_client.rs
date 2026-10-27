@@ -11,8 +11,6 @@
 //! Async callers run it on a blocking worker. Endpoint naming, the product payload protocol spoken over the returned
 //! connection, and every fallback decision remain application policy.
 
-use std::error::Error;
-use std::fmt;
 use std::io::{self, Read, Write};
 
 use running_process::broker::client as backend;
@@ -207,17 +205,20 @@ impl BrokerRefusal {
 }
 
 /// Failure to reach a backend through the broker.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum BrokerClientError {
     /// [`DISABLE_ENV`] is `1`: use the direct path. Not a broker failure.
+    #[error("broker disabled via {DISABLE_ENV}={DISABLE_VALUE}; use the direct path")]
     Disabled,
     /// [`DISABLE_ENV`] held a value other than unset or `1`.
+    #[error("{DISABLE_ENV} must be unset or {DISABLE_VALUE}, got {value:?}")]
     InvalidDisableValue {
         /// The rejected value.
         value: String,
     },
     /// The broker endpoint could not be reached.
+    #[error("failed to connect to broker {endpoint:?}: {source}")]
     BrokerConnect {
         /// Broker endpoint that was dialed.
         endpoint: String,
@@ -226,10 +227,13 @@ pub enum BrokerClientError {
     },
     /// The broker (or the cache) named a backend endpoint that could not be
     /// reached.
-    BackendConnect(io::Error),
+    #[error("failed to connect to negotiated backend: {0}")]
+    BackendConnect(#[source] io::Error),
     /// The broker spoke and explicitly declined.
+    #[error("broker refused Hello: {} ({:?}, retry_after_ms={})", .0.reason, .0.code, .0.retry_after_ms)]
     Refused(BrokerRefusal),
     /// The broker's reply was malformed, incomplete, or failed in transit.
+    #[error("broker protocol failure: {detail}")]
     Protocol {
         /// Diagnostic describing the failure.
         detail: String,
@@ -256,42 +260,6 @@ impl BrokerClientError {
     #[must_use]
     pub fn refusal_kind(&self) -> Option<RefusalKind> {
         self.refusal().map(BrokerRefusal::kind)
-    }
-}
-
-impl fmt::Display for BrokerClientError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Disabled => write!(
-                formatter,
-                "broker disabled via {DISABLE_ENV}={DISABLE_VALUE}; use the direct path"
-            ),
-            Self::InvalidDisableValue { value } => write!(
-                formatter,
-                "{DISABLE_ENV} must be unset or {DISABLE_VALUE}, got {value:?}"
-            ),
-            Self::BrokerConnect { endpoint, source } => {
-                write!(formatter, "failed to connect to broker {endpoint:?}: {source}")
-            }
-            Self::BackendConnect(source) => {
-                write!(formatter, "failed to connect to negotiated backend: {source}")
-            }
-            Self::Refused(refusal) => write!(
-                formatter,
-                "broker refused Hello: {} ({:?}, retry_after_ms={})",
-                refusal.reason, refusal.code, refusal.retry_after_ms
-            ),
-            Self::Protocol { detail } => write!(formatter, "broker protocol failure: {detail}"),
-        }
-    }
-}
-
-impl Error for BrokerClientError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::BrokerConnect { source, .. } | Self::BackendConnect(source) => Some(source),
-            _ => None,
-        }
     }
 }
 
