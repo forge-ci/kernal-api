@@ -318,33 +318,17 @@ pub enum ProcessIdentityAction {
 }
 
 /// Why a generation-safe action was refused.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ProcessIdentityActionError {
     /// The PID is now owned by a different process instance.
+    #[error("process PID was reused by a different instance")]
     StaleIdentity,
     /// The host could no longer obtain an identity safely.
+    #[error("process identity is unavailable: {0:?}")]
     Unavailable(ProcessIdentityUnavailable),
     /// The host failed before it could act.
-    Host(std::io::Error),
-}
-
-impl std::fmt::Display for ProcessIdentityActionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::StaleIdentity => f.write_str("process PID was reused by a different instance"),
-            Self::Unavailable(reason) => write!(f, "process identity is unavailable: {reason:?}"),
-            Self::Host(error) => write!(f, "process identity action failed: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for ProcessIdentityActionError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Host(error) => Some(error),
-            Self::StaleIdentity | Self::Unavailable(_) => None,
-        }
-    }
+    #[error("process identity action failed: {0}")]
+    Host(#[source] std::io::Error),
 }
 
 /// Run a caller-owned command in the foreground and report its exit status.
@@ -576,7 +560,8 @@ pub(crate) enum WorkerStage {
 
 /// Private worker failure without exposing an OS handle or backend type.
 #[allow(dead_code)] // Phase-A foundation; the phase-B supervisor owns it.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("contained worker failed at {stage:?}: {source}")]
 pub(crate) struct WorkerError {
     stage: WorkerStage,
     source: std::io::Error,
@@ -590,22 +575,6 @@ impl WorkerError {
 
     pub(crate) fn stage(&self) -> WorkerStage {
         self.stage
-    }
-}
-
-impl std::fmt::Display for WorkerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "contained worker failed at {:?}: {}",
-            self.stage, self.source
-        )
-    }
-}
-
-impl std::error::Error for WorkerError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
     }
 }
 
@@ -1284,24 +1253,13 @@ pub enum OwnerDeathCleanupStage {
 }
 
 /// A failure to install owner-death containment, and the step it failed at.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{stage:?}: {source}")]
 pub struct OwnerDeathCleanupError {
     /// The step that failed.
     pub stage: OwnerDeathCleanupStage,
     /// What the host reported.
     pub source: std::io::Error,
-}
-
-impl std::fmt::Display for OwnerDeathCleanupError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}: {}", self.stage, self.source)
-    }
-}
-
-impl std::error::Error for OwnerDeathCleanupError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
-    }
 }
 
 pub use crate::{
@@ -1328,7 +1286,8 @@ pub enum ProcessInspectErrorKind {
 }
 
 /// A failure to inspect or signal a process, and what kind of failure it was.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{kind:?}: {source}")]
 pub struct ProcessInspectError {
     /// Which of the four situations this is.
     pub kind: ProcessInspectErrorKind,
@@ -1351,18 +1310,6 @@ impl ProcessInspectError {
             kind,
             source: std::io::Error::other(message.to_string()),
         }
-    }
-}
-
-impl std::fmt::Display for ProcessInspectError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}: {}", self.kind, self.source)
-    }
-}
-
-impl std::error::Error for ProcessInspectError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
     }
 }
 
