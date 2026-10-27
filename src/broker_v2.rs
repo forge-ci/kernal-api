@@ -21,8 +21,6 @@
 //! broker wire, name derivation, and identity encoding stay in the substrate.
 //! Payload protocol, daemon start policy, and retry policy remain with callers.
 
-use std::error::Error;
-use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -43,25 +41,29 @@ pub const DEFAULT_HELLO_DEADLINE: Duration = backend::DEFAULT_HELLO_DEADLINE;
 pub const PUBLISHED_NAMESPACE: &str = "broker-v2";
 
 /// Failure while publishing, discovering, or connecting to a v2 daemon.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum BrokerV2Error {
     /// The service name violates the frozen `[a-z0-9-]{1,64}` rule.
+    #[error("invalid broker v2 service name: {detail}")]
     InvalidServiceName {
         /// Stable diagnostic supplied by the underlying validator.
         detail: String,
     },
     /// No v2 broker is bound for the program.
-    BrokerUnavailable(io::Error),
+    #[error("no v2 broker bound: {0}")]
+    BrokerUnavailable(#[source] io::Error),
     /// A bound broker has no service definition for the service yet.
     ///
     /// A daemon typically installs its own definition at startup, so this is
     /// the first-run state, not a policy decision: [`connect`] falls back to
     /// the published identity and [`BrokerV2Error::daemon_not_running`] holds.
+    #[error("v2 broker does not know the service: {reason}")]
     ServiceUnknown {
         /// Broker-supplied reason.
         reason: String,
     },
     /// The broker declined the Hello.
+    #[error("v2 broker refused: {reason}")]
     Refused {
         /// Broker-supplied reason.
         reason: String,
@@ -69,12 +71,16 @@ pub enum BrokerV2Error {
         retry_after_ms: u64,
     },
     /// Neither the broker nor an identity file names a backend endpoint.
+    #[error("no daemon has published a backend endpoint")]
     NotPublished,
     /// The named backend endpoint did not accept a connection.
-    BackendConnect(io::Error),
+    #[error("backend connect failed: {0}")]
+    BackendConnect(#[source] io::Error),
     /// Writing or reading the daemon identity failed.
+    #[error("daemon identity: {0}")]
     Identity(String),
     /// Any other broker transport or protocol failure.
+    #[error("v2 broker protocol: {0}")]
     Protocol(String),
 }
 
@@ -86,34 +92,6 @@ impl BrokerV2Error {
             self,
             Self::NotPublished | Self::BackendConnect(_) | Self::ServiceUnknown { .. }
         )
-    }
-}
-
-impl fmt::Display for BrokerV2Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidServiceName { detail } => {
-                write!(formatter, "invalid broker v2 service name: {detail}")
-            }
-            Self::BrokerUnavailable(error) => write!(formatter, "no v2 broker bound: {error}"),
-            Self::ServiceUnknown { reason } => {
-                write!(formatter, "v2 broker does not know the service: {reason}")
-            }
-            Self::Refused { reason, .. } => write!(formatter, "v2 broker refused: {reason}"),
-            Self::NotPublished => formatter.write_str("no daemon has published a backend endpoint"),
-            Self::BackendConnect(error) => write!(formatter, "backend connect failed: {error}"),
-            Self::Identity(detail) => write!(formatter, "daemon identity: {detail}"),
-            Self::Protocol(detail) => write!(formatter, "v2 broker protocol: {detail}"),
-        }
-    }
-}
-
-impl Error for BrokerV2Error {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::BrokerUnavailable(error) | Self::BackendConnect(error) => Some(error),
-            _ => None,
-        }
     }
 }
 
