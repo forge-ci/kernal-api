@@ -206,7 +206,7 @@ dependencies = [
 
 [[package]]
 name = "kernal-api"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "blake3",
  "embed-resource",
