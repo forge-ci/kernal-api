@@ -11,7 +11,7 @@ import platform
 import sys
 from dataclasses import dataclass
 
-__version__ = "0.1.32"
+__version__ = "0.1.33"
 RUST_MSRV = "1.95.0"
 SUPPORTED_SYSTEMS = frozenset({"Linux", "Darwin", "Windows"})
 SUPPORTED_MACHINES = frozenset({"x86_64", "amd64", "aarch64", "arm64"})
