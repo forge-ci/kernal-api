@@ -1300,6 +1300,78 @@ impl PatternSetBuilder {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Plain file mutation
+// ---------------------------------------------------------------------------
+//
+// The facade owns ordinary file mutation so that clients stop reaching for
+// `std::fs` directly (zccache#1519's migration inventory, `disposition =
+// "extend"`). These are deliberately the plain operations: a caller that needs
+// a private directory, a staged replacement or an atomic publish uses the
+// narrower helpers above, which carry those invariants. Nothing here repairs
+// permissions or proves containment.
+
+/// Replace `path`'s contents with `bytes`, creating the file if it is absent.
+///
+/// The write is not atomic: a concurrent reader can observe a partial file and
+/// a crash can leave a truncated one. Callers that need an all-or-nothing
+/// publication write a sibling temporary file and
+/// [`rename`] it over the destination.
+///
+/// # Errors
+///
+/// Returns an error for the ordinary reasons a write fails: a missing parent
+/// directory, a permission denial, a read-only file, or a full filesystem.
+#[cfg(feature = "fs")]
+pub fn write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    std::fs::write(path, bytes)
+}
+
+/// Remove the file at `path`.
+///
+/// A missing file is an error, which keeps a caller from silently treating a
+/// failed removal as success. Use [`std::fs::remove_file`]'s own tolerance via
+/// the caller if that distinction does not matter to it.
+///
+/// # Errors
+///
+/// Returns an error when the file does not exist, when `path` is a directory,
+/// or when the removal is denied.
+#[cfg(feature = "fs")]
+pub fn remove_file(path: &Path) -> io::Result<()> {
+    std::fs::remove_file(path)
+}
+
+/// Rename `from` to `to`, replacing `to` when it already exists.
+///
+/// This is the facade's publish primitive: on the same filesystem a rename is
+/// atomic, so a reader sees either the old file or the new one. Across
+/// filesystems the call fails rather than falling back to a copy.
+///
+/// # Errors
+///
+/// Returns an error when `from` is missing, when the two paths are on different
+/// filesystems, or when the rename is denied.
+#[cfg(feature = "fs")]
+pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
+    std::fs::rename(from, to)
+}
+
+/// Create `path` and every missing parent, like `mkdir -p`.
+///
+/// An existing directory is success. The created directories inherit the host's
+/// ordinary permissions; a directory that must be private to this user goes
+/// through [`create_dir_all_private`] instead.
+///
+/// # Errors
+///
+/// Returns an error when a path component exists as a file, when the path is
+/// denied, or when the filesystem is full.
+#[cfg(feature = "fs")]
+pub fn create_dir_all(path: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(path)
+}
+
 #[cfg(all(test, feature = "fs"))]
 mod tests {
     use super::*;
@@ -2109,5 +2181,49 @@ mod tests {
             .build()
             .expect_err("malformed glob syntax must be rejected");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    /// The plain mutation accessors round-trip the bytes they were given, so a
+    /// client can replace `std::fs` with the facade without a behavior change.
+    #[test]
+    fn plain_mutation_accessors_round_trip() {
+        let root = tempfile::tempdir().expect("temp root");
+        let nested = root.path().join("a").join("b");
+        create_dir_all(&nested).expect("create nested directories");
+        assert!(nested.is_dir(), "create_dir_all makes every parent");
+
+        let first = nested.join("first.txt");
+        write_file(&first, b"one").expect("write");
+        assert_eq!(std::fs::read(&first).expect("read back"), b"one");
+
+        write_file(&first, b"two").expect("overwrite");
+        assert_eq!(std::fs::read(&first).expect("read back"), b"two");
+
+        let second = nested.join("second.txt");
+        rename(&first, &second).expect("rename publishes the file");
+        assert!(!first.exists(), "the old name is gone after a rename");
+        assert_eq!(std::fs::read(&second).expect("read back"), b"two");
+
+        remove_file(&second).expect("remove");
+        assert!(!second.exists(), "the file is gone");
+        assert_eq!(
+            remove_file(&second).expect_err("removing a missing file is an error").kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
+    /// A write that cannot land reports the filesystem's own error rather than
+    /// succeeding quietly, so a caller can distinguish it from a success.
+    #[test]
+    fn write_file_reports_a_missing_parent() {
+        let root = tempfile::tempdir().expect("temp root");
+        let orphan = root.path().join("no-such-directory").join("file.txt");
+
+        assert_eq!(
+            write_file(&orphan, b"x")
+                .expect_err("writing under a missing parent is an error")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
     }
 }
