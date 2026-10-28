@@ -99,7 +99,7 @@
 
 - Before pushing, run the minimal Linux workflow through the local gate from
   a clean committed tree:
-  `uvx --from git+https://github.com/forge-ci/ci.yml@d563250177f548742fcdf74c751eae11d83e288f ci-lint local-gate run`.
+  `uvx --from git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60 ci-lint local-gate run`.
   Its `linux-minimal` lane uses `bosn ci run` (the pinned act2 engine), checks
   the completed run's source/tree, PR selection, executed checks and removed
   engine. The separate Dylint lane proves its selected checks too. Both lanes

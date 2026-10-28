@@ -66,7 +66,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: d563250177f548742fcdf74c751eae11d83e288f
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
           path: .ci-lint
           persist-credentials: false
       - name: Set up uv
@@ -180,7 +180,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: d563250177f548742fcdf74c751eae11d83e288f
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -761,7 +761,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: d563250177f548742fcdf74c751eae11d83e288f
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -880,7 +880,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: d563250177f548742fcdf74c751eae11d83e288f
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -942,7 +942,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: d563250177f548742fcdf74c751eae11d83e288f
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
           path: .ci-lint
           persist-credentials: false
       - name: Plan this run with the pinned ci-lint
@@ -1080,7 +1080,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zackees/ci.yml
-          ref: d563250177f548742fcdf74c751eae11d83e288f
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
           path: .ci-lint
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
