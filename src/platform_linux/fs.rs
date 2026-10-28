@@ -4,6 +4,19 @@ use std::fs::File;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+#[path = "fs_acl_unsupported_tests.rs"]
+mod acl_unsupported_tests;
+
+/// This host does not yet implement held-file ACL inspection.
+pub fn ensure_no_extended_acl(_file: &std::fs::File) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "held-file ACL verification is unavailable on this host",
+    ))
+}
+
+
 /// Directory for `product`'s ephemeral runtime artifacts (sockets, pid files).
 ///
 /// `XDG_RUNTIME_DIR` is the session-scoped, per-user location the platform
