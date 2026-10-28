@@ -103,6 +103,7 @@ pub use host::{
 pub(crate) mod fs;
 #[cfg(feature = "fs")]
 pub use fs::{
+    ensure_no_extended_acl as fs_ensure_no_extended_acl,
     create_dir_all_private as fs_create_dir_all_private,
     create_private_file as fs_create_private_file,
     ensure_dir_private as fs_ensure_dir_private,

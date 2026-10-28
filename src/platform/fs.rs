@@ -2111,3 +2111,13 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 }
+
+/// Reject a held file with an extended ACL, or return `Unsupported` when the
+/// host cannot inspect it. This checks ACLs only; callers must separately
+/// verify ownership, mode, ancestry, and identity of their held handles.
+/// ACL absence is a point-in-time observation; callers must control later
+/// security metadata changes while relying on it.
+#[cfg(feature = "fs")]
+pub fn ensure_no_extended_acl(file: &std::fs::File) -> std::io::Result<()> {
+    crate::fs_ensure_no_extended_acl(file)
+}

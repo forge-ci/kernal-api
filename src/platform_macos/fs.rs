@@ -4,6 +4,14 @@ use std::fs::File;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+#[path = "fs_private_acl_tests.rs"]
+mod private_acl_tests;
+
+#[path = "fs_private_acl.rs"]
+mod private_acl;
+pub use private_acl::ensure_no_extended_acl;
+
 /// Directory for `product`'s ephemeral runtime artifacts (sockets, pid files).
 ///
 /// macOS ships no `XDG_RUNTIME_DIR`, but honours it when a caller's
