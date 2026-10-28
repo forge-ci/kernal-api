@@ -5,7 +5,7 @@
 # yet meet this contract are tracked in zackees/ci.yml, not silenced here.
 schema  = 3
 profile = "rust-library"                          # a Rust facade crate + a hatchling Python package; not a native-CLI PyPI app
-linter  = "zackees/ci.yml@d563250177f548742fcdf74c751eae11d83e288f"
+linter  = "zackees/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60"
 
 # -- Platforms: the six hosts `linux` + `test` (x5) run on --------------------
 [platforms]
@@ -142,16 +142,16 @@ cache  = "machine"
 # First rollout lane: the exact remote minimal Linux job in bosn/act2.
 # Remote jobs keep running until verifier wiring and coverage are validated.
 [local.gate]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@d563250177f548742fcdf74c751eae11d83e288f", "--python", "3.12", "python", "ci/local_gate.py"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py"]
 mode = "enforce"
 verify = "ci.yml:verify"
 
 [local.gate.lanes.linux-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@d563250177f548742fcdf74c751eae11d83e288f", "--python", "3.12", "python", "ci/local_gate.py"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py"]
 tools = ["bosn", "uv"]
 
 [local.gate.lanes.dylint-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@d563250177f548742fcdf74c751eae11d83e288f", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
 tools = ["bosn", "uv"]
 
 # Eligible attested minimal PRs reuse both source-bound workflow lanes.
