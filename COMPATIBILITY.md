@@ -98,7 +98,7 @@ descendant teardown, or fresh evidence on the other five targets.
 Until 1.0, the four first-party clients use an exact Cargo requirement:
 
 ```toml
-kernal-api = { version = "=0.1.34", features = ["..."] }
+kernal-api = { version = "=0.1.35", features = ["..."] }
 
 [profile.dev.package.kernal-api]
 codegen-units = 1
