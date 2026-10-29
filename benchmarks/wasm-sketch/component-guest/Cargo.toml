@@ -25,7 +25,7 @@ compiler-artifact-output = []
 zccache-compiler = { git = "https://github.com/zackees/zccache", rev = "c6ddfa974a4920a127eac81773db6a5c56cd30a7", default-features = false }
 # Exact source-only migration fixture; not published-pin acceptance.
 zccache-hash = { git = "https://github.com/zackees/zccache", rev = "2543136ea8b648b295d2f7115a19656ff0854531", default-features = false }
-kernal-api = { version = "=0.1.34", path = "../../..", default-features = false, features = ["wasm-component-hash-experiment"] }
+kernal-api = { version = "=0.1.35", path = "../../..", default-features = false, features = ["wasm-component-hash-experiment"] }
 wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macros", "realloc", "async", "std"] }
 
 [profile.release]

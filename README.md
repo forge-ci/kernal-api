@@ -127,7 +127,7 @@ adds `kernal-api` a second time, as a build-dependency with only this feature:
 
 ```toml
 [dependencies]
-kernal-api = { version = "=0.1.34", features = ["window-icon"] }
+kernal-api = { version = "=0.1.35", features = ["window-icon"] }
 
 [build-dependencies]
 kernal-api = { version = "=0.1.34", default-features = false, features = ["build-resources"] }
