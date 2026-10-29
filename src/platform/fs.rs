@@ -1323,7 +1323,7 @@ impl PatternSetBuilder {
 /// Returns an error for the ordinary reasons a write fails: a missing parent
 /// directory, a permission denial, a read-only file, or a full filesystem.
 #[cfg(feature = "fs")]
-pub fn write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub fn write_file(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
     std::fs::write(path, bytes)
 }
 
@@ -1338,7 +1338,7 @@ pub fn write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
 /// Returns an error when the file does not exist, when `path` is a directory,
 /// or when the removal is denied.
 #[cfg(feature = "fs")]
-pub fn remove_file(path: &Path) -> io::Result<()> {
+pub fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
     std::fs::remove_file(path)
 }
 
@@ -1353,7 +1353,7 @@ pub fn remove_file(path: &Path) -> io::Result<()> {
 /// Returns an error when `from` is missing, when the two paths are on different
 /// filesystems, or when the rename is denied.
 #[cfg(feature = "fs")]
-pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
+pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
     std::fs::rename(from, to)
 }
 
@@ -1368,7 +1368,7 @@ pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
 /// Returns an error when a path component exists as a file, when the path is
 /// denied, or when the filesystem is full.
 #[cfg(feature = "fs")]
-pub fn create_dir_all(path: &Path) -> io::Result<()> {
+pub fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
     std::fs::create_dir_all(path)
 }
 
@@ -1398,7 +1398,7 @@ pub fn create_dir_all(path: &Path) -> io::Result<()> {
 /// Returns an error when `path` does not exist, when a link in it is broken, or
 /// when the metadata is denied.
 #[cfg(feature = "fs")]
-pub fn path_metadata(path: &Path) -> io::Result<std::fs::Metadata> {
+pub fn path_metadata(path: impl AsRef<Path>) -> io::Result<std::fs::Metadata> {
     std::fs::metadata(path)
 }
 
@@ -1414,7 +1414,7 @@ pub fn path_metadata(path: &Path) -> io::Result<std::fs::Metadata> {
 /// Returns an error when a parent is missing, when `path` already exists, when
 /// the creation is denied, or when the filesystem is full.
 #[cfg(feature = "fs")]
-pub fn create_dir(path: &Path) -> io::Result<()> {
+pub fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
     std::fs::create_dir(path)
 }
 
@@ -1429,7 +1429,7 @@ pub fn create_dir(path: &Path) -> io::Result<()> {
 /// Returns an error when the directory does not exist, is not empty, names a
 /// file, or when the removal is denied.
 #[cfg(feature = "fs")]
-pub fn remove_dir(path: &Path) -> io::Result<()> {
+pub fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
     std::fs::remove_dir(path)
 }
 
@@ -1445,7 +1445,7 @@ pub fn remove_dir(path: &Path) -> io::Result<()> {
 /// Returns an error when `path` does not exist, when it is not a directory, or
 /// when an entry beneath it cannot be removed.
 #[cfg(feature = "fs")]
-pub fn remove_dir_all(path: &Path) -> io::Result<()> {
+pub fn remove_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
     std::fs::remove_dir_all(path)
 }
 
@@ -1463,7 +1463,7 @@ pub fn remove_dir_all(path: &Path) -> io::Result<()> {
 /// different filesystems or volumes, when `new` already exists, or when the
 /// host denies linking the object (some filesystems and network shares do).
 #[cfg(feature = "fs")]
-pub fn hard_link(existing: &Path, new: &Path) -> io::Result<()> {
+pub fn hard_link(existing: impl AsRef<Path>, new: impl AsRef<Path>) -> io::Result<()> {
     std::fs::hard_link(existing, new)
 }
 
