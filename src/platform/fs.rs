@@ -2362,14 +2362,18 @@ mod tests {
     /// `path_metadata` resolves the final component, unlike the no-follow
     /// containment stat, so a client inspecting a linked artifact sees the
     /// object rather than the link.
-    #[cfg(unix)]
     #[test]
     fn path_metadata_follows_a_final_symlink() {
         let root = tempfile::tempdir().expect("temp root");
         let target = root.path().join("target.txt");
         let link = root.path().join("link.txt");
         write_file(&target, b"resolved").expect("write target");
-        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        if symlink_file(&target, &link).is_err() {
+            // A host that will not create the link (Windows without Developer
+            // Mode or the symlink privilege) cannot answer the question here;
+            // the plain stat above still covers the accessor's contract.
+            return;
+        }
 
         let metadata = path_metadata(&link).expect("following stat");
         assert!(metadata.is_file(), "the following stat describes the target");
