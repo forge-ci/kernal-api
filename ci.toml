@@ -143,7 +143,11 @@ cache  = "machine"
 # Remote jobs keep running until verifier wiring and coverage are validated.
 [local.gate]
 run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py"]
-mode = "enforce"
+# Owner directive 2026-10-28: a missing Local-Gate attestation costs CI time,
+# not a red PR. Shadow is ci.yml 54cec7ad's default; this repository now
+# follows it instead of opting into enforce (forge-ci/kernal-api#501 was
+# blocked by [GATE-003] before any job ran).
+mode = "shadow"
 verify = "ci.yml:verify"
 
 [local.gate.lanes.linux-minimal]
