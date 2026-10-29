@@ -1467,6 +1467,143 @@ pub fn hard_link(existing: impl AsRef<Path>, new: impl AsRef<Path>) -> io::Resul
     std::fs::hard_link(existing, new)
 }
 
+// ---------------------------------------------------------------------------
+// Streaming regular-file handles and whole-file reads
+// ---------------------------------------------------------------------------
+//
+// The bounded reads above are the right shape for a file whose size the facade
+// already knows: a lock file, a pointer, a small sidecar. They cannot stand in
+// for a file whose size the *caller* chose. A 64 MiB convenience cap is a
+// different operation, not a tighter spelling of the same one, so refusing or
+// truncating a 200 MiB cache artifact is not a decision this facade may make on
+// a client's behalf. What follows is the same operation the standard library
+// offers -- open a stream, or read a whole file -- plus the facade ownership
+// that lets a client stop calling `std::fs` directly. Every budget on top of
+// these (how many bytes, how many files, how deep) belongs to the caller, and
+// the doc comments say so rather than growing a second cap here.
+
+/// Open `path` for reading and hand back the streaming handle.
+///
+/// This is the facade's unbounded read path: unlike
+/// [`read_context_regular_file_bounded`] it neither collects the bytes nor
+/// enforces [`MAX_CONTEXT_REGULAR_FILE_BYTES`], so a caller hashing an input of
+/// arbitrary size reads it in its own chunks. The facade owns the call because
+/// "open this path for reading" is the one host operation every client
+/// migration off `std::fs` needs and because the handle it returns is an
+/// ordinary `File` the caller may also lock or stat.
+///
+/// A symbolic link at the final component is followed, exactly as
+/// [`path_metadata`] follows it: the answer is about the object the caller
+/// named, and containment questions go through
+/// [`context_path_metadata_no_follow`] instead.
+///
+/// # Errors
+///
+/// Returns an error when `path` does not exist, when a link in it is broken,
+/// when the caller lacks read access, or when the host denies the open.
+#[cfg(feature = "fs")]
+pub fn open_read_regular_file(path: impl AsRef<Path>) -> io::Result<File> {
+    File::open(path)
+}
+
+/// Read all of `path` into one allocation.
+///
+/// The semantics are `std::fs::read`'s: the whole file, in one `Vec`, no
+/// truncation and no cap. That is deliberate -- a caller reading a cache
+/// artifact it wrote itself already knows the size it is willing to hold, and
+/// the bounded forms above exist for the callers that do not. A caller that
+/// cannot afford the allocation uses [`open_read_regular_file`] and streams
+/// instead.
+///
+/// # Errors
+///
+/// Returns an error when `path` does not exist, cannot be opened, or is a
+/// directory (which the host refuses to read as a file).
+#[cfg(feature = "fs")]
+pub fn read_regular_file(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+    std::fs::read(path)
+}
+
+/// Read all of `path` as UTF-8 text.
+///
+/// The same whole-file read as [`read_regular_file`], with the encoding
+/// required rather than lossily replaced: invalid UTF-8 is an error, not
+/// replacement characters. A caller that must survive arbitrary bytes reads
+/// bytes and decodes them itself.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read, or when its contents are not
+/// valid UTF-8.
+#[cfg(feature = "fs")]
+pub fn read_regular_file_to_string(path: impl AsRef<Path>) -> io::Result<String> {
+    std::fs::read_to_string(path)
+}
+
+/// Create `path`, or truncate it when it already exists, and return the write
+/// handle.
+///
+/// Two neighbours are deliberately different operations. [`create_private_file`]
+/// refuses an existing path, because it exists to prove the caller created it.
+/// [`write_file`] takes the bytes up front, because most single-shot writes do
+/// not need a handle. This is the third case: the caller writes in its own
+/// chunks and accepts that it is replacing whatever was there.
+///
+/// The truncation is not atomic against a concurrent reader, and a crash leaves
+/// a partial file; a publication that must be all-or-nothing writes a sibling
+/// temporary and [`rename`]s it into place.
+///
+/// # Errors
+///
+/// Returns an error when a parent directory is missing, when `path` is a
+/// directory, when the creation is denied, or when the filesystem is full.
+#[cfg(feature = "fs")]
+pub fn create_file(path: impl AsRef<Path>) -> io::Result<File> {
+    File::create(path)
+}
+
+/// Open `path` for reading and writing, creating it when it is absent.
+///
+/// Truncation is deliberately *not* implied: a caller replacing the contents
+/// uses [`create_file`], and a caller that seeks to chosen offsets and writes
+/// there -- a journal, an index, a preallocated bundle -- uses this. The
+/// equivalent standard-library spelling is
+/// `OpenOptions::new().read(true).write(true).create(true)`; the facade owns it
+/// so the shape is named once instead of being re-derived per client.
+///
+/// # Errors
+///
+/// Returns an error when a parent directory is missing, when `path` is a
+/// directory, when the open is denied, or when the filesystem is full.
+#[cfg(feature = "fs")]
+pub fn open_read_write_file(path: impl AsRef<Path>) -> io::Result<File> {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+}
+
+/// Report the bytes `path` occupies on disk, in one call.
+///
+/// [`allocated_bytes`] answers the same question for a caller that already
+/// holds a [`std::fs::Metadata`] -- a directory walk yields one per entry, and
+/// re-statting then would double the syscalls. This form exists for the single
+/// path: an accounting pass that asks about one file must not have to obtain a
+/// metadata value through `std::fs` first just to hand it back.
+///
+/// # Errors
+///
+/// Returns an error when `path` does not exist, when a link in it is broken, or
+/// when the metadata is denied.
+#[cfg(feature = "fs")]
+pub fn allocated_bytes_at(path: impl AsRef<Path>) -> io::Result<u64> {
+    let path = path.as_ref();
+    let metadata = std::fs::metadata(path)?;
+    Ok(allocated_bytes(path, &metadata))
+}
+
 #[cfg(all(test, feature = "fs"))]
 mod tests {
     use super::*;
@@ -2322,7 +2459,7 @@ mod tests {
             "an existing directory is an error, not a silent success"
         );
         assert!(
-            create_dir(&root.path().join("absent").join("child")).is_err(),
+            create_dir(root.path().join("absent").join("child")).is_err(),
             "create_dir does not create parents"
         );
 
@@ -2332,7 +2469,7 @@ mod tests {
         assert_eq!(metadata.len(), 7, "the stat describes the written bytes");
         assert!(metadata.is_file(), "the stat describes a regular file");
         assert_eq!(
-            path_metadata(&root.path().join("missing.txt"))
+            path_metadata(root.path().join("missing.txt"))
                 .expect_err("a missing path is an error")
                 .kind(),
             io::ErrorKind::NotFound
@@ -2392,6 +2529,105 @@ mod tests {
                 .expect_err("writing under a missing parent is an error")
                 .kind(),
             io::ErrorKind::NotFound
+        );
+    }
+
+    /// The handle forms exist so a caller can stream a file whose size the
+    /// facade never learns. Round-tripping through `create_file` and
+    /// `read_regular_file` proves the pair is the same object: what the create
+    /// handle writes is what the read helper returns, and a second create
+    /// truncates rather than appending.
+    #[test]
+    fn a_created_file_handle_round_trips_and_truncates() {
+        let root = tempfile::tempdir().expect("temp root");
+        let path = root.path().join("streamed.bin");
+
+        {
+            let mut file = create_file(&path).expect("create handle");
+            std::io::Write::write_all(&mut file, b"first generation").expect("write first");
+        }
+        assert_eq!(
+            read_regular_file(&path).expect("read back"),
+            b"first generation"
+        );
+        assert_eq!(
+            read_regular_file_to_string(&path).expect("read back as text"),
+            "first generation"
+        );
+
+        {
+            let mut file = create_file(&path).expect("second create handle");
+            std::io::Write::write_all(&mut file, b"second").expect("write second");
+        }
+        assert_eq!(
+            read_regular_file(&path).expect("read truncating write"),
+            b"second",
+            "creating over an existing path truncates it"
+        );
+    }
+
+    /// A read/write handle creates a missing file and does not shorten one that
+    /// already has contents, which is what separates it from `create_file`.
+    #[test]
+    fn a_read_write_handle_creates_without_truncating() {
+        let root = tempfile::tempdir().expect("temp root");
+        let path = root.path().join("journal.bin");
+
+        let mut first = open_read_write_file(&path).expect("create read/write handle");
+        std::io::Write::write_all(&mut first, b"0000").expect("seed contents");
+        drop(first);
+
+        let mut second = open_read_write_file(&path).expect("reopen read/write handle");
+        let mut observed = [0u8; 4];
+        std::io::Read::read_exact(&mut second, &mut observed).expect("read existing contents");
+        assert_eq!(
+            &observed, b"0000",
+            "reopening a read/write handle must not truncate"
+        );
+    }
+
+    /// A missing path is an error on the streaming open, not a silently empty
+    /// read: a cache that cannot open its artifact must fail the lookup rather
+    /// than serve a zero-length result. The unbounded read is not a cap the
+    /// facade will quietly apply either -- a file larger than the context cap
+    /// reads whole.
+    #[test]
+    fn the_streaming_open_reports_a_missing_path_and_reads_past_the_cap() {
+        let root = tempfile::tempdir().expect("temp root");
+        let missing = root.path().join("absent.bin");
+
+        assert_eq!(
+            open_read_regular_file(&missing)
+                .expect_err("opening an absent file is an error")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+
+        let large = root.path().join("large.bin");
+        let payload = vec![b'z'; MAX_CONTEXT_REGULAR_FILE_BYTES + 1];
+        write_file(&large, &payload).expect("write over the context cap");
+        assert_eq!(
+            read_regular_file(&large)
+                .expect("read whole file above the context cap")
+                .len(),
+            MAX_CONTEXT_REGULAR_FILE_BYTES + 1,
+            "the whole-file read is not capped by the context limit"
+        );
+    }
+
+    /// The single-path allocation form agrees with the metadata-holding form for
+    /// the same file, so an accounting pass does not change its answer by
+    /// switching between them.
+    #[test]
+    fn the_single_path_allocation_agrees_with_the_metadata_form() {
+        let root = tempfile::tempdir().expect("temp root");
+        let path = root.path().join("accounted.bin");
+        write_file(&path, vec![b'q'; 8192]).expect("write accounted file");
+
+        let metadata = path_metadata(&path).expect("path metadata");
+        assert_eq!(
+            allocated_bytes_at(&path).expect("allocated bytes at path"),
+            allocated_bytes(&path, &metadata)
         );
     }
 }
