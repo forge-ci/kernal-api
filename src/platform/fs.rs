@@ -1372,6 +1372,101 @@ pub fn create_dir_all(path: &Path) -> io::Result<()> {
     std::fs::create_dir_all(path)
 }
 
+// ---------------------------------------------------------------------------
+// Plain path inspection and directory/link mutation
+// ---------------------------------------------------------------------------
+//
+// The second half of the ordinary-replacement surface. `write_file` /
+// `remove_file` / `rename` / `create_dir_all` above cover the single-file
+// mutations; these cover what a client still needs to stop reaching for
+// `std::fs` while it walks, prunes or links a directory tree. As above, these
+// are the plain operations: a caller that needs containment, privacy or
+// atomicity uses the narrower helpers, which carry those invariants. Nothing
+// here proves containment or repairs permissions.
+
+/// Report `path`'s metadata, following a symbolic link at the final component.
+///
+/// This is the facade's ordinary, following `stat`: the answer describes the
+/// object the path names after resolution. It deliberately does not report
+/// containment, because the answer is about a path the caller already chose.
+/// A caller that must know whether the object stays inside a root uses
+/// [`context_path_metadata_no_follow`], which carries the containment answer
+/// this call cannot.
+///
+/// # Errors
+///
+/// Returns an error when `path` does not exist, when a link in it is broken, or
+/// when the metadata is denied.
+#[cfg(feature = "fs")]
+pub fn path_metadata(path: &Path) -> io::Result<std::fs::Metadata> {
+    std::fs::metadata(path)
+}
+
+/// Create the single directory `path`, like `mkdir`.
+///
+/// Unlike [`create_dir_all`], a missing parent is an error, and so is an
+/// existing directory: the call reports the state the caller asked for rather
+/// than accepting whatever was there. A directory that must be private to this
+/// user goes through [`create_dir_all_private`] instead.
+///
+/// # Errors
+///
+/// Returns an error when a parent is missing, when `path` already exists, when
+/// the creation is denied, or when the filesystem is full.
+#[cfg(feature = "fs")]
+pub fn create_dir(path: &Path) -> io::Result<()> {
+    std::fs::create_dir(path)
+}
+
+/// Remove the empty directory `path`.
+///
+/// Unlike [`remove_dir_all`], a directory with any entry left in it is an
+/// error, which keeps a caller from silently deleting a tree it only meant to
+/// prune.
+///
+/// # Errors
+///
+/// Returns an error when the directory does not exist, is not empty, names a
+/// file, or when the removal is denied.
+#[cfg(feature = "fs")]
+pub fn remove_dir(path: &Path) -> io::Result<()> {
+    std::fs::remove_dir(path)
+}
+
+/// Remove `path` and every entry beneath it.
+///
+/// The recursive call does not follow symbolic links inside the tree: a link is
+/// removed as a link, never as the directory it names. Any other error while
+/// descending is reported, so a partially removed tree surfaces as a failure
+/// rather than a silent success.
+///
+/// # Errors
+///
+/// Returns an error when `path` does not exist, when it is not a directory, or
+/// when an entry beneath it cannot be removed.
+#[cfg(feature = "fs")]
+pub fn remove_dir_all(path: &Path) -> io::Result<()> {
+    std::fs::remove_dir_all(path)
+}
+
+/// Create `new` as a hard link to `existing`.
+///
+/// Both names then refer to one inode: the bytes are shared, the link count on
+/// the source rises by one, and either name can be removed without affecting
+/// the other. Because the object is shared, a caller that wants an independent
+/// copy uses [`copy_file`] instead, and a caller that wants the sharing to be
+/// optional falls back the same way when this call fails.
+///
+/// # Errors
+///
+/// Returns an error when `existing` is missing, when the two paths are on
+/// different filesystems or volumes, when `new` already exists, or when the
+/// host denies linking the object (some filesystems and network shares do).
+#[cfg(feature = "fs")]
+pub fn hard_link(existing: &Path, new: &Path) -> io::Result<()> {
+    std::fs::hard_link(existing, new)
+}
+
 #[cfg(all(test, feature = "fs"))]
 mod tests {
     use super::*;
@@ -2210,6 +2305,75 @@ mod tests {
             remove_file(&second).expect_err("removing a missing file is an error").kind(),
             io::ErrorKind::NotFound
         );
+    }
+
+    /// The path and tree accessors answer over a real directory tree, so a
+    /// client can replace `std::fs` for inspection, pruning and linking
+    /// without a behavior change.
+    #[test]
+    fn path_and_tree_accessors_round_trip() {
+        let root = tempfile::tempdir().expect("temp root");
+        let outer = root.path().join("outer");
+
+        create_dir(&outer).expect("create one directory");
+        assert!(outer.is_dir(), "create_dir makes the named directory");
+        assert!(
+            create_dir(&outer).is_err(),
+            "an existing directory is an error, not a silent success"
+        );
+        assert!(
+            create_dir(&root.path().join("absent").join("child")).is_err(),
+            "create_dir does not create parents"
+        );
+
+        let original = outer.join("payload.txt");
+        write_file(&original, b"payload").expect("write");
+        let metadata = path_metadata(&original).expect("following stat");
+        assert_eq!(metadata.len(), 7, "the stat describes the written bytes");
+        assert!(metadata.is_file(), "the stat describes a regular file");
+        assert_eq!(
+            path_metadata(&root.path().join("missing.txt"))
+                .expect_err("a missing path is an error")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+
+        let linked = outer.join("linked.txt");
+        hard_link(&original, &linked).expect("hard link");
+        remove_file(&original).expect("remove the original name");
+        assert_eq!(
+            std::fs::read(&linked).expect("read through the surviving name"),
+            b"payload",
+            "a hard link keeps the bytes alive under either name"
+        );
+
+        assert!(
+            remove_dir(&outer).is_err(),
+            "a directory with entries is not removable by remove_dir"
+        );
+        remove_dir_all(&outer).expect("remove the tree");
+        assert!(!outer.exists(), "the whole tree is gone");
+
+        create_dir(&outer).expect("recreate an empty directory");
+        remove_dir(&outer).expect("remove the empty directory");
+        assert!(!outer.exists(), "the empty directory is gone");
+    }
+
+    /// `path_metadata` resolves the final component, unlike the no-follow
+    /// containment stat, so a client inspecting a linked artifact sees the
+    /// object rather than the link.
+    #[cfg(unix)]
+    #[test]
+    fn path_metadata_follows_a_final_symlink() {
+        let root = tempfile::tempdir().expect("temp root");
+        let target = root.path().join("target.txt");
+        let link = root.path().join("link.txt");
+        write_file(&target, b"resolved").expect("write target");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+
+        let metadata = path_metadata(&link).expect("following stat");
+        assert!(metadata.is_file(), "the following stat describes the target");
+        assert_eq!(metadata.len(), 8, "the following stat sizes the target");
     }
 
     /// A write that cannot land reports the filesystem's own error rather than
