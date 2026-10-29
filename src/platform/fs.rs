@@ -2322,7 +2322,7 @@ mod tests {
             "an existing directory is an error, not a silent success"
         );
         assert!(
-            create_dir(&root.path().join("absent").join("child")).is_err(),
+            create_dir(root.path().join("absent").join("child")).is_err(),
             "create_dir does not create parents"
         );
 
@@ -2332,7 +2332,7 @@ mod tests {
         assert_eq!(metadata.len(), 7, "the stat describes the written bytes");
         assert!(metadata.is_file(), "the stat describes a regular file");
         assert_eq!(
-            path_metadata(&root.path().join("missing.txt"))
+            path_metadata(root.path().join("missing.txt"))
                 .expect_err("a missing path is an error")
                 .kind(),
             io::ErrorKind::NotFound
