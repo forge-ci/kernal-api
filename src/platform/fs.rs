@@ -535,6 +535,7 @@ impl Drop for FileLock<'_> {
 /// Returns an error if the host lock call fails for a reason other than
 /// waiting for the lock.
 #[cfg(feature = "fs")]
+#[deprecated(note = "waits forever for a stuck holder; use `lock_exclusive_for` (#433)")]
 pub fn lock_exclusive(file: &File) -> io::Result<FileLock<'_>> {
     crate::fs_lock_exclusive(file)?;
     Ok(FileLock::new(file))
@@ -549,6 +550,7 @@ pub fn lock_exclusive(file: &File) -> io::Result<FileLock<'_>> {
 /// Returns an error if the host lock call fails for a reason other than
 /// waiting for the lock.
 #[cfg(feature = "fs")]
+#[deprecated(note = "waits forever for a stuck holder; use `lock_shared_for` (#433)")]
 pub fn lock_shared(file: &File) -> io::Result<FileLock<'_>> {
     crate::fs_lock_shared(file)?;
     Ok(FileLock::new(file))
@@ -645,8 +647,9 @@ impl Drop for OwnedFileLock {
 ///
 /// Returns an error if the host lock call fails. `file` is closed in that
 /// case; a caller that needs the handle back on failure should use
-/// [`lock_exclusive`] and keep its own handle.
+/// [`lock_exclusive_for`] and keep its own handle.
 #[cfg(feature = "fs")]
+#[deprecated(note = "waits forever for a stuck holder; use `lock_exclusive_owned_for` (#433)")]
 pub fn lock_exclusive_owned(file: File) -> io::Result<OwnedFileLock> {
     crate::fs_lock_exclusive(&file)?;
     Ok(OwnedFileLock { file: Some(file) })
@@ -658,6 +661,7 @@ pub fn lock_exclusive_owned(file: File) -> io::Result<OwnedFileLock> {
 ///
 /// As [`lock_exclusive_owned`].
 #[cfg(feature = "fs")]
+#[deprecated(note = "waits forever for a stuck holder; use `lock_shared_owned_for` (#433)")]
 pub fn lock_shared_owned(file: File) -> io::Result<OwnedFileLock> {
     crate::fs_lock_shared(&file)?;
     Ok(OwnedFileLock { file: Some(file) })
@@ -1764,7 +1768,7 @@ mod tests {
         let held = open_lock_file(&path).expect("open holder");
 
         // An exclusive holder must not stop a plain reader.
-        let exclusive = lock_exclusive(&held).expect("holder takes it exclusively");
+        let exclusive = lock_exclusive_for(&held, Duration::from_secs(1)).expect("holder takes it exclusively");
         let mut contents = Vec::new();
         std::fs::File::open(&path)
             .expect("a non-participant can open it")
@@ -1777,7 +1781,7 @@ mod tests {
         // does not truncate: a lock file's contents belong to whoever wrote
         // them, and replacing five bytes with five keeps this about the lock
         // rather than about file length.
-        let shared = lock_shared(&held).expect("holder takes it shared");
+        let shared = lock_shared_for(&held, Duration::from_secs(1)).expect("holder takes it shared");
         std::fs::OpenOptions::new()
             .write(true)
             .truncate(false)
@@ -1809,7 +1813,7 @@ mod tests {
         let path = dir.join("upgrade.lock");
 
         let file = open_lock_file(&path).expect("open");
-        let shared = lock_shared(&file).expect("take it shared");
+        let shared = lock_shared_for(&file, Duration::from_secs(1)).expect("take it shared");
         let conflict = try_lock_exclusive(&file).expect_err("an upgrade must be refused");
         assert!(
             is_lock_conflict(&conflict),
@@ -2023,6 +2027,8 @@ mod tests {
     /// releases, rather than failing immediately the way the `try_` variants
     /// do -- this is the property that distinguishes the two families.
     #[test]
+    // Exercises the deprecated unbounded form until it is removed (#433).
+    #[allow(deprecated)]
     fn blocking_lock_acquires_once_the_holder_releases() {
         let dir = std::env::temp_dir().join(format!("rp-fs-lock-blocking-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create dir");
@@ -2206,7 +2212,7 @@ mod tests {
 
         // Dropping the guard releases.
         {
-            let held = lock_exclusive_owned(open()).expect("first holder takes the lock");
+            let held = lock_exclusive_owned_for(open(), Duration::from_secs(1)).expect("first holder takes the lock");
             let conflict =
                 try_lock_exclusive(&open()).expect_err("a second holder must be refused");
             assert!(is_lock_conflict(&conflict));
@@ -2216,7 +2222,7 @@ mod tests {
 
         // `unlock` releases at a chosen point and hands the handle back still
         // open, which is why it exists rather than only `drop`.
-        let held = lock_exclusive_owned(open()).expect("retake the lock");
+        let held = lock_exclusive_owned_for(open(), Duration::from_secs(1)).expect("retake the lock");
         assert!(is_lock_conflict(
             &try_lock_exclusive(&open()).expect_err("still exclusive")
         ));
