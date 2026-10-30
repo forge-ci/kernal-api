@@ -777,6 +777,8 @@ impl TerminalInputCore {
     /// Blocks until an input event, closure, or optional timeout.
     /// Wait at most `timeout` for the next event, returning
     /// [`TerminalInputError::Timeout`] on expiry.
+    // Delegates to the deprecated optional form until it is removed (#433).
+    #[allow(deprecated)]
     pub fn wait_for_event_within(
         &self,
         timeout: Duration,
@@ -784,6 +786,7 @@ impl TerminalInputCore {
         self.wait_for_event(Some(timeout.as_secs_f64()))
     }
 
+    #[deprecated(note = "`None` waits forever; use `wait_for_event_within` (#433)")]
     pub fn wait_for_event(
         &self,
         timeout: Option<f64>,
@@ -1055,7 +1058,7 @@ fn capture_queue_overflow_is_reported_before_queued_input() {
         wait_for_terminal_input_event(&core.state, &core.condvar, Some(Duration::ZERO)),
         TerminalInputWaitOutcome::Failed(TerminalCaptureFailure::Overflow)
     );
-    assert!(matches!(core.wait_for_event(Some(0.0)), Err(TerminalInputError::Capture(TerminalCaptureFailure::Overflow))));
+    assert!(matches!(core.wait_for_event_within(Duration::ZERO), Err(TerminalInputError::Capture(TerminalCaptureFailure::Overflow))));
 }
 
 #[test]
