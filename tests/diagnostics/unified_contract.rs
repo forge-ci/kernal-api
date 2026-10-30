@@ -96,7 +96,11 @@ fn async_process_hal_kills_and_does_not_signal_an_unowned_group() {
             .expect("an unowned group is a safe no-op"));
         child.kill().await.expect("hard kill");
         assert_eq!(child.id(), None, "a killed child PID is not reusable");
-        assert!(!child.wait().await.expect("reap killed child").success());
+        assert!(!child
+            .wait_within(std::time::Duration::from_secs(5))
+            .await
+            .expect("reap killed child")
+            .success());
     });
 }
 
@@ -128,15 +132,15 @@ fn async_process_hal_soft_terminates_an_owned_group() {
         // delivery above is the portable contract, so retain a bounded cleanup.
         #[cfg(not(windows))]
         {
-            let status = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait())
+            let status = child
+                .wait_within(std::time::Duration::from_secs(5))
                 .await
-                .expect("the owned group signal ends the POSIX child")
-                .expect("wait for signalled child");
+                .expect("the owned group signal ends the POSIX child");
             assert!(!status.success());
         }
         #[cfg(windows)]
         {
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait()).await;
+            let _ = child.wait_within(std::time::Duration::from_secs(5)).await;
             let _ = child.kill().await;
         }
     });
@@ -160,7 +164,7 @@ fn async_process_hal_does_not_soft_signal_a_completed_group() {
             .await
             .expect("spawn a child-owned group through the shared HAL");
         assert!(child
-            .wait()
+            .wait_within(std::time::Duration::from_secs(5))
             .await
             .expect("wait for completed child")
             .success());
@@ -185,7 +189,11 @@ fn async_process_hal_clears_pid_after_a_natural_wait() {
 
         let mut child = spec.spawn().await.expect("spawn a naturally exiting child");
         assert!(child.id().is_some(), "a live child has an identity");
-        assert!(child.wait().await.expect("wait for child").success());
+        assert!(child
+            .wait_within(std::time::Duration::from_secs(5))
+            .await
+            .expect("wait for child")
+            .success());
         assert_eq!(child.id(), None, "a waited child PID is not reusable");
     });
 }

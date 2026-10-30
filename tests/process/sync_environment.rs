@@ -46,7 +46,12 @@ fn report(environment: SyncEnvironment) -> (String, bool) {
         false,
     )
     .expect("spawn helper daemon");
-    assert_eq!(child.wait().expect("wait for helper"), 0);
+    assert_eq!(
+        child
+            .wait_within(std::time::Duration::from_secs(5))
+            .expect("wait for helper"),
+        0
+    );
     drop(log);
 
     let output = std::fs::read_to_string(&log_path).unwrap();

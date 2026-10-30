@@ -205,7 +205,12 @@ fn a_sync_spawn_recovers_a_refused_image() {
         io_busy,
     )
     .expect("refused APE image recovered");
-    assert_eq!(child.wait().unwrap(), 0);
+    assert_eq!(
+        child
+            .wait_within(std::time::Duration::from_secs(5))
+            .unwrap(),
+        0
+    );
     assert_eq!(std::fs::read(&out_path).unwrap(), b"ape-ok:y|");
 }
 

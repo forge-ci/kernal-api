@@ -1025,6 +1025,7 @@ impl DaemonChild {
     }
 
     /// Wait for the child and return its numeric exit code.
+    #[deprecated(note = "waits forever for a live child; use `wait_within` (#433)")]
     pub fn wait(&mut self) -> std::io::Result<i32> {
         self.inner.wait()
     }
@@ -1101,6 +1102,7 @@ impl SpawnedChild {
     }
 
     /// Wait for the child and return its numeric exit code.
+    #[deprecated(note = "waits forever for a live child; use `wait_within` (#433)")]
     pub fn wait(&mut self) -> std::io::Result<i32> {
         self.inner.wait()
     }
