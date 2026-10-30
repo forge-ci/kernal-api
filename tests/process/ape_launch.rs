@@ -147,7 +147,7 @@ async fn a_spawn_spec_runs_a_refused_image_even_with_a_cleared_environment() {
     };
     let output = child
         .expect("refused APE image recovered")
-        .wait_with_output_bounded(1 << 16)
+        .wait_with_output_bounded_within(1 << 16, Duration::from_secs(5))
         .await
         .expect("output");
     assert!(output.status.success(), "{output:?}");
@@ -287,7 +287,7 @@ async fn a_real_image_runs_through_spawn_spec_in_a_hostile_environment() {
         .spawn()
         .await
         .expect("real APE image launched")
-        .wait_with_output_bounded(1 << 16)
+        .wait_with_output_bounded_within(1 << 16, Duration::from_secs(5))
         .await
         .expect("output");
     assert!(output.status.success(), "{output:?}");

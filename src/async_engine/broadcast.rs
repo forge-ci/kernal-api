@@ -73,6 +73,7 @@ impl<T: Clone> BroadcastReceiver<T> {
     /// # Errors
     /// Lag advances to the oldest retained value; retry to receive it. Closure
     /// is reported only after all senders are dropped and retained values drain.
+    #[deprecated(note = "can wait forever; use `recv_within` (#433)")]
     pub async fn recv(&mut self) -> Result<T, BroadcastRecvError> {
         self.inner.recv().await.map_err(|error| match error {
             tokio::sync::broadcast::error::RecvError::Lagged(n) => BroadcastRecvError::Lagged(n),
@@ -90,7 +91,10 @@ impl<T: Clone> BroadcastReceiver<T> {
         &mut self,
         timeout: std::time::Duration,
     ) -> Result<T, BroadcastRecvTimeoutError> {
-        match super::timeout(timeout, self.recv()).await {
+        // Bounds the deprecated receive; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let receive = self.recv();
+        match super::timeout(timeout, receive).await {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(BroadcastRecvError::Lagged(n))) => Err(BroadcastRecvTimeoutError::Lagged(n)),
             Ok(Err(BroadcastRecvError::Closed)) => Err(BroadcastRecvTimeoutError::Closed),

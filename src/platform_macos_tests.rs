@@ -11,7 +11,7 @@ async fn actor_facade_accepts_owner_death_cleanup_policy() {
         .spawn()
         .await
         .expect("spawn through the actor facade")
-        .wait_with_output_bounded(1024)
+        .wait_with_output_bounded_within(1024, std::time::Duration::from_secs(5))
         .await
         .expect("bounded capture from a naturally exiting child");
 
@@ -22,19 +22,17 @@ async fn actor_facade_accepts_owner_death_cleanup_policy() {
 
 #[tokio::test]
 async fn actor_facade_reports_finite_output_beyond_the_retention_limit() {
-    let error = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        shell_spec("printf 12345")
-            .stdout(StreamMode::Piped)
-            .stderr(StreamMode::Piped)
-            .spawn()
-            .await
-            .expect("spawn finite output child")
-            .wait_with_output_bounded(4),
-    )
-    .await
-    .expect("finite child reaches EOF after excess output is drained")
-    .expect_err("retained output is bounded");
+    // A finite child reaches EOF after its excess output is drained, so the
+    // error below is the output limit, not the time budget.
+    let error = shell_spec("printf 12345")
+        .stdout(StreamMode::Piped)
+        .stderr(StreamMode::Piped)
+        .spawn()
+        .await
+        .expect("spawn finite output child")
+        .wait_with_output_bounded_within(4, std::time::Duration::from_secs(2))
+        .await
+        .expect_err("retained output is bounded");
 
     assert!(matches!(
         error,
