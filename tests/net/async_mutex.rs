@@ -1,5 +1,9 @@
 //! `async_engine::Mutex`: borrowed, owned, non-waiting, and blocking guards,
 //! and an owned guard that keeps its facade handle alive.
+//!
+//! These are the contract tests of the unbounded acquisitions deprecated by
+//! #433; they keep exercising them until the forms are removed.
+#![allow(deprecated)]
 
 use kernal_api::async_engine::{self, Mutex, MutexTryLockError};
 use std::future::Future;

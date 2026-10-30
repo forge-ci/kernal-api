@@ -29,6 +29,7 @@ impl<T> RwLock<T> {
     /// Acquire a borrowed shared guard, queuing behind earlier writers.
     ///
     /// Cancelling the pending acquisition removes its waiter.
+    #[deprecated(note = "waits forever for a stuck holder; use `read_within` (#433)")]
     pub async fn read(&self) -> RwLockReadGuard<'_, T> {
         RwLockReadGuard {
             inner: self.inner.read().await,
@@ -38,6 +39,7 @@ impl<T> RwLock<T> {
     /// Acquire a borrowed exclusive guard. Readers arriving after this writer
     /// queues wait behind it. Cancelling the pending acquisition loses its
     /// queue position.
+    #[deprecated(note = "waits forever for a stuck holder; use `write_within` (#433)")]
     pub async fn write(&self) -> RwLockWriteGuard<'_, T> {
         RwLockWriteGuard {
             inner: self.inner.write().await,
@@ -55,7 +57,10 @@ impl<T> RwLock<T> {
         &self,
         timeout: std::time::Duration,
     ) -> Result<RwLockReadGuard<'_, T>, super::LockTimedOut> {
-        super::timeout(timeout, self.read())
+        // Bounds the deprecated acquisition; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let acquire = self.read();
+        super::timeout(timeout, acquire)
             .await
             .map_err(|_| super::LockTimedOut)
     }
@@ -69,7 +74,10 @@ impl<T> RwLock<T> {
         &self,
         timeout: std::time::Duration,
     ) -> Result<RwLockWriteGuard<'_, T>, super::LockTimedOut> {
-        super::timeout(timeout, self.write())
+        // Bounds the deprecated acquisition; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let acquire = self.write();
+        super::timeout(timeout, acquire)
             .await
             .map_err(|_| super::LockTimedOut)
     }
@@ -77,6 +85,7 @@ impl<T> RwLock<T> {
     /// Acquire an owned shared guard that keeps the lock alive.
     ///
     /// Cancelling the pending acquisition removes its waiter.
+    #[deprecated(note = "waits forever for a stuck holder; use `read_owned_within` (#433)")]
     pub async fn read_owned(self: Arc<Self>) -> OwnedRwLockReadGuard<T> {
         OwnedRwLockReadGuard {
             inner: Arc::clone(&self.inner).read_owned().await,
@@ -85,6 +94,7 @@ impl<T> RwLock<T> {
 
     /// Acquire an owned exclusive guard that keeps the lock alive. Readers
     /// arriving after this writer queues wait behind it.
+    #[deprecated(note = "waits forever for a stuck holder; use `write_owned_within` (#433)")]
     pub async fn write_owned(self: Arc<Self>) -> OwnedRwLockWriteGuard<T> {
         OwnedRwLockWriteGuard {
             inner: Arc::clone(&self.inner).write_owned().await,
@@ -100,7 +110,10 @@ impl<T> RwLock<T> {
         self: Arc<Self>,
         timeout: std::time::Duration,
     ) -> Result<OwnedRwLockReadGuard<T>, super::LockTimedOut> {
-        super::timeout(timeout, self.read_owned())
+        // Bounds the deprecated acquisition; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let acquire = self.read_owned();
+        super::timeout(timeout, acquire)
             .await
             .map_err(|_| super::LockTimedOut)
     }
@@ -114,7 +127,10 @@ impl<T> RwLock<T> {
         self: Arc<Self>,
         timeout: std::time::Duration,
     ) -> Result<OwnedRwLockWriteGuard<T>, super::LockTimedOut> {
-        super::timeout(timeout, self.write_owned())
+        // Bounds the deprecated acquisition; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let acquire = self.write_owned();
+        super::timeout(timeout, acquire)
             .await
             .map_err(|_| super::LockTimedOut)
     }
@@ -126,6 +142,7 @@ impl<T> RwLock<T> {
     /// Panics when called from inside an asynchronous execution context. Use
     /// it only from a synchronous thread or the runtime's blocking-work lane
     /// ([`super::launch_blocking`]).
+    #[deprecated(note = "waits forever for a stuck holder; use `blocking_read_within` (#433)")]
     pub fn blocking_read(&self) -> RwLockReadGuard<'_, T> {
         RwLockReadGuard {
             inner: self.inner.blocking_read(),
@@ -164,6 +181,7 @@ impl<T> RwLock<T> {
     /// Panics when called from inside an asynchronous execution context. Use
     /// it only from a synchronous thread or the runtime's blocking-work lane
     /// ([`super::launch_blocking`]).
+    #[deprecated(note = "waits forever for a stuck holder; use `blocking_write_within` (#433)")]
     pub fn blocking_write(&self) -> RwLockWriteGuard<'_, T> {
         RwLockWriteGuard {
             inner: self.inner.blocking_write(),
