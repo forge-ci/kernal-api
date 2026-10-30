@@ -1,3 +1,5 @@
+// edition:2021
+
 // A stand-in for the facade's wait surface, with the real module, type and
 // function names the unbounded-wait lint resolves.
 #![allow(unused)]
@@ -14,7 +16,9 @@ impl PlatformChild {
 pub mod async_engine {
     use std::time::Duration;
 
-    pub use self::mutex::Mutex;
+    pub use self::mutex::{Mutex, MutexGuard};
+
+    pub async fn yield_now() {}
 
     pub struct Runtime;
 
@@ -38,9 +42,18 @@ pub mod async_engine {
 
         pub struct Mutex<T>(pub T);
 
+        pub struct MutexGuard<'a, T>(pub &'a T);
+
+        impl<T> Drop for MutexGuard<'_, T> {
+            fn drop(&mut self) {}
+        }
+
         impl<T> Mutex<T> {
             pub fn new(value: T) -> Self {
                 Mutex(value)
+            }
+            pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
+                Some(MutexGuard(&self.0))
             }
             pub fn lock(&self) {}
             pub fn lock_within(&self, _timeout: Duration) {}
