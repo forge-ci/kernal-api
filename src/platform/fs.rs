@@ -1468,7 +1468,7 @@ pub fn hard_link(existing: impl AsRef<Path>, new: impl AsRef<Path>) -> io::Resul
 }
 
 // ---------------------------------------------------------------------------
-// Streaming regular-file handles and whole-file reads
+// Streaming regular-file handles
 // ---------------------------------------------------------------------------
 //
 // The bounded reads above are the right shape for a file whose size the facade
@@ -1477,10 +1477,12 @@ pub fn hard_link(existing: impl AsRef<Path>, new: impl AsRef<Path>) -> io::Resul
 // different operation, not a tighter spelling of the same one, so refusing or
 // truncating a 200 MiB cache artifact is not a decision this facade may make on
 // a client's behalf. What follows is the same operation the standard library
-// offers -- open a stream, or read a whole file -- plus the facade ownership
+// offers -- open a stream and hand the handle back -- plus the facade ownership
 // that lets a client stop calling `std::fs` directly. Every budget on top of
 // these (how many bytes, how many files, how deep) belongs to the caller, and
-// the doc comments say so rather than growing a second cap here.
+// the doc comments say so rather than growing a second cap here. The whole-file
+// read shapes are the `read_file` / `read_to_string` drop-ins below, so this
+// block names no second spelling of them.
 
 /// Open `path` for reading and hand back the streaming handle.
 ///
@@ -1504,40 +1506,6 @@ pub fn hard_link(existing: impl AsRef<Path>, new: impl AsRef<Path>) -> io::Resul
 #[cfg(feature = "fs")]
 pub fn open_read_regular_file(path: impl AsRef<Path>) -> io::Result<File> {
     File::open(path)
-}
-
-/// Read all of `path` into one allocation.
-///
-/// The semantics are `std::fs::read`'s: the whole file, in one `Vec`, no
-/// truncation and no cap. That is deliberate -- a caller reading a cache
-/// artifact it wrote itself already knows the size it is willing to hold, and
-/// the bounded forms above exist for the callers that do not. A caller that
-/// cannot afford the allocation uses [`open_read_regular_file`] and streams
-/// instead.
-///
-/// # Errors
-///
-/// Returns an error when `path` does not exist, cannot be opened, or is a
-/// directory (which the host refuses to read as a file).
-#[cfg(feature = "fs")]
-pub fn read_regular_file(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
-    std::fs::read(path)
-}
-
-/// Read all of `path` as UTF-8 text.
-///
-/// The same whole-file read as [`read_regular_file`], with the encoding
-/// required rather than lossily replaced: invalid UTF-8 is an error, not
-/// replacement characters. A caller that must survive arbitrary bytes reads
-/// bytes and decodes them itself.
-///
-/// # Errors
-///
-/// Returns an error when the file cannot be read, or when its contents are not
-/// valid UTF-8.
-#[cfg(feature = "fs")]
-pub fn read_regular_file_to_string(path: impl AsRef<Path>) -> io::Result<String> {
-    std::fs::read_to_string(path)
 }
 
 /// Create `path`, or truncate it when it already exists, and return the write
@@ -1603,6 +1571,101 @@ pub fn allocated_bytes_at(path: impl AsRef<Path>) -> io::Result<u64> {
     let metadata = std::fs::metadata(path)?;
     Ok(allocated_bytes(path, &metadata))
 }
+
+// ---------------------------------------------------------------------------
+// Read-side drop-ins
+// ---------------------------------------------------------------------------
+//
+// The facade already owns bounded and containable reads; these are the plain
+// shapes clients reach for when they leave `std::fs`, so a migration is a
+// rename rather than a rewrite of every call site. A caller that needs a byte
+// ceiling or a containment answer uses `read_context_regular_file_bounded` /
+// `context_path_metadata_no_follow` instead.
+
+/// Read the whole file at `path`.
+///
+/// Unbounded: the caller owns the size decision. For anything that may be large
+/// or attacker-influenced use [`read_context_regular_file_bounded`].
+///
+/// # Errors
+///
+/// Returns an error when the file is missing, when it is a directory, or when
+/// the read is denied.
+#[cfg(feature = "fs")]
+pub fn read_file(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+    std::fs::read(path)
+}
+
+/// Read the whole file at `path` as UTF-8.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or is not valid UTF-8.
+#[cfg(feature = "fs")]
+pub fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
+    std::fs::read_to_string(path)
+}
+
+/// Report `path`'s metadata without following a symbolic link at the final
+/// component.
+///
+/// This is the drop-in for `std::fs::symlink_metadata`: it answers about the
+/// link itself. [`context_path_metadata_no_follow`] is the facade's own
+/// containment-carrying form.
+///
+/// # Errors
+///
+/// Returns an error when `path` is missing or the stat is denied.
+#[cfg(feature = "fs")]
+pub fn symlink_metadata(path: impl AsRef<Path>) -> io::Result<std::fs::Metadata> {
+    std::fs::symlink_metadata(path)
+}
+
+/// Copy `from` to `to`, returning the bytes copied.
+///
+/// Plain byte copy, no reflink attempt: a caller that wants copy-on-write uses
+/// [`copy_file`] and inspects its [`CopyOutcome`].
+///
+/// # Errors
+///
+/// Returns an error for the ordinary reasons a copy fails.
+#[cfg(feature = "fs")]
+pub fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
+    std::fs::copy(from, to)
+}
+
+/// Set `path`'s permissions from an already-built [`std::fs::Permissions`].
+///
+/// The portable accessors are [`set_readonly`] and [`apply_metadata_mode`];
+/// this exists for call sites that carry a `Permissions` value around.
+///
+/// # Errors
+///
+/// Returns an error when `path` is missing or the change is denied.
+#[cfg(feature = "fs")]
+pub fn set_permissions(path: impl AsRef<Path>, permissions: std::fs::Permissions) -> io::Result<()> {
+    std::fs::set_permissions(path, permissions)
+}
+
+/// List `path`'s entries as paths.
+///
+/// `std::fs::read_dir` yields `DirEntry` values; this yields the paths, which
+/// is what almost every caller reduces them to. A caller that needs the entry's
+/// own file type uses [`DirectoryCursor`].
+///
+/// # Errors
+///
+/// Returns an error when `path` is missing, is not a directory, or the listing
+/// is denied.
+#[cfg(feature = "fs")]
+pub fn read_dir_paths(path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for entry in std::fs::read_dir(path)? {
+        paths.push(entry?.path());
+    }
+    Ok(paths)
+}
+
 
 #[cfg(all(test, feature = "fs"))]
 mod tests {
@@ -2533,10 +2596,10 @@ mod tests {
     }
 
     /// The handle forms exist so a caller can stream a file whose size the
-    /// facade never learns. Round-tripping through `create_file` and
-    /// `read_regular_file` proves the pair is the same object: what the create
-    /// handle writes is what the read helper returns, and a second create
-    /// truncates rather than appending.
+    /// facade never learns. Round-tripping through `create_file` and the
+    /// mainline `read_file` / `read_to_string` drop-ins proves the handle pair
+    /// is the same object: what the create handle writes is what the read
+    /// helpers return, and a second create truncates rather than appending.
     #[test]
     fn a_created_file_handle_round_trips_and_truncates() {
         let root = tempfile::tempdir().expect("temp root");
@@ -2547,11 +2610,11 @@ mod tests {
             std::io::Write::write_all(&mut file, b"first generation").expect("write first");
         }
         assert_eq!(
-            read_regular_file(&path).expect("read back"),
+            read_file(&path).expect("read back"),
             b"first generation"
         );
         assert_eq!(
-            read_regular_file_to_string(&path).expect("read back as text"),
+            read_to_string(&path).expect("read back as text"),
             "first generation"
         );
 
@@ -2560,7 +2623,7 @@ mod tests {
             std::io::Write::write_all(&mut file, b"second").expect("write second");
         }
         assert_eq!(
-            read_regular_file(&path).expect("read truncating write"),
+            read_file(&path).expect("read truncating write"),
             b"second",
             "creating over an existing path truncates it"
         );
@@ -2607,7 +2670,7 @@ mod tests {
         let payload = vec![b'z'; MAX_CONTEXT_REGULAR_FILE_BYTES + 1];
         write_file(&large, &payload).expect("write over the context cap");
         assert_eq!(
-            read_regular_file(&large)
+            read_file(&large)
                 .expect("read whole file above the context cap")
                 .len(),
             MAX_CONTEXT_REGULAR_FILE_BYTES + 1,
