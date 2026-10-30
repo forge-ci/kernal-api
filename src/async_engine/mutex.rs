@@ -4,8 +4,11 @@
 //! queued, and it does not poison when a holder panics. Every guard is a
 //! facade-owned newtype; no backend guard type crosses the facade.
 
+use std::future::Future;
 use std::ops::{Deref, DerefMut};
+use std::panic::Location;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// An asynchronous mutual-exclusion lock with FIFO waiter order.
 ///
@@ -23,6 +26,51 @@ use std::sync::Arc;
 /// waits for it instead of minting an unrelated one.
 pub struct Mutex<T> {
     inner: Arc<tokio::sync::Mutex<T>>,
+    holder: HolderSlot,
+}
+
+/// Who holds a [`Mutex`] and since when, for diagnosing a wait that
+/// expired (#433). A snapshot: the holder may release the lock right after
+/// it is taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LockHolder {
+    location: &'static Location<'static>,
+    since: Instant,
+}
+
+impl LockHolder {
+    /// The source location of the call that acquired the lock.
+    pub fn location(&self) -> &'static Location<'static> {
+        self.location
+    }
+
+    /// How long the lock has been held, as of now.
+    pub fn held_for(&self) -> Duration {
+        self.since.elapsed()
+    }
+}
+
+/// The current holder of one lock. Its critical sections only copy a small
+/// value in or out, so they cannot themselves wait.
+#[derive(Default)]
+struct HolderSlot(std::sync::Mutex<Option<LockHolder>>);
+
+impl HolderSlot {
+    fn set(&self, location: &'static Location<'static>) {
+        let holder = LockHolder {
+            location,
+            since: Instant::now(),
+        };
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(holder);
+    }
+
+    fn clear(&self) {
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    fn get(&self) -> Option<LockHolder> {
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl<T> Mutex<T> {
@@ -30,6 +78,38 @@ impl<T> Mutex<T> {
     pub fn new(value: T) -> Self {
         Self {
             inner: Arc::new(tokio::sync::Mutex::new(value)),
+            holder: HolderSlot::default(),
+        }
+    }
+
+    /// The current holder, if the lock is held: where it was acquired and
+    /// for how long. Use it to report a stuck holder after
+    /// [`Self::lock_within`] expires.
+    pub fn holder(&self) -> Option<LockHolder> {
+        self.holder.get()
+    }
+
+    fn borrowed<'a>(
+        &'a self,
+        inner: tokio::sync::MutexGuard<'a, T>,
+        at: &'static Location<'static>,
+    ) -> MutexGuard<'a, T> {
+        self.holder.set(at);
+        MutexGuard {
+            inner,
+            holder: &self.holder,
+        }
+    }
+
+    fn owned(
+        self: Arc<Self>,
+        inner: tokio::sync::OwnedMutexGuard<T>,
+        at: &'static Location<'static>,
+    ) -> OwnedMutexGuard<T> {
+        self.holder.set(at);
+        OwnedMutexGuard {
+            inner,
+            _owner: self,
         }
     }
 
@@ -38,10 +118,10 @@ impl<T> Mutex<T> {
     /// Cancelling the pending acquisition loses its queue position without
     /// acquiring the lock.
     #[deprecated(note = "waits forever for a stuck holder; use `lock_within` (#433)")]
-    pub async fn lock(&self) -> MutexGuard<'_, T> {
-        MutexGuard {
-            inner: self.inner.lock().await,
-        }
+    #[track_caller]
+    pub fn lock(&self) -> impl Future<Output = MutexGuard<'_, T>> + '_ {
+        let at = Location::caller();
+        async move { self.borrowed(self.inner.lock().await, at) }
     }
 
     /// Acquire an owned guard that keeps this `Arc<Mutex<T>>` alive until the
@@ -50,11 +130,12 @@ impl<T> Mutex<T> {
     /// Cancelling the pending acquisition loses its queue position without
     /// acquiring the lock.
     #[deprecated(note = "waits forever for a stuck holder; use `lock_owned_within` (#433)")]
-    pub async fn lock_owned(self: Arc<Self>) -> OwnedMutexGuard<T> {
-        let inner = Arc::clone(&self.inner).lock_owned().await;
-        OwnedMutexGuard {
-            inner,
-            _owner: self,
+    #[track_caller]
+    pub fn lock_owned(self: Arc<Self>) -> impl Future<Output = OwnedMutexGuard<T>> {
+        let at = Location::caller();
+        async move {
+            let inner = Arc::clone(&self.inner).lock_owned().await;
+            self.owned(inner, at)
         }
     }
 
@@ -65,16 +146,18 @@ impl<T> Mutex<T> {
     ///
     /// Returns [`super::LockTimedOut`] if the lock was not acquired in time.
     /// Requires a runtime with its timer enabled.
-    pub async fn lock_within(
+    #[track_caller]
+    pub fn lock_within(
         &self,
-        timeout: std::time::Duration,
-    ) -> Result<MutexGuard<'_, T>, super::LockTimedOut> {
-        // Bounds the deprecated acquisition; inline it when that is removed (#433).
-        #[allow(deprecated)]
-        let acquire = self.lock();
-        super::timeout(timeout, acquire)
-            .await
-            .map_err(|_| super::LockTimedOut)
+        timeout: Duration,
+    ) -> impl Future<Output = Result<MutexGuard<'_, T>, super::LockTimedOut>> + '_ {
+        let at = Location::caller();
+        async move {
+            let inner = super::timeout(timeout, self.inner.lock())
+                .await
+                .map_err(|_| super::LockTimedOut)?;
+            Ok(self.borrowed(inner, at))
+        }
     }
 
     /// Acquire an owned guard, waiting at most `timeout`.
@@ -82,16 +165,18 @@ impl<T> Mutex<T> {
     /// # Errors
     ///
     /// As [`Self::lock_within`].
-    pub async fn lock_owned_within(
+    #[track_caller]
+    pub fn lock_owned_within(
         self: Arc<Self>,
-        timeout: std::time::Duration,
-    ) -> Result<OwnedMutexGuard<T>, super::LockTimedOut> {
-        // Bounds the deprecated acquisition; inline it when that is removed (#433).
-        #[allow(deprecated)]
-        let acquire = self.lock_owned();
-        super::timeout(timeout, acquire)
-            .await
-            .map_err(|_| super::LockTimedOut)
+        timeout: Duration,
+    ) -> impl Future<Output = Result<OwnedMutexGuard<T>, super::LockTimedOut>> {
+        let at = Location::caller();
+        async move {
+            let inner = super::timeout(timeout, Arc::clone(&self.inner).lock_owned())
+                .await
+                .map_err(|_| super::LockTimedOut)?;
+            Ok(self.owned(inner, at))
+        }
     }
 
     /// Acquire a borrowed guard without waiting.
@@ -101,11 +186,10 @@ impl<T> Mutex<T> {
     /// # Errors
     ///
     /// Returns [`MutexTryLockError`] when the lock is held or contended.
+    #[track_caller]
     pub fn try_lock(&self) -> Result<MutexGuard<'_, T>, MutexTryLockError> {
-        self.inner
-            .try_lock()
-            .map(|inner| MutexGuard { inner })
-            .map_err(|_| MutexTryLockError)
+        let inner = self.inner.try_lock().map_err(|_| MutexTryLockError)?;
+        Ok(self.borrowed(inner, Location::caller()))
     }
 
     /// Acquire an owned guard without waiting.
@@ -116,14 +200,12 @@ impl<T> Mutex<T> {
     /// # Errors
     ///
     /// Returns [`MutexTryLockError`] when the lock is held or contended.
+    #[track_caller]
     pub fn try_lock_owned(self: Arc<Self>) -> Result<OwnedMutexGuard<T>, MutexTryLockError> {
         let inner = Arc::clone(&self.inner)
             .try_lock_owned()
             .map_err(|_| MutexTryLockError)?;
-        Ok(OwnedMutexGuard {
-            inner,
-            _owner: self,
-        })
+        Ok(self.owned(inner, Location::caller()))
     }
 
     /// Block this thread until a borrowed guard is available.
@@ -134,10 +216,9 @@ impl<T> Mutex<T> {
     /// it only from a synchronous thread or the runtime's blocking-work lane
     /// ([`super::launch_blocking`]).
     #[deprecated(note = "waits forever for a stuck holder; use `blocking_lock_within` (#433)")]
+    #[track_caller]
     pub fn blocking_lock(&self) -> MutexGuard<'_, T> {
-        MutexGuard {
-            inner: self.inner.blocking_lock(),
-        }
+        self.borrowed(self.inner.blocking_lock(), Location::caller())
     }
 
     /// Block this thread until a borrowed guard is available or `timeout`
@@ -152,17 +233,17 @@ impl<T> Mutex<T> {
     ///
     /// Panics when called from inside an asynchronous execution context, like
     /// the unbounded form.
+    #[track_caller]
     pub fn blocking_lock_within(
         &self,
-        timeout: std::time::Duration,
+        timeout: Duration,
     ) -> Result<MutexGuard<'_, T>, super::LockTimedOut> {
         assert!(
             super::RuntimeHandle::current().is_err(),
             "a bounded blocking lock must not park an asynchronous execution context"
         );
-        super::park_within(self.inner.lock(), timeout)
-            .map(|inner| MutexGuard { inner })
-            .ok_or(super::LockTimedOut)
+        let inner = super::park_within(self.inner.lock(), timeout).ok_or(super::LockTimedOut)?;
+        Ok(self.borrowed(inner, Location::caller()))
     }
 }
 
@@ -182,6 +263,15 @@ impl<T> std::fmt::Debug for Mutex<T> {
 /// [`Mutex::blocking_lock`]. Dropping it releases the lock.
 pub struct MutexGuard<'a, T> {
     inner: tokio::sync::MutexGuard<'a, T>,
+    holder: &'a HolderSlot,
+}
+
+// `drop` runs before the fields drop, so the record is cleared while the
+// lock is still held and never erases the next holder's.
+impl<T> Drop for MutexGuard<'_, T> {
+    fn drop(&mut self) {
+        self.holder.clear();
+    }
 }
 
 impl<T> Deref for MutexGuard<'_, T> {
@@ -209,6 +299,12 @@ pub struct OwnedMutexGuard<T> {
     // facade handle it was acquired through.
     inner: tokio::sync::OwnedMutexGuard<T>,
     _owner: Arc<Mutex<T>>,
+}
+
+impl<T> Drop for OwnedMutexGuard<T> {
+    fn drop(&mut self) {
+        self._owner.holder.clear();
+    }
 }
 
 impl<T> Deref for OwnedMutexGuard<T> {

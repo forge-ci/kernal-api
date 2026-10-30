@@ -181,3 +181,36 @@ fn a_bounded_blocking_lock_times_out_then_acquires_after_release() {
     waiter.join().unwrap();
     assert_eq!(*mutex.try_lock().unwrap(), 1);
 }
+
+#[tokio::test]
+async fn an_expired_wait_can_name_the_holder_and_its_hold_time() {
+    let mutex = Arc::new(Mutex::new(0_u8));
+    let line = line!() + 1;
+    let guard = Arc::clone(&mutex).try_lock_owned().unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    let expired = mutex
+        .lock_within(std::time::Duration::from_millis(10))
+        .await
+        .err();
+    assert_eq!(expired, Some(async_engine::LockTimedOut));
+    let holder = mutex.holder().expect("the lock is held");
+    assert_eq!(holder.location().file(), file!());
+    assert_eq!(holder.location().line(), line);
+    assert!(holder.held_for() >= std::time::Duration::from_millis(20));
+
+    drop(guard);
+    assert_eq!(mutex.holder(), None, "release clears the holder");
+    // The location is the method name's line, one below the `let`.
+    let relock_line = line!() + 2;
+    let reacquired = mutex
+        .lock_within(std::time::Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert_eq!(
+        mutex.holder().map(|holder| holder.location().line()),
+        Some(relock_line),
+        "the new holder replaces the record"
+    );
+    drop(reacquired);
+}
