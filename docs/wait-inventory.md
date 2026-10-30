@@ -96,6 +96,10 @@ peer blocks them forever. Accept-side waits are service-lifetime listeners.
 
 ## Enforcement
 
-None of these properties is enforced by a lint yet. The deny-level Dylints
-required by #433 are still outstanding. `kernal_api_boundary` and
-`kernal_api_platform_boundary` enforce placement only.
+`kernal_api_unbounded_wait` (in the `kernal_api_boundary` Dylint library)
+denies client calls to every unbounded row above that has a bounded
+replacement. Its `UNBOUNDED_WAITS` list must change in the same PR as a row
+here. It does not yet check `kernal-api`'s own callers. It also does not
+cover the awaited futures (`Task`, `OneshotReceiver`, `Notified`), guards
+held across `.await`, or blocking calls on async workers. Those Dylints are
+still outstanding under #433.

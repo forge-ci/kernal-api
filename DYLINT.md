@@ -1,8 +1,18 @@
 # Client boundary lint
 
-The suite contains two lints:
+The suite contains three lints:
 
 - `kernal_api_boundary` rejects direct client use of implementation crates.
+- `kernal_api_unbounded_wait` rejects a client call to a kernal-api wait that
+  has no time budget when a bounded replacement exists (#433), for example
+  `Mutex::lock` instead of `Mutex::lock_within(timeout)` or
+  `platform::fs::lock_exclusive` instead of `lock_exclusive_for(file,
+  timeout)`. It matches the resolved definition, so alias imports, UFCS calls
+  and function items are caught too. The full list is `UNBOUNDED_WAITS` in
+  `dylints/kernal_api_boundary/src/lib.rs`, kept in step with
+  [docs/wait-inventory.md](docs/wait-inventory.md). Service-lifetime listeners
+  such as `accept` and interrupt waits are not on it. `kernal-api` itself is
+  not checked yet: its own callers still migrate under #433.
 - `kernal_api_platform_boundary` rejects host `cfg` selection and native OS
   APIs outside the private platform trees of `kernal-api`, in clients and in
   `kernal-api` itself, including code elided on the CI host.

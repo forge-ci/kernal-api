@@ -1,0 +1,34 @@
+error: `Runtime::run` can wait forever; call `run_within` with a time budget instead
+  --> $DIR/unbounded_wait.rs:15:5
+   |
+LL |     runtime.run();
+   |     ^^^^^^^^^^^^^
+   |
+   = note: `#[deny(kernal_api_unbounded_wait)]` on by default
+
+error: `Semaphore::acq$DIRre` can wait forever; call `acq$DIRre_within` with a time budget instead
+  --> $DIR/unbounded_wait.rs:16:5
+   |
+LL |     Semaphore::acq$DIRre(semaphore);
+   |     ^^^^^^^^^^^^^^^^^^
+
+error: `Mutex::lock` can wait forever; call `lock_within` with a time budget instead
+  --> $DIR/unbounded_wait.rs:17:16
+   |
+LL |     let lock = Mutex::<u8>::lock;
+   |                ^^^^^^^^^^^^^^^^^
+
+error: `lock_exclusive` can wait forever; call `lock_exclusive_for` with a time budget instead
+  --> $DIR/unbounded_wait.rs:19:5
+   |
+LL |     take_lock();
+   |     ^^^^^^^^^
+
+error: `PlatformChild::wait` can wait forever; call `wait_within` with a time budget instead
+  --> $DIR/unbounded_wait.rs:20:5
+   |
+LL |     kernal_api::PlatformChild.wait();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: aborting due to 5 previous errors
+

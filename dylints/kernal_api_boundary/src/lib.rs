@@ -2,7 +2,9 @@
 
 extern crate rustc_errors;
 extern crate rustc_hir;
+extern crate rustc_lint;
 extern crate rustc_middle;
+extern crate rustc_session;
 extern crate rustc_span;
 
 use rustc_errors::DiagDecorator;
@@ -17,7 +19,9 @@ use rustc_span::{FileName, RemapPathScopeComponents, Span};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-dylint_linting::declare_late_lint! {
+dylint_linting::dylint_library!();
+
+rustc_session::declare_lint! {
     /// ### What it does
     ///
     /// Rejects client references to implementation crates owned by
@@ -40,6 +44,103 @@ dylint_linting::declare_late_lint! {
     Deny,
     "require systems and async APIs owned by kernal-api to pass through its facades"
 }
+
+rustc_session::declare_lint! {
+    /// ### What it does
+    ///
+    /// Rejects client calls to a kernal-api wait that has no time budget when a
+    /// bounded `_within` / `_for` replacement exists (#433). A dead or wedged
+    /// peer, holder or child turns an unbounded wait into a hang that no caller
+    /// can diagnose. The call is matched by its resolved definition, so an
+    /// alias import, a UFCS call or a function item is caught as well as a
+    /// method call. The facade owner itself is not checked yet; its internal
+    /// callers are tracked in `docs/wait-inventory.md`.
+    pub KERNAL_API_UNBOUNDED_WAIT,
+    Deny,
+    "require the bounded form of a kernal-api wait"
+}
+
+rustc_session::declare_lint_pass!(KernalApiBoundary => [KERNAL_API_BOUNDARY, KERNAL_API_UNBOUNDED_WAIT]);
+
+#[allow(clippy::no_mangle_with_rust_abi)]
+#[unsafe(no_mangle)]
+pub fn register_lints(sess: &rustc_session::Session, lint_store: &mut rustc_lint::LintStore) {
+    dylint_linting::init_config(sess);
+    lint_store.register_lints(&[KERNAL_API_BOUNDARY, KERNAL_API_UNBOUNDED_WAIT]);
+    lint_store.register_late_pass(|_| Box::new(KernalApiBoundary));
+}
+
+/// The unbounded kernal-api waits a client may not call, as `(defining
+/// module, owner type, function, bounded replacement)`. A free function has
+/// an empty owner. Every row has a bounded form; see `docs/wait-inventory.md`.
+/// Service-lifetime listeners (`accept`, interrupt waits) are deliberately
+/// absent.
+const UNBOUNDED_WAITS: &[(&str, &str, &str, &str)] = &[
+    ("async_engine", "Receiver", "recv", "recv_within"),
+    ("async_engine", "Runtime", "run", "run_within"),
+    ("async_engine", "Semaphore", "acquire", "acquire_within"),
+    (
+        "async_engine",
+        "Semaphore",
+        "acquire_many",
+        "acquire_many_within",
+    ),
+    ("async_engine", "Sender", "send", "send_within"),
+    ("async_engine", "TaskGroup", "join_next", "join_next_within"),
+    ("async_engine", "UnboundedReceiver", "recv", "recv_within"),
+    ("broadcast", "BroadcastReceiver", "recv", "recv_within"),
+    (
+        "broker_v2",
+        "",
+        "connect_published",
+        "connect_published_within",
+    ),
+    ("fs", "", "lock_exclusive", "lock_exclusive_for"),
+    ("fs", "", "lock_exclusive_owned", "lock_exclusive_owned_for"),
+    ("fs", "", "lock_shared", "lock_shared_for"),
+    ("fs", "", "lock_shared_owned", "lock_shared_owned_for"),
+    ("ipc", "AsyncReadHalf", "read", "read_within"),
+    ("ipc", "AsyncReadHalf", "read_exact", "read_exact_within"),
+    ("ipc", "AsyncStream", "connect", "connect_within"),
+    ("ipc", "AsyncStream", "flush", "flush_within"),
+    ("ipc", "AsyncStream", "read", "read_within"),
+    ("ipc", "AsyncStream", "read_exact", "read_exact_within"),
+    ("ipc", "AsyncStream", "shutdown", "shutdown_within"),
+    ("ipc", "AsyncStream", "write_all", "write_all_within"),
+    ("ipc", "AsyncWriteHalf", "flush", "flush_within"),
+    ("ipc", "AsyncWriteHalf", "shutdown", "shutdown_within"),
+    ("ipc", "AsyncWriteHalf", "write_all", "write_all_within"),
+    ("ipc", "Stream", "connect", "connect_within"),
+    ("kernal_api", "PlatformChild", "wait", "wait_within"),
+    (
+        "kernal_api",
+        "PlatformChild",
+        "wait_with_output_bounded",
+        "wait_with_output_bounded_within",
+    ),
+    ("mutex", "Mutex", "blocking_lock", "blocking_lock_within"),
+    ("mutex", "Mutex", "lock", "lock_within"),
+    ("mutex", "Mutex", "lock_owned", "lock_owned_within"),
+    ("process", "DaemonChild", "wait", "wait_within"),
+    ("process", "SpawnedChild", "wait", "wait_within"),
+    ("rw_lock", "RwLock", "blocking_read", "blocking_read_within"),
+    (
+        "rw_lock",
+        "RwLock",
+        "blocking_write",
+        "blocking_write_within",
+    ),
+    ("rw_lock", "RwLock", "read", "read_within"),
+    ("rw_lock", "RwLock", "read_owned", "read_owned_within"),
+    ("rw_lock", "RwLock", "write", "write_within"),
+    ("rw_lock", "RwLock", "write_owned", "write_owned_within"),
+    (
+        "tauri",
+        "WebviewHandle",
+        "wait_for_terminal",
+        "wait_until_terminal",
+    ),
+];
 
 /// The raw platform crates -- `libc`, `mach2`, `widestring`, `winapi`,
 /// `windows_sys` -- are owned for the same reason as the backends. #77
@@ -128,6 +229,7 @@ impl<'tcx> LateLintPass<'tcx> for KernalApiBoundary {
         };
         if let Some(def_id) = def_id {
             check_def(cx, expr.span, def_id);
+            check_unbounded_wait(cx, expr.span, def_id);
         }
     }
 
@@ -504,6 +606,69 @@ fn is_boundary_source(cx: &LateContext<'_>, span: Span) -> bool {
     filename.replace('\\', "/").contains("/kernal-api/src/")
 }
 
+/// Reject a client call that resolves to an unbounded kernal-api wait.
+fn check_unbounded_wait(cx: &LateContext<'_>, span: Span, def_id: DefId) {
+    let Some((owner, function, bounded)) = unbounded_wait(cx, def_id) else {
+        return;
+    };
+    let called = if owner.is_empty() {
+        function.to_owned()
+    } else {
+        format!("{owner}::{function}")
+    };
+    cx.opt_span_lint(
+        KERNAL_API_UNBOUNDED_WAIT,
+        Some(span),
+        DiagDecorator(move |diag| {
+            diag.primary_message(format!(
+                "`{called}` can wait forever; call `{bounded}` with a time budget instead"
+            ));
+        }),
+    );
+}
+
+/// The `UNBOUNDED_WAITS` row `def_id` resolves to, if it is one.
+fn unbounded_wait(
+    cx: &LateContext<'_>,
+    def_id: DefId,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    let tcx = cx.tcx;
+    if def_id.is_local() || tcx.crate_name(def_id.krate).as_str() != "kernal_api" {
+        return None;
+    }
+    let (owner, module) = match tcx.def_kind(def_id) {
+        DefKind::Fn => (String::new(), tcx.parent(def_id)),
+        DefKind::AssocFn => {
+            let parent = tcx.parent(def_id);
+            if !matches!(tcx.def_kind(parent), DefKind::Impl { of_trait: false }) {
+                return None;
+            }
+            let self_ty = tcx
+                .type_of(parent)
+                .instantiate_identity()
+                .skip_normalization();
+            let ty::Adt(definition, _) = self_ty.kind() else {
+                return None;
+            };
+            let did = definition.did();
+            (tcx.item_name(did).to_string(), tcx.parent(did))
+        }
+        _ => return None,
+    };
+    let module = if module.is_crate_root() {
+        tcx.crate_name(module.krate).to_string()
+    } else {
+        tcx.item_name(module).to_string()
+    };
+    let function = tcx.item_name(def_id);
+    UNBOUNDED_WAITS
+        .iter()
+        .find(|(row_module, row_owner, row_function, _)| {
+            *row_module == module && *row_owner == owner && *row_function == function.as_str()
+        })
+        .map(|(_, row_owner, row_function, bounded)| (*row_owner, *row_function, *bounded))
+}
+
 fn check_def(cx: &LateContext<'_>, span: Span, def_id: DefId) {
     let Some(crate_name) = owned_crate_name(cx, def_id) else {
         return;
@@ -529,6 +694,11 @@ fn the_owned_crate_set_is_sorted_and_unique() {
     assert!(OWNED_IMPLEMENTATION_CRATES
         .windows(2)
         .all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn the_unbounded_wait_set_is_sorted_and_unique() {
+    assert!(UNBOUNDED_WAITS.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[test]
