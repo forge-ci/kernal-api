@@ -37,6 +37,7 @@ impl<T> Mutex<T> {
     ///
     /// Cancelling the pending acquisition loses its queue position without
     /// acquiring the lock.
+    #[deprecated(note = "waits forever for a stuck holder; use `lock_within` (#433)")]
     pub async fn lock(&self) -> MutexGuard<'_, T> {
         MutexGuard {
             inner: self.inner.lock().await,
@@ -48,6 +49,7 @@ impl<T> Mutex<T> {
     ///
     /// Cancelling the pending acquisition loses its queue position without
     /// acquiring the lock.
+    #[deprecated(note = "waits forever for a stuck holder; use `lock_owned_within` (#433)")]
     pub async fn lock_owned(self: Arc<Self>) -> OwnedMutexGuard<T> {
         let inner = Arc::clone(&self.inner).lock_owned().await;
         OwnedMutexGuard {
@@ -67,7 +69,10 @@ impl<T> Mutex<T> {
         &self,
         timeout: std::time::Duration,
     ) -> Result<MutexGuard<'_, T>, super::LockTimedOut> {
-        super::timeout(timeout, self.lock())
+        // Bounds the deprecated acquisition; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let acquire = self.lock();
+        super::timeout(timeout, acquire)
             .await
             .map_err(|_| super::LockTimedOut)
     }
@@ -81,7 +86,10 @@ impl<T> Mutex<T> {
         self: Arc<Self>,
         timeout: std::time::Duration,
     ) -> Result<OwnedMutexGuard<T>, super::LockTimedOut> {
-        super::timeout(timeout, self.lock_owned())
+        // Bounds the deprecated acquisition; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let acquire = self.lock_owned();
+        super::timeout(timeout, acquire)
             .await
             .map_err(|_| super::LockTimedOut)
     }
@@ -125,6 +133,7 @@ impl<T> Mutex<T> {
     /// Panics when called from inside an asynchronous execution context. Use
     /// it only from a synchronous thread or the runtime's blocking-work lane
     /// ([`super::launch_blocking`]).
+    #[deprecated(note = "waits forever for a stuck holder; use `blocking_lock_within` (#433)")]
     pub fn blocking_lock(&self) -> MutexGuard<'_, T> {
         MutexGuard {
             inner: self.inner.blocking_lock(),

@@ -1,5 +1,9 @@
 //! `async_engine::RwLock`: fair write preference, owned/borrowed/blocking
 //! guards, and cancellation that releases a queued waiter.
+//!
+//! These are the contract tests of the unbounded acquisitions deprecated by
+//! #433; they keep exercising them until the forms are removed.
+#![allow(deprecated)]
 
 use kernal_api::async_engine::{self, RwLock, RwLockTryLockError};
 use std::future::Future;
