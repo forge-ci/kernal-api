@@ -55,7 +55,7 @@ pub use broadcast::{
 };
 #[cfg(feature = "event-stream")]
 pub use broadcast::{BroadcastLagged, BroadcastStream};
-pub use mutex::{Mutex, MutexGuard, MutexTryLockError, OwnedMutexGuard};
+pub use mutex::{LockHolder, Mutex, MutexGuard, MutexTryLockError, OwnedMutexGuard};
 #[doc(hidden)]
 pub use race::fair_start as __fair_race_start;
 pub use race::{BiasedRace2, BiasedRace3, BiasedRace4, FairRace2, FairRace3, FairRace4, FairRace5};
