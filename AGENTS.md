@@ -44,6 +44,12 @@
   are no exceptions. Renaming with `pub use ... as ...` changes only the
   spelling, not the backend type a client receives. `tests/facade_policy.rs`
   and the `kernal_api_boundary` Dylint enforce this.
+- A wait with a bounded `_within` / `_for` form ships with that form (#433).
+  When you add one, add the unbounded form to `UNBOUNDED_WAITS` in
+  `dylints/kernal_api_boundary/src/lib.rs` and update
+  `docs/wait-inventory.md` in the same PR. The deny-level
+  `kernal_api_unbounded_wait` lint then rejects client calls to the unbounded
+  form.
 - Do not add a second allocator, pprof schema, Tokio Console stack, crash
   handler, or OS HAL behind a runtime fallback. This crate is the canonical
   owner.
