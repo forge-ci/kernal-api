@@ -8,7 +8,9 @@ The suite contains five lints:
   `Mutex::lock` instead of `Mutex::lock_within(timeout)` or
   `platform::fs::lock_exclusive` instead of `lock_exclusive_for(file,
   timeout)`. It matches the resolved definition, so alias imports, UFCS calls
-  and function items are caught too. The full list is `UNBOUNDED_WAITS` in
+  and function items are caught too. It also rejects `.await` applied directly to a
+  kernal-api `Task`, `OneshotReceiver`, `Notified` or `OwnedNotified`, which
+  have `join_within` / `recv_within` / `wait_within` forms. The full list is `UNBOUNDED_WAITS` in
   `dylints/kernal_api_boundary/src/lib.rs`, kept in step with
   [docs/wait-inventory.md](docs/wait-inventory.md). Service-lifetime listeners
   such as `accept` and interrupt waits are not on it. `kernal-api` itself is

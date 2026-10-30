@@ -20,6 +20,24 @@ pub mod async_engine {
 
     pub async fn yield_now() {}
 
+    pub struct Task<T>(pub Option<T>);
+
+    impl<T: Unpin> std::future::Future for Task<T> {
+        type Output = T;
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<T> {
+            std::task::Poll::Ready(self.0.take().unwrap())
+        }
+    }
+
+    impl<T> Task<T> {
+        pub async fn join_within(self, _timeout: Duration) -> Option<T> {
+            self.0
+        }
+    }
+
     pub fn launch_blocking<F: FnOnce()>(work: F) {
         work()
     }

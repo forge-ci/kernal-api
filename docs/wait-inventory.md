@@ -105,6 +105,6 @@ nested in an `Option`, a tuple or a local struct. `kernal_api_blocking_in_async`
 directly in client `async` bodies. Inside `kernal-api`, `#[deprecated]` on
 each unbounded form plus `warnings = "deny"` keeps its own code off them;
 the remaining uses are contract tests and the documented service-lifetime
-exceptions above. The lints do not cover the awaited futures (`Task`,
-`OneshotReceiver`, `Notified`). Those Dylints are
+exceptions above. `kernal_api_unbounded_wait` also denies a client `.await` applied directly
+to a `Task`, `OneshotReceiver`, `Notified` or `OwnedNotified`. Those Dylints are
 still outstanding under #433.
