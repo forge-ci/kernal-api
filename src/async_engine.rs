@@ -248,6 +248,7 @@ impl Runtime {
     }
 
     /// Run one future to completion on this runtime.
+    #[deprecated(note = "blocks forever on a stuck future; use `run_within` (#433)")]
     pub fn run<F: Future>(&self, future: F) -> F::Output {
         self.inner.block_on(future)
     }
@@ -1822,7 +1823,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let answer = runtime.run(async { launch(async { 42_u8 }).await.unwrap() });
+        let answer = runtime.run_within(async { launch(async { 42_u8 }).await.unwrap() }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(answer, 42);
     }
 
@@ -1832,7 +1833,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let result = runtime.run(timeout(Duration::ZERO, std::future::pending::<()>()));
+        let result = runtime.run_within(timeout(Duration::ZERO, std::future::pending::<()>()), std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert!(result.is_err());
     }
 
@@ -1842,7 +1843,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let source = CancellationSource::new();
             let token = source.token();
             let waiter = launch({
@@ -1852,7 +1853,7 @@ mod tests {
             yield_now().await;
             source.cancel();
             assert_eq!(waiter.await.unwrap(), Err(Cancelled));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1861,7 +1862,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let source = CancellationSource::new();
             let token = source.token();
             token
@@ -1871,7 +1872,7 @@ mod tests {
 
             token.cancelled().await;
             assert!(source.is_cancelled());
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1882,7 +1883,7 @@ mod tests {
             .unwrap();
         let deadline = Deadline::after(Duration::ZERO);
         assert!(deadline.is_elapsed());
-        let result = runtime.run(connection_until(deadline, std::future::pending::<()>()));
+        let result = runtime.run_within(connection_until(deadline, std::future::pending::<()>()), std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(result, Err(ConnectionDeadlineElapsed));
     }
 
@@ -1892,7 +1893,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let reporter = ProgressReporter::new();
             let watch = reporter.watch();
@@ -1913,7 +1914,7 @@ mod tests {
                 progress_timeout(Duration::from_millis(15), &watch, operation).await,
                 Ok(7)
             );
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1922,7 +1923,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let reporter = ProgressReporter::new();
             let watch = reporter.watch();
@@ -1959,7 +1960,7 @@ mod tests {
 
             release_progress.notify_one();
             progress_task.await.unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1968,7 +1969,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let reporter = ProgressReporter::new();
             let watch = reporter.watch();
@@ -1988,7 +1989,7 @@ mod tests {
             .await;
             tokio::time::advance(Duration::from_millis(10)).await;
             assert_eq!(result.await, Err(ProgressIdleElapsed));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1997,7 +1998,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let completed = Arc::new(AtomicBool::new(false));
             let flag = Arc::clone(&completed);
@@ -2016,7 +2017,7 @@ mod tests {
                 !completed.load(Ordering::Acquire),
                 "a dropped task must not run to completion"
             );
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2025,7 +2026,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let completed = Arc::new(AtomicBool::new(false));
             let flag = Arc::clone(&completed);
@@ -2044,7 +2045,7 @@ mod tests {
                 completed.load(Ordering::Acquire),
                 "a detached task must keep running after its handle is dropped"
             );
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2053,10 +2054,10 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let (first, second) = join(async { 1_u8 }, async { 2_u8 }).await;
             assert_eq!((first, second), (1, 2));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2088,7 +2089,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let notify = Arc::new(Notify::new());
             let waiter_notify = Arc::clone(&notify);
             let waiter = launch(async move {
@@ -2097,7 +2098,7 @@ mod tests {
             yield_now().await;
             notify.notify_one();
             waiter.await.unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2136,7 +2137,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let (sender, mut receiver) = channel::<u8>(1);
             sender.try_send(1).unwrap();
             assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
@@ -2144,7 +2145,7 @@ mod tests {
             assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
             drop(sender);
             assert_eq!(receiver.try_recv(), Err(TryRecvError::Disconnected));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2189,11 +2190,11 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let (sender, receiver) = oneshot_channel::<u8>();
             sender.send(9).unwrap();
             assert_eq!(receiver.await, Ok(9));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2202,10 +2203,10 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let (sender, receiver) = oneshot_channel::<u8>();
             drop(sender);
             assert_eq!(receiver.await, Err(OneshotReceiverClosed));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 }

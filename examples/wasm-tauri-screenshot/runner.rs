@@ -136,8 +136,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let trace = kernal_api::wasm::SketchWorkerTrace::default();
         #[cfg(feature = "tauri-webview-test-support")]
         let config = config.with_trace(trace.clone());
-        let terminal =
-            runtime.run(sketch.execute_threaded_root_contained(runtime.handle(), &config));
+        let terminal = runtime
+            .run_within(
+                sketch.execute_threaded_root_contained(runtime.handle(), &config),
+                Duration::from_secs(60),
+            )
+            .expect("screenshot runner budget");
         #[cfg(feature = "tauri-webview-test-support")]
         {
             if let Some(text) = trace.take() {
@@ -186,7 +190,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     host.run();
     let result = receiver.recv_timeout(Duration::from_secs(60))?;
-    runtime.run(task)?;
+    runtime
+        .run_within(task, Duration::from_secs(60))
+        .expect("screenshot runner budget")?;
     result.map_err(screenshot_error)?;
     Ok(())
 }

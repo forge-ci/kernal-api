@@ -33,50 +33,56 @@ fn native_termination_and_interrupt_delivery_from_launched_work() {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
-            // Registered before the signal is sent: must be delivered.
-            let mut termination = TerminationSignal::new().unwrap();
-            send_termination_to_this_child();
-            let delivered = async_engine::launch(async move {
-                let first = termination.recv().await;
-                (first, termination)
-            });
-            let (first, mut termination) = async_engine::timeout(Duration::from_secs(5), delivered)
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(first, Some(()));
+        runtime
+            .run_within(
+                async {
+                    // Registered before the signal is sent: must be delivered.
+                    let mut termination = TerminationSignal::new().unwrap();
+                    send_termination_to_this_child();
+                    let delivered = async_engine::launch(async move {
+                        let first = termination.recv().await;
+                        (first, termination)
+                    });
+                    let (first, mut termination) =
+                        async_engine::timeout(Duration::from_secs(5), delivered)
+                            .await
+                            .unwrap()
+                            .unwrap();
+                    assert_eq!(first, Some(()));
 
-            // A cancelled wait must not consume a later notification.
-            {
-                let mut pending = std::pin::pin!(termination.recv());
-                std::future::poll_fn(|context| {
-                    assert!(pending.as_mut().poll(context).is_pending());
-                    std::task::Poll::Ready(())
-                })
-                .await;
-            }
-            send_termination_to_this_child();
-            assert_eq!(
-                async_engine::timeout(Duration::from_secs(5), termination.recv())
-                    .await
-                    .unwrap(),
-                Some(())
-            );
+                    // A cancelled wait must not consume a later notification.
+                    {
+                        let mut pending = std::pin::pin!(termination.recv());
+                        std::future::poll_fn(|context| {
+                            assert!(pending.as_mut().poll(context).is_pending());
+                            std::task::Poll::Ready(())
+                        })
+                        .await;
+                    }
+                    send_termination_to_this_child();
+                    assert_eq!(
+                        async_engine::timeout(Duration::from_secs(5), termination.recv())
+                            .await
+                            .unwrap(),
+                        Some(())
+                    );
 
-            // The ambient Ctrl+C wait registers on first poll.
-            let mut interrupt = Box::pin(async_engine::wait_for_interrupt());
-            std::future::poll_fn(|context| {
-                assert!(interrupt.as_mut().poll(context).is_pending());
-                std::task::Poll::Ready(())
-            })
-            .await;
-            send_interrupt_to_this_child();
-            async_engine::timeout(Duration::from_secs(5), interrupt)
-                .await
-                .unwrap()
-                .unwrap();
-        });
+                    // The ambient Ctrl+C wait registers on first poll.
+                    let mut interrupt = Box::pin(async_engine::wait_for_interrupt());
+                    std::future::poll_fn(|context| {
+                        assert!(interrupt.as_mut().poll(context).is_pending());
+                        std::task::Poll::Ready(())
+                    })
+                    .await;
+                    send_interrupt_to_this_child();
+                    async_engine::timeout(Duration::from_secs(5), interrupt)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         return;
     }
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())

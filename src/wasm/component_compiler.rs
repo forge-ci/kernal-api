@@ -29,7 +29,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let hub = OperationHub::new(64, 64).unwrap();
             let budget = ComponentResourceBudget::new(Arc::clone(&hub));
             let spec = compiler_helper_spec();
@@ -128,7 +128,7 @@ mod tests {
             hub.join_process_jobs().await.unwrap();
             budget.finish_teardown().unwrap();
             assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -212,7 +212,7 @@ mod tests {
         );
         store.limiter(|state| &mut state.limits);
         store.set_fuel(500_000_000).unwrap();
-        let result = runtime.run(crate::async_engine::timeout(
+        let result = runtime.run_within(crate::async_engine::timeout(
             Duration::from_secs(30),
             async {
                 let guest =
@@ -226,7 +226,7 @@ mod tests {
                 wasmtime::ensure!(result.is_ok(), "shared compiler policy rejected execution");
                 Ok::<(), wasmtime::Error>(())
             },
-        ));
+        ), std::time::Duration::from_secs(60)).expect("test runtime budget");
         let copied = store.data().output_copies;
         let retained_before_teardown = hub.snapshot().retained_transfer_capacity;
         // Even failed instantiation, cancellation, and lowering traps must destroy
@@ -237,7 +237,7 @@ mod tests {
         let early_release = (live_before_drop > 0).then(|| budget.finish_teardown());
         drop(store);
         let retained_after_store_drop = hub.snapshot().retained_transfer_capacity;
-        let joined = runtime.run(hub.join_process_jobs());
+        let joined = runtime.run_within(hub.join_process_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget");
         budget.finish_teardown().unwrap();
         assert_eq!(budget.live_resources(), 0);
         let snapshot = hub.snapshot();

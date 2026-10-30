@@ -27,16 +27,21 @@ fn owner_death_helper_spawns_an_adapted_child() {
         .enable_all()
         .build()
         .expect("facade runtime");
-    let pid = runtime.run(async {
-        long_running_command()
-            .stdin(StreamMode::Null)
-            .kill_when_owner_dies(true)
-            .spawn()
-            .await
-            .expect("spawn child through the adapter")
-            .id()
-            .expect("live adapted child has a PID")
-    });
+    let pid = runtime
+        .run_within(
+            async {
+                long_running_command()
+                    .stdin(StreamMode::Null)
+                    .kill_when_owner_dies(true)
+                    .spawn()
+                    .await
+                    .expect("spawn child through the adapter")
+                    .id()
+                    .expect("live adapted child has a PID")
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     std::fs::write(pid_file, pid.to_string()).expect("publish adapted child PID");
 }
 

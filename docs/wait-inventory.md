@@ -17,7 +17,7 @@ Status key:
 
 | API | Blocks a native thread | Status | Required result |
 | --- | --- | --- | --- |
-| `Runtime::run` | yes (`block_on`) | unbounded; bounded `Runtime::run_within` (`DeadlineElapsed`, root future dropped on expiry) exists | Migrate callers, then remove the unbounded form. |
+| `Runtime::run` | yes (`block_on`) | **deprecated** (#433) for `Runtime::run_within` (`DeadlineElapsed`, root future dropped on expiry; needs the timer driver); the HTTP blocking adapter keeps it because its futures are bounded by `Limits`, and one driver-less runtime test keeps it | Remove in the next breaking release. |
 | `Task<T>: Future`, `join`, `TaskGroup::join_next` | no | `join_next` **deprecated** (#433); others unbounded; bounded `Task::join_within` (task keeps running on expiry) and `TaskGroup::join_next_within` (`JoinTimedOut`, no result lost) and `join_within` (drops both futures on expiry) exist | Migrate callers, then remove unbounded awaiting. |
 | `launch_blocking` / `RuntimeHandle::launch_blocking` | lane thread | unbounded | Timing out the await cannot stop the closure. Document that, and bound the closures callers pass. |
 | `Semaphore::acquire`, `acquire_many` | no | **deprecated** (#433); the one internal use is the wasm hub's cancellable process-job join (service lifetime); bounded `acquire_within` / `acquire_many_within(.., timeout)` exist (`SemaphoreAcquireTimedOut`, an expired waiter holds no permits) | Migrate zccache (`cache_system.rs`, `handle_compile_multi.rs`, `handle_link.rs`, `compile_progress.rs`), then remove the unbounded forms. |

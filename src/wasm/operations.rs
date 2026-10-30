@@ -3728,7 +3728,7 @@ mod tests {
             .build()
             .unwrap();
         let hub = OperationHub::new(2, 2).unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let started = std::time::Instant::now();
             let operation = hub
                 .submit_wire(runtime.handle(), 7, OP_CLOCK_SLEEP, 25, 0)
@@ -3743,7 +3743,7 @@ mod tests {
             assert_eq!(hub.poll_wire(7, operation), pack(STATUS_COMPLETED, None));
             assert_eq!(hub.snapshot().active_clocks, 0);
             assert_eq!(hub.snapshot().pending_operations, 0);
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -3767,7 +3767,7 @@ mod tests {
             hub.submit_wire(runtime.handle(), 7, OP_CLOCK_SLEEP, 0, 0),
             Err(HubError::Quota)
         );
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::timeout(std::time::Duration::from_secs(2), async {
                 while hub.snapshot().active_clocks != 0 {
                     crate::async_engine::yield_now().await;
@@ -3775,17 +3775,17 @@ mod tests {
             })
             .await
             .unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         let operation = hub
             .submit_wire(runtime.handle(), 7, OP_CLOCK_SLEEP, u64::from(u32::MAX), 0)
             .unwrap();
         hub.close_all(Terminal::Closed);
         assert_eq!(hub.poll_wire(7, operation), pack(STATUS_CLOSED, None));
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::timeout(std::time::Duration::from_secs(2), hub.join_clock_jobs())
                 .await
                 .unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(
             hub.submit_wire(runtime.handle(), 7, OP_CLOCK_SLEEP, 0, 0),
             Err(HubError::Closed)
@@ -4071,7 +4071,7 @@ mod tests {
         let operation = hub
             .submit_wire(runtime.handle(), 1, OP_OUTPUT_COMMIT, blob.0, output.0)
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::timeout(std::time::Duration::from_secs(2), async {
                 loop {
                     let status = hub.poll_wire(1, operation) as u8;
@@ -4084,7 +4084,7 @@ mod tests {
             })
             .await
             .unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
         assert_eq!(hub.snapshot().live_resources, 0);
@@ -4116,7 +4116,7 @@ mod tests {
             let operation = hub
                 .submit_output_commit(runtime.handle(), 1, blob, output)
                 .unwrap();
-            runtime.run(async {
+            runtime.run_within(async {
                 crate::async_engine::timeout(std::time::Duration::from_secs(2), async {
                     loop {
                         if let Some(result) = hub.take_terminal(operation, 1).unwrap() {
@@ -4130,7 +4130,7 @@ mod tests {
                 })
                 .await
                 .unwrap();
-            });
+            }, std::time::Duration::from_secs(60)).expect("test runtime budget");
             assert_eq!(
                 *hub.output_fault.lock().unwrap(),
                 None,
@@ -4200,7 +4200,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        assert_eq!(runtime.run(hub.join_output_jobs()), Err(HubError::Closed));
+        assert_eq!(runtime.run_within(hub.join_output_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget"), Err(HubError::Closed));
     }
 
     #[cfg(feature = "wasm-sketch-host")]
@@ -4241,7 +4241,7 @@ mod tests {
         );
         assert_eq!(hub.snapshot().pending_operations, 0);
         hub.close_all(Terminal::Cancelled);
-        runtime.run(async {
+        runtime.run_within(async {
             let joining_hub = Arc::clone(&hub);
             let joining = runtime
                 .handle()
@@ -4252,7 +4252,7 @@ mod tests {
             assert_eq!(hub.snapshot().native_transfer_capacity, 4);
             release_tx.send(()).unwrap();
             assert_eq!(joining.await.unwrap(), Ok(()));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(hub.snapshot().active_output_jobs, 0);
         assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
     }
@@ -4274,7 +4274,7 @@ mod tests {
         let commit = hub
             .submit_output_commit(runtime.handle(), 1, blob, output)
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::timeout(std::time::Duration::from_secs(2), async {
                 loop {
                     if let Some(result) = hub.take_terminal(commit, 1).unwrap() {
@@ -4286,7 +4286,7 @@ mod tests {
             })
             .await
             .unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(std::fs::read(&final_path).unwrap(), b"complete");
         let blob = hub.create_blob(1).unwrap();
         hub.blob_write(1, blob, b"cancelled").unwrap();
@@ -4808,7 +4808,7 @@ mod tests {
             .submit_wire(runtime.handle(), 1, OP_BLOB_CREATE, 0, 0)
             .unwrap();
         let wake = hub.suspend_wire(1, operation).unwrap();
-        runtime.run(async { wake.notified().await });
+        runtime.run_within(async { wake.notified().await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         let result = hub.poll_wire(1, operation);
         assert_eq!(result as u8, STATUS_COMPLETED);
         let blob = OpaqueToken(result >> 8);
@@ -4821,7 +4821,7 @@ mod tests {
             .submit_wire(runtime.handle(), 1, OP_SYNTHETIC_RESOURCE_CLOSE, blob.0, 0)
             .unwrap();
         let wake = hub.suspend_wire(1, close).unwrap();
-        runtime.run(async { wake.notified().await });
+        runtime.run_within(async { wake.notified().await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(hub.poll_wire(1, close) as u8, STATUS_COMPLETED);
         assert_eq!(hub.snapshot().live_resources, 0);
         assert_eq!(hub.snapshot().buffered_blob_bytes, 0);
@@ -4899,11 +4899,11 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::timeout(std::time::Duration::from_secs(1), wake.notified())
                 .await
                 .unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(
             hub.take_blob_read(1, read),
             Ok(Some((Terminal::Completed, b"data".to_vec())))
@@ -4936,11 +4936,11 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::timeout(std::time::Duration::from_secs(1), wake.notified())
                 .await
                 .unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(
             hub.take_terminal(write, 1).unwrap().unwrap().terminal,
             Terminal::Completed
@@ -4976,11 +4976,11 @@ mod tests {
         let wake = hub
             .suspend_stream_wire(runtime.handle(), 1, write.wire())
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::timeout(std::time::Duration::from_secs(1), wake.notified())
                 .await
                 .expect("stalled blob transfer must wake its guest waiter");
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(hub.poll_wire(1, write.wire()) as u8, STATUS_TIMED_OUT);
         assert_eq!(hub.snapshot().pending_blob_writes, 0);
     }
@@ -4996,20 +4996,20 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::sleep(std::time::Duration::from_millis(20)).await;
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         let write = hub.submit_blob_write(1, blob, b"next").unwrap();
         let wake = hub
             .suspend_stream_wire(runtime.handle(), 1, write.wire())
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::sleep(std::time::Duration::from_millis(5)).await;
             assert_eq!(hub.poll_wire(1, write.wire()) as u8, STATUS_PENDING);
             crate::async_engine::timeout(std::time::Duration::from_secs(1), wake.notified())
                 .await
                 .expect("the new transfer must eventually report its own idle timeout");
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(hub.poll_wire(1, write.wire()) as u8, STATUS_TIMED_OUT);
     }
 
@@ -5028,7 +5028,7 @@ mod tests {
         let wake = hub
             .suspend_stream_wire(runtime.handle(), 1, write.wire())
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             // Each one-byte pull is observable progress on this *same* blob.
             // The pending four-byte write cannot yet complete, so crossing
             // three idle intervals distinguishes a resettable idle deadline
@@ -5043,7 +5043,7 @@ mod tests {
             crate::async_engine::timeout(std::time::Duration::from_secs(1), wake.notified())
                 .await
                 .expect("the now-admitted writer must wake its guest waiter");
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(hub.poll_wire(1, write.wire()) as u8, STATUS_COMPLETED);
     }
 
@@ -5062,7 +5062,7 @@ mod tests {
             .submit_wire(runtime.handle(), 1, OP_SYNTHETIC_RESOURCE_CLOSE, first.0, 0)
             .unwrap();
         let wake = hub.suspend_wire(1, close).unwrap();
-        runtime.run(async { wake.notified().await });
+        runtime.run_within(async { wake.notified().await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(hub.poll_wire(1, close) as u8, STATUS_COMPLETED);
         assert!(
             hub.take_terminal(write, 1).unwrap().is_some(),
@@ -5380,11 +5380,11 @@ mod tests {
             let wake = hub
                 .suspend_wire(4, operation.0)
                 .expect("completion must not reject yield");
-            runtime.run(async {
+            runtime.run_within(async {
                 crate::async_engine::timeout(std::time::Duration::from_secs(1), wake.notified())
                     .await
                     .expect("terminal operation must wake immediately");
-            });
+            }, std::time::Duration::from_secs(60)).expect("test runtime budget");
             assert_eq!(hub.poll_wire(4, operation.0) as u8, status(terminal));
             assert!(hub.suspend_wire(4, operation.0).is_err());
         }
@@ -5407,7 +5407,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async { wake.notified().await });
+        runtime.run_within(async { wake.notified().await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(
             hub.take_terminal(operation, 4),
             Ok(Some(TerminalResult {
@@ -5437,7 +5437,7 @@ mod tests {
             )
             .unwrap();
         let wake = hub.suspend(operation, 0).unwrap();
-        runtime.run(async { wake.notified().await });
+        runtime.run_within(async { wake.notified().await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         let result = hub.take_terminal(operation, 0).unwrap().unwrap();
         assert_eq!(result.terminal, Terminal::Completed);
         assert!(result.resource.is_some());
@@ -5462,15 +5462,15 @@ mod tests {
         // generated synchronous `operation_yield` import is invoked. The old
         // implementation terminalized here, making the subsequent suspend
         // fail nondeterministically in the real Wasm artifact.
-        runtime.run(async {
+        runtime.run_within(async {
             crate::async_engine::yield_now().await;
             crate::async_engine::yield_now().await;
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(hub.take_terminal(operation, 0), Ok(None));
         assert_eq!(hub.snapshot().live_resources, 1);
 
         let wake = hub.suspend(operation, 0).unwrap();
-        runtime.run(async { wake.notified().await });
+        runtime.run_within(async { wake.notified().await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(
             hub.take_terminal(operation, 0),
             Ok(Some(TerminalResult {
@@ -5536,7 +5536,7 @@ mod tests {
             .submit_wire(runtime.handle(), 0, OP_SYNTHETIC_RESOURCE_CREATE, 0, 1)
             .unwrap();
         let wake = hub.suspend_wire(0, operation).unwrap();
-        runtime.run(async { wake.notified().await });
+        runtime.run_within(async { wake.notified().await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         let packed = hub.poll_wire(0, operation);
         assert_eq!(packed & 0xff, u64::from(STATUS_COMPLETED));
         assert_ne!(

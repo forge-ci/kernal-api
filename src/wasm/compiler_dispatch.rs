@@ -176,7 +176,7 @@ pub(in crate::wasm) mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let hub = OperationHub::new(4, 2).unwrap();
             let spec = compiler_helper_spec();
             let grant = hub
@@ -271,7 +271,7 @@ pub(in crate::wasm) mod tests {
             hub.join_process_jobs().await.unwrap();
             assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
             assert_eq!(hub.snapshot().retained_process_jobs, 0);
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -334,7 +334,7 @@ pub(in crate::wasm) mod tests {
             .build()
             .unwrap();
         assert_eq!(
-            runtime.run(sketch.execute_threaded_root_with_grant(
+            runtime.run_within(sketch.execute_threaded_root_with_grant(
                 runtime.handle(),
                 crate::async_engine::CancellationSource::new().token(),
                 RootGrants {
@@ -348,7 +348,7 @@ pub(in crate::wasm) mod tests {
                     #[cfg(feature = "tauri-webview")]
                     webview: None,
                 },
-            )),
+            ), std::time::Duration::from_secs(60)).expect("test runtime budget"),
             Ok(ThreadedRootOutcome::Started)
         );
         assert_verified_artifact(&output);

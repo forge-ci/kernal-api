@@ -319,7 +319,7 @@ mod tests {
         let job = runtime
             .handle()
             .launch_blocking(move || sink.copy_archive(reader, 0));
-        runtime.run(async {
+        runtime.run_within(async {
             wait_full(&hub).await;
             let paused = hub.snapshot();
             assert_eq!(paused.pending_write_bytes, CHUNK);
@@ -350,7 +350,7 @@ mod tests {
             .unwrap();
             assert_eq!(total, LENGTH);
             assert_eq!(job.await.unwrap().unwrap(), LENGTH);
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(storage.used(), 0);
         hub.abandon_blob_wire(1, blob.wire()).unwrap();
         let snapshot = hub.snapshot();
@@ -384,7 +384,7 @@ mod tests {
             let job = runtime
                 .handle()
                 .launch_blocking(move || sink.copy_archive(reader, 0));
-            runtime.run(async {
+            runtime.run_within(async {
                 wait_full(&hub).await;
                 assert!(storage.used() > 0);
                 if let Some(terminal) = terminal {
@@ -397,7 +397,7 @@ mod tests {
                     .unwrap()
                     .unwrap()
                     .is_err());
-            });
+            }, std::time::Duration::from_secs(60)).expect("test runtime budget");
             assert_eq!(storage.used(), 0);
             let snapshot = hub.snapshot();
             assert_eq!(snapshot.live_resources, 0);
@@ -447,7 +447,7 @@ mod tests {
                 assert!(sink.write_all(&[0x5a; CHUNK]).is_err());
                 assert!(sink.finish().is_err());
             });
-            runtime.run(async {
+            runtime.run_within(async {
                 timeout(Duration::from_secs(5), prefix.notified())
                     .await
                     .unwrap();
@@ -470,7 +470,7 @@ mod tests {
                     })
                     .unwrap();
                 assert_eq!(closed as u8, STATUS_CLOSED);
-            });
+            }, std::time::Duration::from_secs(60)).expect("test runtime budget");
             assert_eq!(storage.used(), 0);
             assert_eq!(hub.snapshot().live_resources, 0);
             assert_eq!(hub.snapshot().pending_operations, 0);
