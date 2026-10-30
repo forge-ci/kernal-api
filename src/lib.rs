@@ -1034,6 +1034,9 @@ impl PlatformChild {
 pub enum ProcessPostExitDrain {
     /// Preserve strict historical EOF behavior, even when a descendant holds
     /// an inherited output pipe after the direct child has exited.
+    #[deprecated(
+        note = "a descendant holding the pipe makes this wait forever; use `AbandonAfter` (#433)"
+    )]
     WaitForEof,
     /// Abandon a still-pending pipe read after this cumulative post-exit
     /// budget. Buffered bytes remain observable and bounded queue delivery

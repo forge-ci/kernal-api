@@ -391,6 +391,9 @@ fn a_session_that_killed_stops_watching_its_owner() {
 
 /// A streaming session whose child is bound to `owner`.
 #[cfg(target_os = "linux")]
+// Holds the session under the deprecated `WaitForEof`, the longest a
+// supervisor can (#433).
+#[allow(deprecated)]
 async fn session_bound_to(owner: ProcessId, command: &str) -> kernal_api::ProcessSession {
     shell_spec(command)
         .stdin(StreamMode::Null)
