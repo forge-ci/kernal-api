@@ -158,6 +158,19 @@ tools = ["bosn", "uv"]
 run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
 tools = ["bosn", "uv"]
 
+# RUST-033 (forge-ci/ci.yml#511, forge-ci/kernal-api#516): the remote lint
+# phase for every target it covers. The minimal replays cannot prove it: the
+# workflow guards "Lint every target" with mode == 'full', so a minimal replay
+# always skips it (main run 40994816155). ci/lint_lane.py mirrors CI's flags:
+# `soldr lint rust --host-only --all-features` (fmt, host Clippy --all-targets
+# -D warnings, host Dylint), then per Linux-hosted cross target of the `build`
+# matrix `soldr prepare --target <t>` + the "Lint this target" clippy. Known
+# gap: aarch64-unknown-linux-gnu lints only natively in CI (no cross pkg-config
+# sysroot for WebKitGTK on an x64 host), so this lane does not attest it.
+[local.gate.lanes.lint]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py", "--job", "lint"]
+tools = ["soldr", "uv"]
+
 # Eligible attested minimal PRs reuse both source-bound workflow lanes.
 # Extended/full PRs, changed gate surfaces, pushes and audit samples run remotely.
 [local.gate.trust]
