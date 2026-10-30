@@ -531,6 +531,8 @@ const fn binds_to_spawner(owner: Option<LifetimeOwner>) -> bool {
     matches!(owner, Some(LifetimeOwner::Spawner))
 }
 
+// Maps the deprecated `WaitForEof` until it is removed (#433).
+#[allow(deprecated)]
 fn session_options(options: ProcessSessionOptions) -> AsyncProcessSessionOptions {
     AsyncProcessSessionOptions {
         max_queued_chunks: options.max_queued_chunks,
