@@ -669,6 +669,16 @@ impl AsyncStream {
         within(timeout, self.write_all(bytes)).await
     }
 
+    /// [`Self::flush`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
+    pub async fn flush_within(&mut self, timeout: std::time::Duration) -> io::Result<()> {
+        within(timeout, self.flush()).await
+    }
+
+    /// [`Self::shutdown`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
+    pub async fn shutdown_within(&mut self, timeout: std::time::Duration) -> io::Result<()> {
+        within(timeout, self.shutdown()).await
+    }
+
     pub fn peer_identity(&self) -> io::Result<PeerIdentity> {
         self.0.peer_creds().map(peer_identity)
     }
@@ -732,6 +742,17 @@ pub struct AsyncReadHalf(tokio::io::ReadHalf<interprocess::local_socket::tokio::
 
 #[cfg(feature = "ipc-async")]
 impl AsyncReadHalf {
+    /// [`Self::read`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
+    pub async fn read_within(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
+        within(timeout, self.read(buffer)).await
+    }
+
+    /// [`Self::read_exact`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
+    /// Bytes already read into `buffer` before expiry are consumed.
+    pub async fn read_exact_within(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
+        within(timeout, self.read_exact(buffer)).await
+    }
+
     /// Read into `buffer`, returning the number of bytes read.
     pub async fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         use tokio::io::AsyncReadExt as _;
@@ -753,6 +774,22 @@ pub struct AsyncWriteHalf(tokio::io::WriteHalf<interprocess::local_socket::tokio
 
 #[cfg(feature = "ipc-async")]
 impl AsyncWriteHalf {
+    /// [`Self::write_all`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
+    /// Part of `bytes` may already be written before expiry.
+    pub async fn write_all_within(&mut self, bytes: &[u8], timeout: std::time::Duration) -> io::Result<()> {
+        within(timeout, self.write_all(bytes)).await
+    }
+
+    /// [`Self::flush`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
+    pub async fn flush_within(&mut self, timeout: std::time::Duration) -> io::Result<()> {
+        within(timeout, self.flush()).await
+    }
+
+    /// [`Self::shutdown`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
+    pub async fn shutdown_within(&mut self, timeout: std::time::Duration) -> io::Result<()> {
+        within(timeout, self.shutdown()).await
+    }
+
     /// Write the entirety of `bytes`, retrying partial writes internally.
     pub async fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         use tokio::io::AsyncWriteExt as _;
