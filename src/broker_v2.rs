@@ -332,6 +332,9 @@ impl Write for Connection {
     }
 }
 
+// `timeout: None` is reached only from the deprecated `connect_published`;
+// drop that arm with it (#433).
+#[allow(deprecated)]
 fn dial(endpoint: &str, route: Route, timeout: Option<Duration>) -> Result<Connection, BrokerV2Error> {
     let address = ipc::Endpoint::new(endpoint.to_owned()).map_err(BrokerV2Error::BackendConnect)?;
     let stream = match timeout {

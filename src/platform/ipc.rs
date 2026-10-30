@@ -383,7 +383,10 @@ pub use crate::{
     IpcIntoAsyncListener as IntoAsyncListener, IpcIntoAsyncStream as IntoAsyncStream,
 };
 
+// These round-trips are the contract tests of the unbounded IPC forms
+// deprecated by #433; they keep exercising them until the forms are removed.
 #[cfg(all(test, feature = "ipc"))]
+#[allow(deprecated)]
 mod tests {
     use std::io::{Read, Write};
 

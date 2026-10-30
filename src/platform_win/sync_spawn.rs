@@ -2088,7 +2088,9 @@ mod tests {
             crate::platform::process::SyncEnvironment::Inherit,
         )
         .expect("sanitized shell spawn");
-        assert_eq!(child.wait().expect("wait for sanitized shell spawn"), 0);
+        assert_eq!(child
+                .wait_within(std::time::Duration::from_secs(5))
+                .expect("wait for sanitized shell spawn"), 0);
         assert_eq!(
             std::fs::read_to_string(&output).expect("read shell output"),
             "alpha beta & gamma\r\n"
@@ -2131,7 +2133,9 @@ mod tests {
             )]),
         )
         .expect("explicit spawn");
-        assert_eq!(first.wait().expect("wait for explicit spawn"), 0);
+        assert_eq!(first
+                .wait_within(std::time::Duration::from_secs(5))
+                .expect("wait for explicit spawn"), 0);
         assert!(std::fs::read_to_string(&output)
             .expect("read explicit environment output")
             .contains("stale-value"));
@@ -2143,7 +2147,9 @@ mod tests {
             crate::platform::process::SyncEnvironment::Inherit,
         )
         .expect("inherited spawn");
-        assert_eq!(second.wait().expect("wait for inherited spawn"), 0);
+        assert_eq!(second
+                .wait_within(std::time::Duration::from_secs(5))
+                .expect("wait for inherited spawn"), 0);
         assert!(std::fs::read_to_string(&output)
             .expect("read inherited environment output")
             .contains("fresh-value"));

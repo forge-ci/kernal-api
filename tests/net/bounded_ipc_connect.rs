@@ -41,8 +41,14 @@ async fn bounded_async_ipc_operations_time_out_on_a_silent_peer() {
     let server = tokio::spawn(async move {
         let mut stream = listener.accept().await.unwrap();
         let mut byte = [0_u8; 1];
-        stream.read_exact(&mut byte).await.unwrap();
-        stream.write_all(&byte).await.unwrap();
+        stream
+            .read_exact_within(&mut byte, Duration::from_secs(1))
+            .await
+            .unwrap();
+        stream
+            .write_all_within(&byte, Duration::from_secs(1))
+            .await
+            .unwrap();
         // Stay connected so the client's later read sees silence, not EOF.
         tokio::time::sleep(Duration::from_secs(30)).await;
     });
@@ -122,8 +128,14 @@ async fn bounded_split_halves_flush_and_shutdown() {
     let server = tokio::spawn(async move {
         let mut stream = listener.accept().await.unwrap();
         let mut byte = [0_u8; 1];
-        stream.read_exact(&mut byte).await.unwrap();
-        stream.write_all(&byte).await.unwrap();
+        stream
+            .read_exact_within(&mut byte, Duration::from_secs(1))
+            .await
+            .unwrap();
+        stream
+            .write_all_within(&byte, Duration::from_secs(1))
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_secs(30)).await;
     });
 
