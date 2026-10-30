@@ -1,6 +1,6 @@
 # Client boundary lint
 
-The suite contains four lints:
+The suite contains five lints:
 
 - `kernal_api_boundary` rejects direct client use of implementation crates.
 - `kernal_api_unbounded_wait` rejects a client call to a kernal-api wait that
@@ -19,6 +19,13 @@ The suite contains four lints:
   a collection or a local struct is caught too. A guard dropped or scoped out
   before the `.await` is fine. Semaphore permits carry no data and are not
   checked.
+- `kernal_api_blocking_in_async` rejects a client call to a blocking
+  kernal-api operation made directly in an `async` body (#433): a runtime
+  bridge (`Runtime::run`, `run_within`), a blocking lock or send, a
+  synchronous child wait, a file lock, or a synchronous IPC / broker connect.
+  Bounded or not, it parks a runtime worker. A closure nested in the async
+  body, such as the one passed to `launch_blocking`, is its own body and is
+  not checked. The list is `BLOCKING_CALLS` in the same file.
 - `kernal_api_platform_boundary` rejects host `cfg` selection and native OS
   APIs outside the private platform trees of `kernal-api`, in clients and in
   `kernal-api` itself, including code elided on the CI host.
