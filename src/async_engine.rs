@@ -1471,6 +1471,7 @@ pub struct Receiver<T> {
 impl<T> Receiver<T> {
     /// Wait for the next value, or `None` once every [`Sender`] has been
     /// dropped and no values remain buffered.
+    #[deprecated(note = "can wait forever; use `recv_within` (#433)")]
     pub async fn recv(&mut self) -> Option<T> {
         self.inner.recv().await
     }
@@ -1565,6 +1566,7 @@ pub struct UnboundedReceiver<T> {
 impl<T> UnboundedReceiver<T> {
     /// Wait for the next value, or `None` once every [`UnboundedSender`] has
     /// been dropped and no values remain buffered.
+    #[deprecated(note = "can wait forever; use `recv_within` (#433)")]
     pub async fn recv(&mut self) -> Option<T> {
         self.inner.recv().await
     }
@@ -2165,6 +2167,8 @@ mod tests {
     }
 
     #[test]
+    // Contract test of a form deprecated by #433.
+    #[allow(deprecated)]
     fn unbounded_channel_delivers_values_without_waiting() {
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()

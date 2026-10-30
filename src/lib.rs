@@ -997,6 +997,7 @@ impl PlatformChild {
     /// This operation waits for both streams to reach EOF and the child to
     /// exit naturally; it does not terminate a child merely because retained
     /// output reached the limit.
+    #[deprecated(note = "waits forever for a live child or a descendant-held pipe; use `wait_with_output_bounded_within` (#433)")]
     pub async fn wait_with_output_bounded(
         mut self,
         limit: usize,
@@ -1569,7 +1570,7 @@ mod tests {
             .spawn()
             .await
             .expect("spawn")
-            .wait_with_output_bounded(1024)
+            .wait_with_output_bounded_within(1024, std::time::Duration::from_secs(5))
             .await
             .expect("wait with output");
 
@@ -1598,19 +1599,16 @@ mod tests {
         #[cfg(not(windows))]
         let spec = shell_spec("cat > /dev/null; printf done");
 
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            spec.stdin(StreamMode::Piped)
-                .stdout(StreamMode::Piped)
-                .stderr(StreamMode::Piped)
-                .spawn()
-                .await
-                .expect("spawn")
-                .wait_with_output_bounded(1024),
-        )
-        .await
-        .expect("stdin is closed for one-shot output")
-        .expect("output succeeds");
+        let output = spec
+            .stdin(StreamMode::Piped)
+            .stdout(StreamMode::Piped)
+            .stderr(StreamMode::Piped)
+            .spawn()
+            .await
+            .expect("spawn")
+            .wait_with_output_bounded_within(1024, std::time::Duration::from_secs(2))
+            .await
+            .expect("stdin is closed for one-shot output");
 
         let expected = if cfg!(windows) {
             b"done\r\n".as_slice()

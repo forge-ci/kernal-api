@@ -58,10 +58,11 @@ async fn a_detach_on_drop_task_survives_its_handle_and_stays_joinable() {
     .detach_on_drop();
     drop(task);
     release.send(()).unwrap();
-    let value = async_engine::timeout(BOUND, finished.recv())
+    let value = finished
+        .recv_within(Duration::from_secs(1))
         .await
         .expect("the dropped handle did not cancel the task");
-    assert_eq!(value, Some(7));
+    assert_eq!(value, 7);
 
     let joinable = async_engine::launch(async { 11 }).detach_on_drop();
     assert_eq!(joinable.await.unwrap(), 11);

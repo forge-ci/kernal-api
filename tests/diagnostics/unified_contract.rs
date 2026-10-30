@@ -23,7 +23,7 @@ fn async_process_hal_captures_output() {
             .spawn()
             .await
             .expect("spawn through the shared HAL")
-            .wait_with_output_bounded(1024)
+            .wait_with_output_bounded_within(1024, std::time::Duration::from_secs(5))
             .await
             .expect("capture output");
 
@@ -50,18 +50,17 @@ fn async_process_hal_reports_a_finite_capture_that_exceeds_its_aggregate_bound()
         #[cfg(not(windows))]
         let spec = shell_spec("printf 12345");
 
-        let error = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            spec.stdout(StreamMode::Piped)
-                .stderr(StreamMode::Piped)
-                .spawn()
-                .await
-                .expect("spawn through the shared HAL")
-                .wait_with_output_bounded(4),
-        )
-        .await
-        .expect("finite child reaches EOF after excess output is drained")
-        .expect_err("aggregate output limit must reject retained output");
+        // A finite child reaches EOF after its excess output is drained, so
+        // the error below is the output limit, not the time budget.
+        let error = spec
+            .stdout(StreamMode::Piped)
+            .stderr(StreamMode::Piped)
+            .spawn()
+            .await
+            .expect("spawn through the shared HAL")
+            .wait_with_output_bounded_within(4, std::time::Duration::from_secs(2))
+            .await
+            .expect_err("aggregate output limit must reject retained output");
 
         assert!(matches!(
             error,
