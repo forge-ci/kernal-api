@@ -9,6 +9,7 @@ from unittest.mock import patch
 import sys
 
 from ci.local_gate import (
+    LINT_COMMAND,
     CommandFailed,
     NativeHost,
     RunProof,
@@ -46,6 +47,21 @@ class FastPreflightTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 main()
             submit.assert_not_called()
+
+
+class LintLaneTests(unittest.TestCase):
+    def test_lint_lane_execs_the_full_soldr_lint_without_an_engine(self):
+        with (
+            patch("sys.argv", ["local_gate.py", "--job", "lint"]),
+            patch("ci.local_gate.os.chdir"),
+            patch("ci.local_gate.os.execvp", side_effect=SystemExit(0)) as execvp,
+            patch("ci.local_gate.output") as engine,
+        ):
+            with self.assertRaises(SystemExit):
+                main()
+            execvp.assert_called_once_with("uv", list(LINT_COMMAND))
+            self.assertEqual(LINT_COMMAND[-1], "ci/lint_lane.py")
+            engine.assert_not_called()
 
 
 class PrBaseTests(unittest.TestCase):
