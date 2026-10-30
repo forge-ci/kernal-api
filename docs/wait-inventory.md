@@ -83,11 +83,11 @@ peer blocks them forever. Accept-side waits are service-lifetime listeners.
 | `broker_v2::negotiate` | yes | bounded (`deadline`) | None. |
 | `broker_v2::Connection` `Read` | yes | optional on Unix (`set_read_timeout`, default `None`); unbounded on Windows | Bound by default; a Windows read budget. |
 | `broker_v2::Connection` `Write` | yes | optional on Unix (`set_write_timeout`, default `None`); unbounded on Windows | Bound by default; a Windows write budget. |
-| `platform::ipc::Stream::connect` | yes | unbounded; on Windows the local-socket layer waits on a busy pipe without limit; bounded `Stream::connect_within(endpoint, timeout)` exists (`TimedOut`) | Use it in `broker_v2` and `broker_client`, then migrate callers. |
+| `platform::ipc::Stream::connect` | yes | **deprecated** (#433), only internal caller is the deprecated `connect_published` dial; unbounded; on Windows the local-socket layer waits on a busy pipe without limit; bounded `Stream::connect_within(endpoint, timeout)` exists (`TimedOut`) | Use it in `broker_v2` and `broker_client`, then migrate callers. |
 | `platform::ipc::Stream` `Read` | yes | optional on Unix (`set_recv_timeout`, default `None`); on Windows named pipes reject I/O timeouts (`Unsupported`), so reads are unbounded there | Bound by default; a Windows read budget (overlapped I/O or a watchdog). |
 | `platform::ipc::Stream` `Write` / `flush` | yes | optional on Unix (`set_send_timeout`, default `None`); unbounded on Windows (`Unsupported`) | Bound by default; a Windows write budget. |
 | `platform::ipc::Stream::transfer_to_backend` | yes | non-blocking on Linux (`MSG_DONTWAIT`); Windows not yet checked | Confirm on Windows. |
-| `AsyncStream::connect`, `read`, `read_exact`, `write_all`, `flush`, `shutdown`, and the `AsyncReadHalf` / `AsyncWriteHalf` forms | no | unbounded; every one has a bounded `_within` form on `AsyncStream`, `AsyncReadHalf` and `AsyncWriteHalf` (`TimedOut`) | Migrate callers, then remove the unbounded forms. |
+| `AsyncStream::connect`, `read`, `read_exact`, `write_all`, `flush`, `shutdown`, and the `AsyncReadHalf` / `AsyncWriteHalf` forms | no | **deprecated** (#433), no internal callers outside contract tests; every one has a bounded `_within` form on `AsyncStream`, `AsyncReadHalf` and `AsyncWriteHalf` (`TimedOut`) | Migrate callers, then remove the unbounded forms. |
 | `LocalSocketStream::connect` (owner-only) | no | unbounded; callers own deadlines | A connect budget. |
 | `LocalPipeClient::open` (Windows) | yes (one syscall) | bounded by design: pipe-busy is returned, not waited on | None. |
 | `legacy_send_fd_to` | yes | connect unbounded (send is non-blocking) | Bound the connect or remove the deprecated function. |

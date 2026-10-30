@@ -280,6 +280,7 @@ impl std::fmt::Debug for Stream {
 }
 
 impl Stream {
+    #[deprecated(note = "can wait forever on a stuck peer; use `connect_within` (#433)")]
     pub fn connect(endpoint: &Endpoint) -> io::Result<Self> {
         interprocess::local_socket::Stream::connect(name(endpoint.display())?).map(Self)
     }
@@ -575,6 +576,7 @@ pub struct AsyncStream(pub(crate) interprocess::local_socket::tokio::Stream);
 
 #[cfg(feature = "ipc-async")]
 impl AsyncStream {
+    #[deprecated(note = "can wait forever on a stuck peer; use `connect_within` (#433)")]
     pub async fn connect(endpoint: &Endpoint) -> io::Result<Self> {
         interprocess::local_socket::tokio::Stream::connect(name(endpoint.display())?)
             .await
@@ -584,36 +586,54 @@ impl AsyncStream {
     /// [`Self::connect`], failing with [`io::ErrorKind::TimedOut`] if the
     /// connection is not established within `timeout`.
     pub async fn connect_within(endpoint: &Endpoint, timeout: std::time::Duration) -> io::Result<Self> {
-        within(timeout, Self::connect(endpoint)).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = Self::connect(endpoint);
+        within(timeout, wait).await
     }
 
     /// [`Self::read`], failing with [`io::ErrorKind::TimedOut`] if no bytes
     /// arrive within `timeout`.
     pub async fn read_within(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
-        within(timeout, self.read(buffer)).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.read(buffer);
+        within(timeout, wait).await
     }
 
     /// [`Self::read_exact`] within `timeout`. On expiry the bytes already read
     /// into `buffer` are consumed from the stream and the error is
     /// [`io::ErrorKind::TimedOut`].
     pub async fn read_exact_within(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
-        within(timeout, self.read_exact(buffer)).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.read_exact(buffer);
+        within(timeout, wait).await
     }
 
     /// [`Self::write_all`] within `timeout`. On expiry part of `bytes` may
     /// already have been written and the error is [`io::ErrorKind::TimedOut`].
     pub async fn write_all_within(&mut self, bytes: &[u8], timeout: std::time::Duration) -> io::Result<()> {
-        within(timeout, self.write_all(bytes)).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.write_all(bytes);
+        within(timeout, wait).await
     }
 
     /// [`Self::flush`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
     pub async fn flush_within(&mut self, timeout: std::time::Duration) -> io::Result<()> {
-        within(timeout, self.flush()).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.flush();
+        within(timeout, wait).await
     }
 
     /// [`Self::shutdown`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
     pub async fn shutdown_within(&mut self, timeout: std::time::Duration) -> io::Result<()> {
-        within(timeout, self.shutdown()).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.shutdown();
+        within(timeout, wait).await
     }
 
     pub fn peer_identity(&self) -> io::Result<PeerIdentity> {
@@ -624,6 +644,7 @@ impl AsyncStream {
     ///
     /// This is an inherent method rather than a re-exported trait method, so
     /// a caller never needs an extension-trait import to reach it.
+    #[deprecated(note = "can wait forever on a stuck peer; use `read_within` (#433)")]
     pub async fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         use tokio::io::AsyncReadExt as _;
 
@@ -634,6 +655,7 @@ impl AsyncStream {
     ///
     /// On success the return value equals `buffer.len()`; an end-of-stream
     /// before `buffer` fills yields [`io::ErrorKind::UnexpectedEof`].
+    #[deprecated(note = "can wait forever on a stuck peer; use `read_exact_within` (#433)")]
     pub async fn read_exact(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         use tokio::io::AsyncReadExt as _;
 
@@ -641,6 +663,7 @@ impl AsyncStream {
     }
 
     /// Write the entirety of `bytes`, retrying partial writes internally.
+    #[deprecated(note = "can wait forever on a stuck peer; use `write_all_within` (#433)")]
     pub async fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         use tokio::io::AsyncWriteExt as _;
 
@@ -648,6 +671,7 @@ impl AsyncStream {
     }
 
     /// Flush any buffered writes to the underlying transport.
+    #[deprecated(note = "can wait forever on a stuck peer; use `flush_within` (#433)")]
     pub async fn flush(&mut self) -> io::Result<()> {
         use tokio::io::AsyncWriteExt as _;
 
@@ -656,6 +680,7 @@ impl AsyncStream {
 
     /// Shut down the write half of this stream, signaling end-of-stream to
     /// the peer's reader.
+    #[deprecated(note = "can wait forever on a stuck peer; use `shutdown_within` (#433)")]
     pub async fn shutdown(&mut self) -> io::Result<()> {
         use tokio::io::AsyncWriteExt as _;
 
@@ -681,16 +706,23 @@ pub struct AsyncReadHalf(tokio::io::ReadHalf<interprocess::local_socket::tokio::
 impl AsyncReadHalf {
     /// [`Self::read`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
     pub async fn read_within(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
-        within(timeout, self.read(buffer)).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.read(buffer);
+        within(timeout, wait).await
     }
 
     /// [`Self::read_exact`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
     /// Bytes already read into `buffer` before expiry are consumed.
     pub async fn read_exact_within(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
-        within(timeout, self.read_exact(buffer)).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.read_exact(buffer);
+        within(timeout, wait).await
     }
 
     /// Read into `buffer`, returning the number of bytes read.
+    #[deprecated(note = "can wait forever on a stuck peer; use `read_within` (#433)")]
     pub async fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         use tokio::io::AsyncReadExt as _;
 
@@ -698,6 +730,7 @@ impl AsyncReadHalf {
     }
 
     /// Read until `buffer` is completely filled.
+    #[deprecated(note = "can wait forever on a stuck peer; use `read_exact_within` (#433)")]
     pub async fn read_exact(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         use tokio::io::AsyncReadExt as _;
 
@@ -714,20 +747,30 @@ impl AsyncWriteHalf {
     /// [`Self::write_all`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
     /// Part of `bytes` may already be written before expiry.
     pub async fn write_all_within(&mut self, bytes: &[u8], timeout: std::time::Duration) -> io::Result<()> {
-        within(timeout, self.write_all(bytes)).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.write_all(bytes);
+        within(timeout, wait).await
     }
 
     /// [`Self::flush`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
     pub async fn flush_within(&mut self, timeout: std::time::Duration) -> io::Result<()> {
-        within(timeout, self.flush()).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.flush();
+        within(timeout, wait).await
     }
 
     /// [`Self::shutdown`] within `timeout`; expiry is [`io::ErrorKind::TimedOut`].
     pub async fn shutdown_within(&mut self, timeout: std::time::Duration) -> io::Result<()> {
-        within(timeout, self.shutdown()).await
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.shutdown();
+        within(timeout, wait).await
     }
 
     /// Write the entirety of `bytes`, retrying partial writes internally.
+    #[deprecated(note = "can wait forever on a stuck peer; use `write_all_within` (#433)")]
     pub async fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         use tokio::io::AsyncWriteExt as _;
 
@@ -735,6 +778,7 @@ impl AsyncWriteHalf {
     }
 
     /// Flush any buffered writes to the underlying transport.
+    #[deprecated(note = "can wait forever on a stuck peer; use `flush_within` (#433)")]
     pub async fn flush(&mut self) -> io::Result<()> {
         use tokio::io::AsyncWriteExt as _;
 
@@ -743,6 +787,7 @@ impl AsyncWriteHalf {
 
     /// Shut down this write half, signaling end-of-stream to the peer's
     /// reader.
+    #[deprecated(note = "can wait forever on a stuck peer; use `shutdown_within` (#433)")]
     pub async fn shutdown(&mut self) -> io::Result<()> {
         use tokio::io::AsyncWriteExt as _;
 
@@ -894,7 +939,9 @@ mod legacy_handoff_tests {
     }
 }
 
+// Exercises the unbounded IPC forms deprecated by #433 until they are removed.
 #[cfg(all(test, feature = "ipc-async"))]
+#[allow(deprecated)]
 mod security_tests {
     use std::io::{Read as _, Write as _};
 
