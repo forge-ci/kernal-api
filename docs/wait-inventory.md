@@ -101,7 +101,10 @@ denies client calls to every unbounded row above that has a bounded
 replacement. Its `UNBOUNDED_WAITS` list must change in the same PR as a row
 here. `kernal_api_guard_across_await` denies client `async` bodies that hold a
 kernal-api `Mutex` / `RwLock` guard across an `.await`, including a guard
-nested in an `Option`, a tuple or a local struct. Neither lint checks
-`kernal-api`'s own code yet. Neither covers the awaited futures (`Task`,
-`OneshotReceiver`, `Notified`) or blocking calls on async workers. Those Dylints are
+nested in an `Option`, a tuple or a local struct. `kernal_api_blocking_in_async` denies blocking kernal-api calls made
+directly in client `async` bodies. Inside `kernal-api`, `#[deprecated]` on
+each unbounded form plus `warnings = "deny"` keeps its own code off them;
+the remaining uses are contract tests and the documented service-lifetime
+exceptions above. The lints do not cover the awaited futures (`Task`,
+`OneshotReceiver`, `Notified`). Those Dylints are
 still outstanding under #433.

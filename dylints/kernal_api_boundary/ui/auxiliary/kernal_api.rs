@@ -20,6 +20,10 @@ pub mod async_engine {
 
     pub async fn yield_now() {}
 
+    pub fn launch_blocking<F: FnOnce()>(work: F) {
+        work()
+    }
+
     pub struct Runtime;
 
     impl Runtime {
@@ -57,6 +61,7 @@ pub mod async_engine {
             }
             pub fn lock(&self) {}
             pub fn lock_within(&self, _timeout: Duration) {}
+            pub fn blocking_lock_within(&self, _timeout: Duration) {}
         }
     }
 }

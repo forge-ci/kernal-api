@@ -76,10 +76,25 @@ rustc_session::declare_lint! {
     "release kernal-api lock guards before awaiting"
 }
 
+rustc_session::declare_lint! {
+    /// ### What it does
+    ///
+    /// Rejects a client call to a blocking kernal-api operation -- a runtime
+    /// bridge, a blocking lock, a synchronous child wait, file lock or IPC /
+    /// broker connect -- made directly in an `async` body (#433). It parks a
+    /// runtime worker for as long as the call lasts, so enough of them stall
+    /// every task on the runtime, bounded or not. Use the async form, or run
+    /// the call inside the closure passed to `launch_blocking`.
+    pub KERNAL_API_BLOCKING_IN_ASYNC,
+    Deny,
+    "keep blocking kernal-api calls out of async bodies"
+}
+
 rustc_session::declare_lint_pass!(KernalApiBoundary => [
     KERNAL_API_BOUNDARY,
     KERNAL_API_UNBOUNDED_WAIT,
-    KERNAL_API_GUARD_ACROSS_AWAIT
+    KERNAL_API_GUARD_ACROSS_AWAIT,
+    KERNAL_API_BLOCKING_IN_ASYNC
 ]);
 
 #[allow(clippy::no_mangle_with_rust_abi)]
@@ -90,6 +105,7 @@ pub fn register_lints(sess: &rustc_session::Session, lint_store: &mut rustc_lint
         KERNAL_API_BOUNDARY,
         KERNAL_API_UNBOUNDED_WAIT,
         KERNAL_API_GUARD_ACROSS_AWAIT,
+        KERNAL_API_BLOCKING_IN_ASYNC,
     ]);
     lint_store.register_late_pass(|_| Box::new(KernalApiBoundary));
 }
@@ -158,6 +174,38 @@ const UNBOUNDED_WAITS: &[(&str, &str, &str, &str)] = &[
     ("rw_lock", "RwLock", "read_owned", "read_owned_within"),
     ("rw_lock", "RwLock", "write", "write_within"),
     ("rw_lock", "RwLock", "write_owned", "write_owned_within"),
+];
+
+/// The blocking kernal-api operations, as `(defining module, owner type,
+/// function)`: each parks its calling thread until it completes or expires,
+/// bounded or not.
+const BLOCKING_CALLS: &[(&str, &str, &str)] = &[
+    ("async_engine", "Runtime", "run"),
+    ("async_engine", "Runtime", "run_within"),
+    ("async_engine", "Sender", "blocking_send"),
+    ("broker_v2", "", "connect"),
+    ("broker_v2", "", "connect_published"),
+    ("broker_v2", "", "connect_published_within"),
+    ("fs", "", "lock_exclusive"),
+    ("fs", "", "lock_exclusive_for"),
+    ("fs", "", "lock_exclusive_owned"),
+    ("fs", "", "lock_exclusive_owned_for"),
+    ("fs", "", "lock_shared"),
+    ("fs", "", "lock_shared_for"),
+    ("fs", "", "lock_shared_owned"),
+    ("fs", "", "lock_shared_owned_for"),
+    ("ipc", "Stream", "connect"),
+    ("ipc", "Stream", "connect_within"),
+    ("mutex", "Mutex", "blocking_lock"),
+    ("mutex", "Mutex", "blocking_lock_within"),
+    ("process", "DaemonChild", "wait"),
+    ("process", "DaemonChild", "wait_within"),
+    ("process", "SpawnedChild", "wait"),
+    ("process", "SpawnedChild", "wait_within"),
+    ("rw_lock", "RwLock", "blocking_read"),
+    ("rw_lock", "RwLock", "blocking_read_within"),
+    ("rw_lock", "RwLock", "blocking_write"),
+    ("rw_lock", "RwLock", "blocking_write_within"),
 ];
 
 /// The kernal-api lock guards that give access to protected data, as
@@ -261,6 +309,7 @@ impl<'tcx> LateLintPass<'tcx> for KernalApiBoundary {
         if let Some(def_id) = def_id {
             check_def(cx, expr.span, def_id);
             check_unbounded_wait(cx, expr.span, def_id);
+            check_blocking_in_async(cx, expr, expr.span, def_id);
         }
     }
 
@@ -743,6 +792,19 @@ fn unbounded_wait(
     cx: &LateContext<'_>,
     def_id: DefId,
 ) -> Option<(&'static str, &'static str, &'static str)> {
+    let (module, owner, function) = facade_function(cx, def_id)?;
+    UNBOUNDED_WAITS
+        .iter()
+        .find(|(row_module, row_owner, row_function, _)| {
+            *row_module == module && *row_owner == owner && *row_function == function
+        })
+        .map(|(_, row_owner, row_function, bounded)| (*row_owner, *row_function, *bounded))
+}
+
+/// A kernal-api function or inherent method as `(defining module, owner
+/// type, name)`, the key the wait tables match. A free function has an
+/// empty owner; an item at the crate root has module `kernal_api`.
+fn facade_function(cx: &LateContext<'_>, def_id: DefId) -> Option<(String, String, String)> {
     let tcx = cx.tcx;
     if def_id.is_local() || tcx.crate_name(def_id.krate).as_str() != "kernal_api" {
         return None;
@@ -771,13 +833,62 @@ fn unbounded_wait(
     } else {
         tcx.item_name(module).to_string()
     };
-    let function = tcx.item_name(def_id);
-    UNBOUNDED_WAITS
+    Some((module, owner, tcx.item_name(def_id).to_string()))
+}
+
+/// Reject a client call to a blocking kernal-api operation made directly in
+/// an `async` body, where it parks a runtime worker thread.
+fn check_blocking_in_async(cx: &LateContext<'_>, expr: &Expr<'_>, span: Span, def_id: DefId) {
+    let Some((module, owner, function)) = facade_function(cx, def_id) else {
+        return;
+    };
+    if !BLOCKING_CALLS
         .iter()
-        .find(|(row_module, row_owner, row_function, _)| {
-            *row_module == module && *row_owner == owner && *row_function == function.as_str()
-        })
-        .map(|(_, row_owner, row_function, bounded)| (*row_owner, *row_function, *bounded))
+        .any(|(m, o, f)| *m == module && *o == owner && *f == function)
+    {
+        return;
+    }
+    if !directly_in_async_body(cx, expr) {
+        return;
+    }
+    let called = if owner.is_empty() {
+        function
+    } else {
+        format!("{owner}::{function}")
+    };
+    cx.opt_span_lint(
+        KERNAL_API_BLOCKING_IN_ASYNC,
+        Some(span),
+        DiagDecorator(move |diag| {
+            diag.primary_message(format!(
+                "`{called}` blocks its thread inside an `async` body; use the async form or move it into `launch_blocking`"
+            ));
+        }),
+    );
+}
+
+/// Whether `expr` runs as part of an `async` block or `async fn` body. A
+/// closure in between is its own body -- most often the one handed to
+/// `launch_blocking` -- so it ends the search, as does any item.
+fn directly_in_async_body(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
+    for (_, node) in cx.tcx.hir_parent_iter(expr.hir_id) {
+        match node {
+            rustc_hir::Node::Expr(Expr {
+                kind: ExprKind::Closure(Closure { kind, .. }),
+                ..
+            }) => {
+                return matches!(
+                    kind,
+                    ClosureKind::Coroutine(CoroutineKind::Desugared(CoroutineDesugaring::Async, _))
+                );
+            }
+            rustc_hir::Node::Item(_)
+            | rustc_hir::Node::ImplItem(_)
+            | rustc_hir::Node::TraitItem(_) => return false,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn check_def(cx: &LateContext<'_>, span: Span, def_id: DefId) {
@@ -810,6 +921,11 @@ fn the_owned_crate_set_is_sorted_and_unique() {
 #[test]
 fn the_unbounded_wait_set_is_sorted_and_unique() {
     assert!(UNBOUNDED_WAITS.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn the_blocking_call_set_is_sorted_and_unique() {
+    assert!(BLOCKING_CALLS.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[test]
