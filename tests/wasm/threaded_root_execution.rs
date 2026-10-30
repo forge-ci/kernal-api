@@ -18,11 +18,16 @@ fn admitted_threaded_profile_executes_its_start_once_with_a_facade_runtime_handl
         .build()
         .expect("runtime");
 
-    let outcome = runtime.run(async {
-        sketch
-            .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
-            .await
-    });
+    let outcome = runtime
+        .run_within(
+            async {
+                sketch
+                    .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
+                    .await
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(
         outcome.expect("root execution"),
         ThreadedRootOutcome::Started
@@ -32,11 +37,16 @@ fn admitted_threaded_profile_executes_its_start_once_with_a_facade_runtime_handl
         1,
         "root execution must not compile again"
     );
-    let repeated = runtime.run(async {
-        sketch
-            .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
-            .await
-    });
+    let repeated = runtime
+        .run_within(
+            async {
+                sketch
+                    .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
+                    .await
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(
         repeated.expect("repeated root execution"),
         ThreadedRootOutcome::Started
@@ -57,12 +67,17 @@ fn synthetic_profile_cannot_prepare_or_allocate_a_threaded_root() {
         .enable_all()
         .build()
         .expect("runtime");
-    let error = runtime.run(async {
-        sketch
-            .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
-            .await
-            .expect_err("synthetic execution must fail before preparation")
-    });
+    let error = runtime
+        .run_within(
+            async {
+                sketch
+                    .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
+                    .await
+                    .expect_err("synthetic execution must fail before preparation")
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(error, SketchExecutionError::ThreadedProfileRequired);
 }
 
@@ -77,11 +92,16 @@ fn proc_exit_zero_is_a_controlled_root_completion() {
         .build()
         .expect("runtime");
 
-    let outcome = runtime.run(async {
-        sketch
-            .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
-            .await
-    });
+    let outcome = runtime
+        .run_within(
+            async {
+                sketch
+                    .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
+                    .await
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(
         outcome.expect("normal proc_exit"),
         ThreadedRootOutcome::Exited
@@ -98,12 +118,17 @@ fn proc_exit_nonzero_and_thread_spawn_rejection_are_semantic() {
     let compiler = SketchCompiler::new(SketchCompilerConfig::default()).expect("compiler");
     let policy = SketchModulePolicy::threaded_rust_v1(bytes.len() + 1, 16_384).expect("policy");
     let sketch = compiler.admit(&bytes, policy).expect("admission");
-    let error = runtime.run(async {
-        sketch
-            .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
-            .await
-            .expect_err("nonzero proc exit")
-    });
+    let error = runtime
+        .run_within(
+            async {
+                sketch
+                    .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
+                    .await
+                    .expect_err("nonzero proc exit")
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(error, SketchExecutionError::NonzeroExit { code: 7 });
 
     let bytes = threaded_root_wasm(None, true, false, false);
@@ -113,11 +138,16 @@ fn proc_exit_nonzero_and_thread_spawn_rejection_are_semantic() {
         .with_max_guest_threads(1)
         .expect("one child cap");
     let sketch = compiler.admit(&bytes, policy).expect("admission");
-    let outcome = runtime.run(async {
-        sketch
-            .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
-            .await
-    });
+    let outcome = runtime
+        .run_within(
+            async {
+                sketch
+                    .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
+                    .await
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     match outcome.expect("the second spawn must be rejected without a reservation leak") {
         ThreadedRootOutcome::StartedWithThreadRejections(summary) => {
             assert_eq!(summary.capacity(), 1);
@@ -125,11 +155,16 @@ fn proc_exit_nonzero_and_thread_spawn_rejection_are_semantic() {
         }
         outcome => panic!("unexpected root outcome: {outcome:?}"),
     }
-    let repeated = runtime.run(async {
-        sketch
-            .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
-            .await
-    });
+    let repeated = runtime
+        .run_within(
+            async {
+                sketch
+                    .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
+                    .await
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert!(matches!(
         repeated,
         Ok(ThreadedRootOutcome::StartedWithThreadRejections(summary))
@@ -147,11 +182,16 @@ fn fd_write_rejects_an_out_of_bounds_iovec_before_writing() {
         .enable_all()
         .build()
         .expect("runtime");
-    let outcome = runtime.run(async {
-        sketch
-            .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
-            .await
-    });
+    let outcome = runtime
+        .run_within(
+            async {
+                sketch
+                    .execute_threaded_root(RuntimeHandle::current().expect("runtime handle"))
+                    .await
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(
         outcome.expect("invalid iovec is contained"),
         ThreadedRootOutcome::Started

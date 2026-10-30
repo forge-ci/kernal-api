@@ -51,13 +51,18 @@ fn blocking_sender_rejects_async_context_without_enqueuing() {
         .build()
         .unwrap();
     let (sender, mut receiver) = channel(1);
-    runtime.run(async {
-        assert!(matches!(
-            sender.blocking_send(7, WAIT),
-            Err(BlockingSendError::AsyncContext(7))
-        ));
-        assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
-    });
+    runtime
+        .run_within(
+            async {
+                assert!(matches!(
+                    sender.blocking_send(7, WAIT),
+                    Err(BlockingSendError::AsyncContext(7))
+                ));
+                assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     sender.blocking_send(8, WAIT).unwrap();
     assert_eq!(receiver.try_recv(), Ok(8));
 }

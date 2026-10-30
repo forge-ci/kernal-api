@@ -139,12 +139,17 @@ fn a_watch_reports_an_exit_without_reaping_it() {
     let watch = ProcessExitWatch::open(ProcessId::new(child.id()).expect("pid in range"))
         .expect("open a watch on a live process");
 
-    let observation = runtime().run(async {
-        timeout(Duration::from_secs(10), watch.exited())
-            .await
-            .expect("the exit must arrive without polling")
-            .expect("observing an exit must not fail")
-    });
+    let observation = runtime()
+        .run_within(
+            async {
+                timeout(Duration::from_secs(10), watch.exited())
+                    .await
+                    .expect("the exit must arrive without polling")
+                    .expect("observing an exit must not fail")
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
 
     match observation {
         ProcessExitObservation::Reported(exit) => {
@@ -176,17 +181,22 @@ fn a_watch_kept_past_the_exit_still_returns_at_once() {
         .expect("open a watch on a live process");
     assert_eq!(watch.pid().get(), child.id());
 
-    runtime().run(async {
-        timeout(Duration::from_secs(10), watch.exited())
-            .await
-            .expect("the first observation arrives")
-            .expect("observing an exit must not fail");
-        child.wait().expect("reap");
-        timeout(Duration::from_secs(10), watch.exited())
-            .await
-            .expect("a second observation must not wait for an exit already seen")
-            .expect("observing an exit must not fail");
-    });
+    runtime()
+        .run_within(
+            async {
+                timeout(Duration::from_secs(10), watch.exited())
+                    .await
+                    .expect("the first observation arrives")
+                    .expect("observing an exit must not fail");
+                child.wait().expect("reap");
+                timeout(Duration::from_secs(10), watch.exited())
+                    .await
+                    .expect("a second observation must not wait for an exit already seen")
+                    .expect("observing an exit must not fail");
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
 }
 
 /// Which enforcement each owner gets is a host fact the caller can read
@@ -245,28 +255,33 @@ fn a_child_bound_to_another_owner_dies_when_that_owner_does() {
         .expect("spawn the nominated owner");
     let owner_id = ProcessId::new(owner.id()).expect("pid in range");
 
-    runtime().run(async {
-        let mut child = long_running_spec()
-            .stdin(StreamMode::Null)
-            .bind_lifetime(LifetimeOwner::Process(owner_id))
-            .spawn()
-            .await
-            .expect("spawn a child bound to the owner");
+    runtime()
+        .run_within(
+            async {
+                let mut child = long_running_spec()
+                    .stdin(StreamMode::Null)
+                    .bind_lifetime(LifetimeOwner::Process(owner_id))
+                    .spawn()
+                    .await
+                    .expect("spawn a child bound to the owner");
 
-        assert_eq!(
-            child.lifetime_enforcement(),
-            Some(LifetimeEnforcement::Watcher),
-            "binding to a non-parent owner is watcher-enforced, and says so"
-        );
+                assert_eq!(
+                    child.lifetime_enforcement(),
+                    Some(LifetimeEnforcement::Watcher),
+                    "binding to a non-parent owner is watcher-enforced, and says so"
+                );
 
-        owner.kill().expect("end the owner");
-        owner.wait().expect("reap the owner");
+                owner.kill().expect("end the owner");
+                owner.wait().expect("reap the owner");
 
-        child
-            .wait_within(Duration::from_secs(5))
-            .await
-            .expect("the child must not outlive its owner");
-    });
+                child
+                    .wait_within(Duration::from_secs(5))
+                    .await
+                    .expect("the child must not outlive its owner");
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
 }
 
 /// An owner that is already gone leaves nothing to watch, so the spawn fails
@@ -279,14 +294,19 @@ fn binding_to_an_owner_that_has_already_exited_fails_the_spawn() {
     let owner_id = ProcessId::new(owner.id()).expect("pid in range");
     owner.wait().expect("reap the owner");
 
-    let outcome = runtime().run(async {
-        long_running_spec()
-            .stdin(StreamMode::Null)
-            .bind_lifetime(LifetimeOwner::Process(owner_id))
-            .spawn()
-            .await
-            .map(|_| ())
-    });
+    let outcome = runtime()
+        .run_within(
+            async {
+                long_running_spec()
+                    .stdin(StreamMode::Null)
+                    .bind_lifetime(LifetimeOwner::Process(owner_id))
+                    .spawn()
+                    .await
+                    .map(|_| ())
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     let error = outcome.expect_err("a dead owner cannot be bound to");
     assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
 }
@@ -328,33 +348,38 @@ fn a_session_that_waited_stops_watching_its_owner() {
         "nothing watches the owner yet"
     );
 
-    runtime().run(async {
-        let session = session_bound_to(owner_id, "exit 0").await;
-        assert_eq!(
-            open_watches_of(owner_id),
-            1,
-            "the binding must have opened the watch this test is about"
-        );
+    runtime()
+        .run_within(
+            async {
+                let session = session_bound_to(owner_id, "exit 0").await;
+                assert_eq!(
+                    open_watches_of(owner_id),
+                    1,
+                    "the binding must have opened the watch this test is about"
+                );
 
-        session
-            .wait()
-            .await
-            .expect("waiting on the exited child must succeed");
-        assert!(
-            watch_closes(owner_id).await,
-            "the child is gone, so its owner watch must be too -- while the \
+                session
+                    .wait()
+                    .await
+                    .expect("waiting on the exited child must succeed");
+                assert!(
+                    watch_closes(owner_id).await,
+                    "the child is gone, so its owner watch must be too -- while the \
              session itself is still held open to drain output"
-        );
+                );
 
-        assert!(
-            session
-                .poll()
-                .await
-                .expect("poll the reaped child")
-                .is_some(),
-            "the session stays usable after releasing its watch"
-        );
-    });
+                assert!(
+                    session
+                        .poll()
+                        .await
+                        .expect("poll the reaped child")
+                        .is_some(),
+                    "the session stays usable after releasing its watch"
+                );
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
 
     owner.kill().expect("end the owner");
     owner.wait().expect("reap the owner");
@@ -370,20 +395,25 @@ fn a_session_that_killed_stops_watching_its_owner() {
         .expect("spawn the nominated owner");
     let owner_id = ProcessId::new(owner.id()).expect("pid in range");
 
-    runtime().run(async {
-        let session = session_bound_to(owner_id, LONG_RUNNING).await;
-        assert_eq!(
-            open_watches_of(owner_id),
-            1,
-            "the binding must have opened the watch this test is about"
-        );
+    runtime()
+        .run_within(
+            async {
+                let session = session_bound_to(owner_id, LONG_RUNNING).await;
+                assert_eq!(
+                    open_watches_of(owner_id),
+                    1,
+                    "the binding must have opened the watch this test is about"
+                );
 
-        session.kill().await.expect("kill the direct child");
-        assert!(
-            watch_closes(owner_id).await,
-            "a killed child leaves nothing for the owner watch to protect"
-        );
-    });
+                session.kill().await.expect("kill the direct child");
+                assert!(
+                    watch_closes(owner_id).await,
+                    "a killed child leaves nothing for the owner watch to protect"
+                );
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
 
     owner.kill().expect("end the owner");
     owner.wait().expect("reap the owner");

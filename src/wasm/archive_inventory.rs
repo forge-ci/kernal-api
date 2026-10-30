@@ -258,18 +258,18 @@ mod tests {
             let operation = hub
                 .submit_encrypted_authentication(runtime.handle(), 1, input, [8; 12])
                 .unwrap();
-            let archive = runtime.run(terminal(&hub, operation)).resource.unwrap();
+            let archive = runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").resource.unwrap();
             let operation = hub
                 .submit_archive_next_entry(runtime.handle(), 1, archive)
                 .unwrap();
-            let entry = runtime.run(terminal(&hub, operation)).resource.unwrap();
+            let entry = runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").resource.unwrap();
             assert!(hub
                 .submit_archive_entry_open(runtime.handle(), 2, entry)
                 .is_err());
             let operation = hub
                 .submit_archive_entry_open(runtime.handle(), 1, entry)
                 .unwrap();
-            let blob = runtime.run(terminal(&hub, operation)).resource.unwrap();
+            let blob = runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").resource.unwrap();
             assert!(hub
                 .submit_archive_entry_open(runtime.handle(), 1, entry)
                 .is_err());
@@ -281,7 +281,7 @@ mod tests {
                 .unwrap();
             if read_all {
                 runtime
-                    .run(crate::async_engine::timeout(
+                    .run_within(crate::async_engine::timeout(
                         std::time::Duration::from_secs(10),
                         async {
                             let mut total = 0;
@@ -317,24 +317,24 @@ mod tests {
                             }
                             assert_eq!(total, 17 * 1024 * 1024);
                         },
-                    ))
+                    ), std::time::Duration::from_secs(60)).expect("test runtime budget")
                     .unwrap();
             } else {
                 runtime
-                    .run(crate::async_engine::timeout(
+                    .run_within(crate::async_engine::timeout(
                         std::time::Duration::from_secs(5),
                         async {
                             while hub.snapshot().pending_blob_writes == 0 {
                                 crate::async_engine::yield_now().await;
                             }
                         },
-                    ))
+                    ), std::time::Duration::from_secs(60)).expect("test runtime budget")
                     .unwrap();
                 assert!(hub.staging_budget.used() > 16 * 1024 * 1024);
             }
             hub.abandon_blob_wire(1, blob.wire()).unwrap();
             hub.close_all(Terminal::Closed);
-            runtime.run(hub.join_archive_jobs()).unwrap();
+            runtime.run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget").unwrap();
             let snapshot = hub.snapshot();
             assert_eq!(snapshot.live_resources, 0);
             assert_eq!(snapshot.pending_operations, 0);
@@ -357,7 +357,7 @@ mod tests {
         let operation = hub
             .submit_encrypted_authentication(runtime.handle(), 1, input, [8; 12])
             .unwrap();
-        let archive = runtime.run(terminal(&hub, operation)).resource.unwrap();
+        let archive = runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").resource.unwrap();
         let filler = hub
             .create_resource(1, SYNTHETIC_RESOURCE_KIND, 1, false)
             .unwrap();
@@ -365,7 +365,7 @@ mod tests {
             .submit_archive_next_entry(runtime.handle(), 1, archive)
             .unwrap();
         assert_eq!(
-            runtime.run(terminal(&hub, operation)).terminal,
+            runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").terminal,
             Terminal::Rejected
         );
         hub.close_resource(filler).unwrap();
@@ -373,7 +373,7 @@ mod tests {
             .submit_archive_next_entry(runtime.handle(), 1, archive)
             .unwrap();
         // Observe without collecting: Drop must reclaim the unpublished entry.
-        runtime.run(async {
+        runtime.run_within(async {
             loop {
                 let finished = hub
                     .state
@@ -389,7 +389,7 @@ mod tests {
                 }
                 hub.suspend(operation, 1).unwrap().notified().await;
             }
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         {
             let state = hub.state.lock().unwrap();
             let result = state.operations.get(&operation).unwrap().terminal.unwrap();
@@ -407,7 +407,7 @@ mod tests {
         hub.abandon_authenticated_archive(1, archive.wire())
             .unwrap();
         hub.close_all(Terminal::Closed);
-        runtime.run(hub.join_archive_jobs()).unwrap();
+        runtime.run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget").unwrap();
         assert_eq!(hub.staging_budget.used(), 0);
     }
 
@@ -424,14 +424,14 @@ mod tests {
         let operation = hub
             .submit_encrypted_authentication(runtime.handle(), 1, input, [8; 12])
             .unwrap();
-        let archive = runtime.run(terminal(&hub, operation)).resource.unwrap();
+        let archive = runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").resource.unwrap();
         assert!(hub
             .submit_archive_next_entry(runtime.handle(), 2, archive)
             .is_err());
         let operation = hub
             .submit_archive_next_entry(runtime.handle(), 1, archive)
             .unwrap();
-        let entry = runtime.run(terminal(&hub, operation)).resource.unwrap();
+        let entry = runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").resource.unwrap();
         assert!(hub
             .read_archive_entry_metadata(2, entry.wire(), MAX_RECORD, |_| panic!("foreign copy"))
             .is_err());
@@ -451,7 +451,7 @@ mod tests {
         let operation = hub
             .submit_archive_next_entry(runtime.handle(), 1, archive)
             .unwrap();
-        let eof = runtime.run(terminal(&hub, operation));
+        let eof = runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(eof.terminal, Terminal::Completed);
         assert_eq!(eof.resource, None);
         hub.abandon_authenticated_archive(1, archive.wire())
@@ -468,7 +468,7 @@ mod tests {
             .read_archive_entry_metadata(1, entry.wire(), MAX_RECORD, |_| panic!("stale copy"))
             .is_err());
         hub.close_all(Terminal::Closed);
-        runtime.run(hub.join_archive_jobs()).unwrap();
+        runtime.run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget").unwrap();
         assert_eq!(hub.staging_budget.used(), 0);
         assert_eq!(hub.snapshot().live_resources, 0);
         assert_eq!(hub.snapshot().pending_operations, 0);

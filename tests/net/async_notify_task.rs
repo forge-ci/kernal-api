@@ -95,27 +95,33 @@ fn max_blocking_threads_caps_the_blocking_lane() {
     let runtime = RuntimeBuilder::multi_thread()
         .worker_threads(1)
         .max_blocking_threads(1)
+        .enable_all()
         .build()
         .unwrap();
     let running = Arc::new(AtomicUsize::new(0));
     let peak = Arc::new(AtomicUsize::new(0));
-    runtime.run(async {
-        let tasks: Vec<_> = (0..4)
-            .map(|_| {
-                let running = Arc::clone(&running);
-                let peak = Arc::clone(&peak);
-                async_engine::launch_blocking(move || {
-                    let now = running.fetch_add(1, Ordering::SeqCst) + 1;
-                    peak.fetch_max(now, Ordering::SeqCst);
-                    std::thread::sleep(Duration::from_millis(20));
-                    running.fetch_sub(1, Ordering::SeqCst);
-                })
-            })
-            .collect();
-        for task in tasks {
-            task.await.unwrap();
-        }
-    });
+    runtime
+        .run_within(
+            async {
+                let tasks: Vec<_> = (0..4)
+                    .map(|_| {
+                        let running = Arc::clone(&running);
+                        let peak = Arc::clone(&peak);
+                        async_engine::launch_blocking(move || {
+                            let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                            peak.fetch_max(now, Ordering::SeqCst);
+                            std::thread::sleep(Duration::from_millis(20));
+                            running.fetch_sub(1, Ordering::SeqCst);
+                        })
+                    })
+                    .collect();
+                for task in tasks {
+                    task.await.unwrap();
+                }
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(
         peak.load(Ordering::SeqCst),
         1,

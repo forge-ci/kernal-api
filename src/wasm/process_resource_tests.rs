@@ -58,7 +58,7 @@ fn compiler_exit_observer_drop_preserves_authority_and_revocation_wakes_waiters(
         }
     }
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(4, 2).unwrap();
         let grant = hub
             .grant_compiler(7, spec("silent"), Duration::from_secs(15))
@@ -103,7 +103,7 @@ fn compiler_exit_observer_drop_preserves_authority_and_revocation_wakes_waiters(
         hub.close_all(Terminal::Closed);
         hub.join_process_jobs().await.unwrap();
         assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 async fn published(
@@ -225,7 +225,7 @@ fn revoked_grant_before_scheduling_never_publishes_or_spawns() {
     hub.close_resource(grant).unwrap();
     hub.abandon_compiler_spawn(7, operation).unwrap();
     hub.close_all(Terminal::Closed);
-    runtime.run(hub.join_process_jobs()).unwrap();
+    runtime.run_within(hub.join_process_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget").unwrap();
     assert_eq!(hub.process_spawn_attempts.load(Ordering::SeqCst), 0);
     assert_eq!(hub.snapshot().retained_process_jobs, 0);
     assert_eq!(hub.snapshot().reserved_native_process_output_bytes, 0);
@@ -236,7 +236,7 @@ fn revoked_grant_before_scheduling_never_publishes_or_spawns() {
 #[test]
 fn abandoned_uncollected_spawn_reaps_with_output_undrained() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(2, 2).unwrap();
         let grant = hub
             .grant_compiler(7, spec("blocked"), Duration::from_secs(10))
@@ -273,13 +273,13 @@ fn abandoned_uncollected_spawn_reaps_with_output_undrained() {
         assert_ne!(session.wait().await.unwrap().exit_code(), Some(0));
         assert_eq!(hub.snapshot().retained_process_jobs, 0);
         assert_eq!(hub.snapshot().live_resources, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn natural_exit_retains_output_until_resource_revocation() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(2, 2).unwrap();
         let grant = hub
             .grant_compiler(7, spec("exit"), Duration::from_secs(10))
@@ -292,13 +292,13 @@ fn natural_exit_retains_output_until_resource_revocation() {
         assert!(session.next_output().await.is_some());
         hub.close_all(Terminal::Closed);
         hub.join_process_jobs().await.unwrap();
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn cancelled_join_keeps_cleanup_handles_for_retry() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(1, 1).unwrap();
         let release = Arc::new(Notify::new());
         let task_release = Arc::clone(&release);
@@ -322,13 +322,13 @@ fn cancelled_join_keeps_cleanup_handles_for_retry() {
         release.notify_one();
         hub.join_process_jobs().await.unwrap();
         assert_eq!(hub.snapshot().retained_process_jobs, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn deadline_revokes_and_reaps_without_output_delivery() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(2, 2).unwrap();
         let grant = hub
             .grant_compiler(7, spec("blocked"), Duration::from_secs(3))
@@ -352,13 +352,13 @@ fn deadline_revokes_and_reaps_without_output_delivery() {
         hub.join_process_jobs().await.unwrap();
         assert!(session.poll().await.unwrap().is_some());
         assert_ne!(session.wait().await.unwrap().exit_code(), Some(0));
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn process_job_quota_is_independent_of_consumed_operations() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(8, 8).unwrap();
         let release = CancellationSource::new();
         for _ in 0..MAX_PROCESS_JOBS {
@@ -390,13 +390,13 @@ fn process_job_quota_is_independent_of_consumed_operations() {
         hub.close_all(Terminal::Closed);
         release.cancel();
         hub.join_process_jobs().await.unwrap();
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn cleanup_failure_is_latched_across_repeated_joins() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(1, 1).unwrap();
         hub.state
             .lock()
@@ -406,13 +406,13 @@ fn cleanup_failure_is_latched_across_repeated_joins() {
         hub.close_all(Terminal::Closed);
         assert_eq!(hub.join_process_jobs().await, Err(HubError::Closed));
         assert_eq!(hub.join_process_jobs().await, Err(HubError::Closed));
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn concurrent_cleanup_joiners_both_complete() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(1, 1).unwrap();
         let release = Arc::new(Notify::new());
         let task_release = Arc::clone(&release);
@@ -443,13 +443,13 @@ fn concurrent_cleanup_joiners_both_complete() {
         })
         .await
         .expect("every cleanup joiner must wake");
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn cancellation_after_spawn_before_publication_reaps_unpublished_child() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(2, 2).unwrap();
         let (started, ready) = crate::async_engine::oneshot_channel();
         let (resume, resumed) = crate::async_engine::oneshot_channel();
@@ -493,7 +493,7 @@ fn cancellation_after_spawn_before_publication_reaps_unpublished_child() {
         assert_eq!(hub.snapshot().retained_process_jobs, 0);
         assert_eq!(hub.snapshot().pending_operations, 0);
         assert_eq!(hub.snapshot().live_resources, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
@@ -508,7 +508,7 @@ fn expired_queued_command_is_rejected_without_native_spawn() {
         .unwrap();
     // This current-thread runtime has not polled the supervisor yet.
     std::thread::sleep(Duration::from_millis(10));
-    runtime.run(async {
+    runtime.run_within(async {
         let status = crate::async_engine::timeout(Duration::from_secs(5), async {
             loop {
                 let status = hub.poll_wire(7, operation.wire());
@@ -525,7 +525,7 @@ fn expired_queued_command_is_rejected_without_native_spawn() {
         hub.join_process_jobs().await.unwrap();
         assert_eq!(hub.process_spawn_attempts.load(Ordering::SeqCst), 0);
         assert_eq!(hub.snapshot().reserved_native_process_output_bytes, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
@@ -587,7 +587,7 @@ fn native_output_is_charged_before_scheduling_and_released_after_cleanup() {
         hub.snapshot().retained_transfer_capacity,
         7 * MAX_PROCESS_OUTPUT_CHUNK
     );
-    runtime.run(async {
+    runtime.run_within(async {
         let (process, session) = published(&hub, operation).await;
         let output = hub
             .begin_compiler_output(7, process)
@@ -609,7 +609,7 @@ fn native_output_is_charged_before_scheduling_and_released_after_cleanup() {
         assert!(session.poll().await.unwrap().is_some());
         drop(output);
         assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
@@ -617,7 +617,7 @@ fn native_output_credit_waits_for_ack_and_is_poisoned_on_failure() {
     for fault in [CleanupFault::None, CleanupFault::Error, CleanupFault::Panic] {
         let fails = !matches!(fault, CleanupFault::None);
         let runtime = runtime();
-        runtime.run(async {
+        runtime.run_within(async {
             let budget = NATIVE_PROCESS_OUTPUT_ALLOWANCE;
             let hub = OperationHub::with_blob_limits(
                 4,
@@ -691,14 +691,14 @@ fn native_output_credit_waits_for_ack_and_is_poisoned_on_failure() {
             let expected = if fails { Err(HubError::Closed) } else { Ok(()) };
             assert_eq!(hub.join_process_jobs().await, expected);
             assert_eq!(hub.join_process_jobs().await, expected);
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 }
 
 #[test]
 fn closing_one_compiler_has_retryable_completion_without_closing_the_hub() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(4, 4).unwrap();
         let (started, ready) = crate::async_engine::oneshot_channel();
         let (resume, resumed) = crate::async_engine::oneshot_channel();
@@ -754,7 +754,7 @@ fn closing_one_compiler_has_retryable_completion_without_closing_the_hub() {
             .unwrap();
         hub.close_all(Terminal::Closed);
         hub.join_process_jobs().await.unwrap();
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]

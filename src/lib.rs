@@ -2002,7 +2002,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("current-thread runtime");
-        runtime.run(async {
+        runtime.run_within(async {
             let mut child = slow_command().spawn().await.expect("spawn slow child");
             let started = Instant::now();
             let error = child
@@ -2015,7 +2015,7 @@ mod tests {
             assert!(child.id().is_some(), "a timed-out wait must not report the child gone");
             child.kill().await.expect("kill after an expired wait");
             assert!(child.id().is_none());
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2024,7 +2024,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("current-thread runtime");
-        runtime.run(async {
+        runtime.run_within(async {
             let child = slow_command().spawn().await.expect("spawn slow child");
             let started = Instant::now();
             let error = child
@@ -2038,7 +2038,7 @@ mod tests {
             );
             assert!(waited >= Duration::from_millis(200), "returned early after {waited:?}");
             assert!(waited < Duration::from_secs(20), "waited for natural exit: {waited:?}");
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2047,7 +2047,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("current-thread runtime");
-        runtime.run(async {
+        runtime.run_within(async {
             let started = Instant::now();
             let ticker_at = Arc::new(Mutex::new(None));
             let ticker_at_for_task = Arc::clone(&ticker_at);
@@ -2072,7 +2072,7 @@ mod tests {
                 tick < Duration::from_millis(80),
                 "blocking command occupied the current-thread runtime for {tick:?}"
             );
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 }
     }

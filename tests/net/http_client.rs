@@ -110,20 +110,30 @@ fn blocking_adapter_streams_on_the_callers_runtime_and_rejects_nested_use() {
     assert_eq!(response.status(), 200);
     assert_eq!(response.header("Content-Length"), Some(b"6".as_slice()));
     let mut prefix = [0; 2];
-    runtime.run(async {
-        assert_eq!(
-            response.read(&mut prefix).unwrap_err().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-    });
+    runtime
+        .run_within(
+            async {
+                assert_eq!(
+                    response.read(&mut prefix).unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     response.read_exact(&mut prefix).unwrap();
     assert_eq!(&prefix, b"ab");
     assert_eq!(response.into_bytes().unwrap(), b"cdef");
     worker.join().unwrap();
-    runtime.run(async {
-        assert!(BlockingClient::new(&runtime, Limits::default()).is_err());
-        assert!(client.get("http://127.0.0.1:1/").is_err());
-    });
+    runtime
+        .run_within(
+            async {
+                assert!(BlockingClient::new(&runtime, Limits::default()).is_err());
+                assert!(client.get("http://127.0.0.1:1/").is_err());
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
 }
 
 #[test]

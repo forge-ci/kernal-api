@@ -198,25 +198,33 @@ fn run_case_checking(
         .enable_all()
         .build()
         .expect("runtime");
-    runtime.run(async {
-        let source = CancellationSource::new();
-        let task = runtime.handle().launch({
-            let sketch = Arc::clone(&sketch);
-            let config = config.clone();
-            let source = source.clone();
-            let handle = runtime.handle();
-            async move { contained(&sketch, handle, &config, Some(source), outer_bound).await }
-        });
-        if cancel {
-            // Let the parent finish the bounded upload and the child enter
-            // Wasm before checking cooperative cancellation. A cancellation
-            // during protocol upload intentionally exercises forced cleanup.
-            async_engine::sleep(Duration::from_millis(500)).await;
-            source.cancel();
-        }
-        check(&task.await.expect("contained task"));
-        assert_clean(&compiler, &sketch).await;
-    });
+    runtime
+        .run_within(
+            async {
+                let source = CancellationSource::new();
+                let task =
+                    runtime.handle().launch({
+                        let sketch = Arc::clone(&sketch);
+                        let config = config.clone();
+                        let source = source.clone();
+                        let handle = runtime.handle();
+                        async move {
+                            contained(&sketch, handle, &config, Some(source), outer_bound).await
+                        }
+                    });
+                if cancel {
+                    // Let the parent finish the bounded upload and the child enter
+                    // Wasm before checking cooperative cancellation. A cancellation
+                    // during protocol upload intentionally exercises forced cleanup.
+                    async_engine::sleep(Duration::from_millis(500)).await;
+                    source.cancel();
+                }
+                check(&task.await.expect("contained task"));
+                assert_clean(&compiler, &sketch).await;
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
 }
 
 #[test]
@@ -314,19 +322,24 @@ fn cargo_built_threaded_guest_commits_parent_owned_output() {
         .enable_all()
         .build()
         .unwrap();
-    runtime.run(async {
-        let terminal = async_engine::timeout(
-            Duration::from_secs(30),
-            sketch.execute_threaded_root_contained(runtime.handle(), &config),
+    runtime
+        .run_within(
+            async {
+                let terminal = async_engine::timeout(
+                    Duration::from_secs(30),
+                    sketch.execute_threaded_root_contained(runtime.handle(), &config),
+                )
+                .await
+                .unwrap();
+                assert_eq!(
+                    terminal,
+                    SketchWorkerTerminal::Completed(ThreadedRootOutcome::Started)
+                );
+                assert_clean(&compiler, &sketch).await;
+            },
+            std::time::Duration::from_secs(60),
         )
-        .await
-        .unwrap();
-        assert_eq!(
-            terminal,
-            SketchWorkerTerminal::Completed(ThreadedRootOutcome::Started)
-        );
-        assert_clean(&compiler, &sketch).await;
-    });
+        .expect("test runtime budget");
     assert_eq!(std::fs::read(&destination).unwrap(), b"guest exact output");
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
 }
@@ -374,67 +387,72 @@ fn cargo_built_threaded_guest_forced_output_cleanup() {
         .enable_all()
         .build()
         .unwrap();
-    runtime.run(async {
-        let source = CancellationSource::new();
-        let task = runtime.handle().launch({
-            let sketch = Arc::clone(&sketch);
-            let token = source.token();
-            let handle = runtime.handle();
-            async move {
-                sketch
-                    .execute_threaded_root_contained_cancellable(handle, &config, token)
+    runtime
+        .run_within(
+            async {
+                let source = CancellationSource::new();
+                let task = runtime.handle().launch({
+                    let sketch = Arc::clone(&sketch);
+                    let token = source.token();
+                    let handle = runtime.handle();
+                    async move {
+                        sketch
+                            .execute_threaded_root_contained_cancellable(handle, &config, token)
+                            .await
+                    }
+                });
+                let staging = async_engine::timeout(Duration::from_secs(5), async {
+                    loop {
+                        if let Some(path) = std::fs::read_dir(directory.path())
+                            .unwrap()
+                            .filter_map(Result::ok)
+                            .map(|entry| entry.path())
+                            .find(|path| path.is_dir())
+                        {
+                            break path;
+                        }
+                        async_engine::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+                .await
+                .expect("parent staging was created");
+                std::fs::write(staging.join(".proof-pause-output"), b"armed").unwrap();
+                async_engine::timeout(Duration::from_secs(20), async {
+                    while !staging.join(".proof-output-paused").is_file() {
+                        async_engine::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+                .await
+                .expect("worker reached an actual partial file write");
+                assert!(
+                    std::fs::read_dir(&staging)
+                        .unwrap()
+                        .filter_map(Result::ok)
+                        .any(|entry| {
+                            !entry.file_name().to_string_lossy().starts_with(".proof-")
+                                && std::fs::read(entry.path())
+                                    .is_ok_and(|bytes| bytes == b"guest exact output")
+                        }),
+                    "the worker must hold a nonempty partial output before cancellation"
+                );
+                assert_eq!(std::fs::read(&destination).unwrap(), b"original");
+                source.cancel();
+                let terminal = async_engine::timeout(Duration::from_secs(10), task)
                     .await
-            }
-        });
-        let staging = async_engine::timeout(Duration::from_secs(5), async {
-            loop {
-                if let Some(path) = std::fs::read_dir(directory.path())
                     .unwrap()
-                    .filter_map(Result::ok)
-                    .map(|entry| entry.path())
-                    .find(|path| path.is_dir())
-                {
-                    break path;
-                }
-                async_engine::sleep(Duration::from_millis(1)).await;
-            }
-        })
-        .await
-        .expect("parent staging was created");
-        std::fs::write(staging.join(".proof-pause-output"), b"armed").unwrap();
-        async_engine::timeout(Duration::from_secs(20), async {
-            while !staging.join(".proof-output-paused").is_file() {
-                async_engine::sleep(Duration::from_millis(1)).await;
-            }
-        })
-        .await
-        .expect("worker reached an actual partial file write");
-        assert!(
-            std::fs::read_dir(&staging)
-                .unwrap()
-                .filter_map(Result::ok)
-                .any(|entry| {
-                    !entry.file_name().to_string_lossy().starts_with(".proof-")
-                        && std::fs::read(entry.path())
-                            .is_ok_and(|bytes| bytes == b"guest exact output")
-                }),
-            "the worker must hold a nonempty partial output before cancellation"
-        );
-        assert_eq!(std::fs::read(&destination).unwrap(), b"original");
-        source.cancel();
-        let terminal = async_engine::timeout(Duration::from_secs(10), task)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            terminal,
-            SketchWorkerTerminal::ForcedContainment {
-                trigger: SketchWorkerStopReason::Cancelled
-            }
-        );
-        assert_clean(&compiler, &sketch).await;
-        assert!(!staging.exists());
-    });
+                    .unwrap();
+                assert_eq!(
+                    terminal,
+                    SketchWorkerTerminal::ForcedContainment {
+                        trigger: SketchWorkerStopReason::Cancelled
+                    }
+                );
+                assert_clean(&compiler, &sketch).await;
+                assert!(!staging.exists());
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(std::fs::read(&destination).unwrap(), b"original");
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
 }
@@ -636,9 +654,18 @@ mod failure_proof {
             .build()
             .expect("runtime");
         let actual = runtime
-            .run(async { contained(&sketch, runtime.handle(), &config, None, OUTER_BOUND).await });
+            .run_within(
+                async { contained(&sketch, runtime.handle(), &config, None, OUTER_BOUND).await },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         fs::write(std::env::var_os(RESULT).expect("result"), actual.code()).expect("result");
-        runtime.run(async { assert_clean(&compiler, &sketch).await });
+        runtime
+            .run_within(
+                async { assert_clean(&compiler, &sketch).await },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
     fn inner_parent_death() {
         let compiler = compiler(FAILURE_PROOF_DEADLINE, long_fuel());
@@ -663,16 +690,21 @@ mod failure_proof {
                 .await;
         });
         let release = std::path::PathBuf::from(std::env::var_os(RELEASE).expect("release"));
-        runtime.run(async {
-            let deadline = Instant::now() + OUTER_BOUND;
-            while !release.exists() && Instant::now() < deadline {
-                async_engine::sleep(Duration::from_millis(10)).await;
-            }
-            assert!(
-                release.exists(),
-                "outer harness did not release parent-death inner process"
-            );
-        });
+        runtime
+            .run_within(
+                async {
+                    let deadline = Instant::now() + OUTER_BOUND;
+                    while !release.exists() && Instant::now() < deadline {
+                        async_engine::sleep(Duration::from_millis(10)).await;
+                    }
+                    assert!(
+                        release.exists(),
+                        "outer harness did not release parent-death inner process"
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         std::process::exit(0);
     }
 
