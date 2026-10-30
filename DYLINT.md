@@ -1,6 +1,6 @@
 # Client boundary lint
 
-The suite contains three lints:
+The suite contains four lints:
 
 - `kernal_api_boundary` rejects direct client use of implementation crates.
 - `kernal_api_unbounded_wait` rejects a client call to a kernal-api wait that
@@ -13,6 +13,12 @@ The suite contains three lints:
   [docs/wait-inventory.md](docs/wait-inventory.md). Service-lifetime listeners
   such as `accept` and interrupt waits are not on it. `kernal-api` itself is
   not checked yet: its own callers still migrate under #433.
+- `kernal_api_guard_across_await` rejects a client `async` body that keeps a
+  kernal-api `Mutex` or `RwLock` guard alive across an `.await` (#433). It
+  reads the coroutine's saved state, so a guard inside an `Option`, a tuple,
+  a collection or a local struct is caught too. A guard dropped or scoped out
+  before the `.await` is fine. Semaphore permits carry no data and are not
+  checked.
 - `kernal_api_platform_boundary` rejects host `cfg` selection and native OS
   APIs outside the private platform trees of `kernal-api`, in clients and in
   `kernal-api` itself, including code elided on the CI host.

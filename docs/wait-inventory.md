@@ -99,7 +99,9 @@ peer blocks them forever. Accept-side waits are service-lifetime listeners.
 `kernal_api_unbounded_wait` (in the `kernal_api_boundary` Dylint library)
 denies client calls to every unbounded row above that has a bounded
 replacement. Its `UNBOUNDED_WAITS` list must change in the same PR as a row
-here. It does not yet check `kernal-api`'s own callers. It also does not
-cover the awaited futures (`Task`, `OneshotReceiver`, `Notified`), guards
-held across `.await`, or blocking calls on async workers. Those Dylints are
+here. `kernal_api_guard_across_await` denies client `async` bodies that hold a
+kernal-api `Mutex` / `RwLock` guard across an `.await`, including a guard
+nested in an `Option`, a tuple or a local struct. Neither lint checks
+`kernal-api`'s own code yet. Neither covers the awaited futures (`Task`,
+`OneshotReceiver`, `Notified`) or blocking calls on async workers. Those Dylints are
 still outstanding under #433.

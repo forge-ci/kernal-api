@@ -1,0 +1,28 @@
+error: a kernal-api `MutexGuard` is held across an `.await`; release it before awaiting
+  --> $DIR/guard_across_await.rs:18:9
+   |
+LL |     let guard = mutex.try_lock();
+   |         ^^^^^
+   |
+   = note: `#[deny(kernal_api_guard_across_await)]` on by default
+
+error: a kernal-api `MutexGuard` is held across an `.await`; release it before awaiting
+  --> $DIR/guard_across_await.rs:24:9
+   |
+LL |     let pair = (1_u8, mutex.try_lock().unwrap());
+   |         ^^^^
+
+error: a kernal-api `MutexGuard` is held across an `.await`; release it before awaiting
+  --> $DIR/guard_across_await.rs:25:9
+   |
+LL |     let holder = Holder {
+   |         ^^^^^^
+
+error: a kernal-api `MutexGuard` is held across an `.await`; release it before awaiting
+  --> $DIR/guard_across_await.rs:34:13
+   |
+LL |         let guard = mutex.try_lock().unwrap();
+   |             ^^^^^
+
+error: aborting due to 4 previous errors
+

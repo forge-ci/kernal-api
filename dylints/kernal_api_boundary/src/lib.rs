@@ -11,7 +11,8 @@ use rustc_errors::DiagDecorator;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::def_id::{DefId, LocalDefId, LOCAL_CRATE};
 use rustc_hir::{
-    AmbigArg, Expr, ExprKind, ImplItem, Item, ItemKind, TraitItem, Ty, TyKind, UseKind,
+    AmbigArg, Closure, ClosureKind, CoroutineDesugaring, CoroutineKind, Expr, ExprKind, ImplItem,
+    Item, ItemKind, TraitItem, Ty, TyKind, UseKind,
 };
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_middle::ty;
@@ -60,13 +61,36 @@ rustc_session::declare_lint! {
     "require the bounded form of a kernal-api wait"
 }
 
-rustc_session::declare_lint_pass!(KernalApiBoundary => [KERNAL_API_BOUNDARY, KERNAL_API_UNBOUNDED_WAIT]);
+rustc_session::declare_lint! {
+    /// ### What it does
+    ///
+    /// Rejects a client `async` body that keeps a kernal-api lock guard alive
+    /// across an `.await` (#433). Protected data held through a suspension
+    /// is how a slow peer or a cancelled task turns into a wedged holder that
+    /// every other waiter queues behind. The guard is found in the
+    /// coroutine's saved state, so it is caught inside an `Option`, a tuple,
+    /// a collection or a local struct as well as on its own. Release the
+    /// guard (end its scope or `drop` it) before awaiting.
+    pub KERNAL_API_GUARD_ACROSS_AWAIT,
+    Deny,
+    "release kernal-api lock guards before awaiting"
+}
+
+rustc_session::declare_lint_pass!(KernalApiBoundary => [
+    KERNAL_API_BOUNDARY,
+    KERNAL_API_UNBOUNDED_WAIT,
+    KERNAL_API_GUARD_ACROSS_AWAIT
+]);
 
 #[allow(clippy::no_mangle_with_rust_abi)]
 #[unsafe(no_mangle)]
 pub fn register_lints(sess: &rustc_session::Session, lint_store: &mut rustc_lint::LintStore) {
     dylint_linting::init_config(sess);
-    lint_store.register_lints(&[KERNAL_API_BOUNDARY, KERNAL_API_UNBOUNDED_WAIT]);
+    lint_store.register_lints(&[
+        KERNAL_API_BOUNDARY,
+        KERNAL_API_UNBOUNDED_WAIT,
+        KERNAL_API_GUARD_ACROSS_AWAIT,
+    ]);
     lint_store.register_late_pass(|_| Box::new(KernalApiBoundary));
 }
 
@@ -140,6 +164,18 @@ const UNBOUNDED_WAITS: &[(&str, &str, &str, &str)] = &[
         "wait_for_terminal",
         "wait_until_terminal",
     ),
+];
+
+/// The kernal-api lock guards that give access to protected data, as
+/// `(defining module, type)`. Semaphore permits carry no data and may span
+/// an `.await`.
+const DATA_GUARDS: &[(&str, &str)] = &[
+    ("mutex", "MutexGuard"),
+    ("mutex", "OwnedMutexGuard"),
+    ("rw_lock", "OwnedRwLockReadGuard"),
+    ("rw_lock", "OwnedRwLockWriteGuard"),
+    ("rw_lock", "RwLockReadGuard"),
+    ("rw_lock", "RwLockWriteGuard"),
 ];
 
 /// The raw platform crates -- `libc`, `mach2`, `widestring`, `winapi`,
@@ -219,6 +255,7 @@ impl<'tcx> LateLintPass<'tcx> for KernalApiBoundary {
         if is_facade_owner(cx) || is_boundary_source(cx, expr.span) {
             return;
         }
+        check_guard_across_await(cx, expr);
         let def_id = match expr.kind {
             ExprKind::MethodCall(..) => cx.typeck_results().type_dependent_def_id(expr.hir_id),
             ExprKind::Path(qpath) => match cx.qpath_res(&qpath, expr.hir_id) {
@@ -606,6 +643,86 @@ fn is_boundary_source(cx: &LateContext<'_>, span: Span) -> bool {
     filename.replace('\\', "/").contains("/kernal-api/src/")
 }
 
+/// Reject a kernal-api data guard saved across a suspension point of a
+/// client `async` block or `async fn` body. The coroutine layout lists exactly
+/// the locals live across an `.await`, so a guard released before it is not
+/// reported.
+fn check_guard_across_await(cx: &LateContext<'_>, expr: &Expr<'_>) {
+    let ExprKind::Closure(Closure {
+        kind: ClosureKind::Coroutine(CoroutineKind::Desugared(CoroutineDesugaring::Async, _)),
+        def_id,
+        ..
+    }) = expr.kind
+    else {
+        return;
+    };
+    let Some(layout) = cx.tcx.mir_coroutine_witnesses(def_id.to_def_id()) else {
+        return;
+    };
+    for saved in &layout.field_tys {
+        let mut visited = Vec::new();
+        let Some(guard) = data_guard_in(cx, saved.ty, &mut visited) else {
+            continue;
+        };
+        cx.opt_span_lint(
+            KERNAL_API_GUARD_ACROSS_AWAIT,
+            Some(saved.source_info.span),
+            DiagDecorator(move |diag| {
+                diag.primary_message(format!(
+                    "a kernal-api `{guard}` is held across an `.await`; release it before awaiting"
+                ));
+            }),
+        );
+    }
+}
+
+/// The first kernal-api data guard reachable from `ty`: through its generic
+/// arguments, and through the fields of the client's own structs and enums,
+/// which is how a guard hides inside a local aggregate.
+fn data_guard_in<'tcx>(
+    cx: &LateContext<'tcx>,
+    ty: ty::Ty<'tcx>,
+    visited: &mut Vec<DefId>,
+) -> Option<&'static str> {
+    let tcx = cx.tcx;
+    for argument in ty.walk() {
+        let Some(argument) = argument.as_type() else {
+            continue;
+        };
+        let ty::Adt(definition, arguments) = argument.kind() else {
+            continue;
+        };
+        let did = definition.did();
+        if let Some(guard) = data_guard_name(cx, did) {
+            return Some(guard);
+        }
+        if did.is_local() && !visited.contains(&did) {
+            visited.push(did);
+            for field in definition.all_fields() {
+                if let Some(guard) =
+                    data_guard_in(cx, field.ty(tcx, arguments).skip_normalization(), visited)
+                {
+                    return Some(guard);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn data_guard_name(cx: &LateContext<'_>, did: DefId) -> Option<&'static str> {
+    let tcx = cx.tcx;
+    if did.is_local() || tcx.crate_name(did.krate).as_str() != "kernal_api" {
+        return None;
+    }
+    let module = tcx.item_name(tcx.parent(did));
+    let name = tcx.item_name(did);
+    DATA_GUARDS
+        .iter()
+        .find(|(row_module, row_name)| *row_module == module.as_str() && *row_name == name.as_str())
+        .map(|(_, row_name)| *row_name)
+}
+
 /// Reject a client call that resolves to an unbounded kernal-api wait.
 fn check_unbounded_wait(cx: &LateContext<'_>, span: Span, def_id: DefId) {
     let Some((owner, function, bounded)) = unbounded_wait(cx, def_id) else {
@@ -699,6 +816,11 @@ fn the_owned_crate_set_is_sorted_and_unique() {
 #[test]
 fn the_unbounded_wait_set_is_sorted_and_unique() {
     assert!(UNBOUNDED_WAITS.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn the_data_guard_set_is_sorted_and_unique() {
+    assert!(DATA_GUARDS.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[test]
