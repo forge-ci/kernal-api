@@ -17,6 +17,6 @@ warnings = "deny"
 [dependencies]
 # Migration-only source pin for the public streaming proof. The generated
 # dependency below remains solely for deliberate low-level ABI probes.
-kernal-api = { version = "=0.1.35", path = "../..", default-features = false }
+kernal-api = { version = "=0.1.36", path = "../..", default-features = false }
 kernal-api-v1-bindings = { path = "../../src/wasm/generated/v1/guest" }
 dashmap = "=6.1.0"

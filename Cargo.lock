@@ -2924,7 +2924,7 @@ dependencies = [
 
 [[package]]
 name = "kernal-api"
-version = "0.1.35"
+version = "0.1.36"
 dependencies = [
  "addr2line 0.24.2",
  "blake3",
