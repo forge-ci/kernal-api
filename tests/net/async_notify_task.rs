@@ -53,7 +53,7 @@ async fn a_detach_on_drop_task_survives_its_handle_and_stays_joinable() {
     let (done, mut finished) = async_engine::channel::<u32>(1);
     let task = async_engine::launch(async move {
         let _ = released.await;
-        done.send(7).await.unwrap();
+        done.send_within(7, Duration::from_secs(1)).await.unwrap();
     })
     .detach_on_drop();
     drop(task);

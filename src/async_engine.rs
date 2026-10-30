@@ -548,6 +548,7 @@ impl<T: 'static> TaskGroup<T> {
     /// Wait for the next task in the group to complete, in completion order.
     ///
     /// Returns `None` once the group is empty.
+    #[deprecated(note = "can wait forever; use `join_next_within` (#433)")]
     pub async fn join_next(&mut self) -> Option<Result<T, TaskError>> {
         self.inner
             .join_next()
@@ -566,7 +567,10 @@ impl<T: 'static> TaskGroup<T> {
         &mut self,
         timeout: Duration,
     ) -> Result<Option<Result<T, TaskError>>, JoinTimedOut> {
-        self::timeout(timeout, self.join_next())
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.join_next();
+        self::timeout(timeout, wait)
             .await
             .map_err(|_| JoinTimedOut)
     }
@@ -1260,6 +1264,7 @@ impl Semaphore {
     }
 
     /// Acquire one permit, waiting until one is available.
+    #[deprecated(note = "can wait forever; use `acquire_within` (#433)")]
     pub async fn acquire(&self) -> SemaphorePermit {
         SemaphorePermit {
             // This crate never exposes a way to close a `Semaphore`, so the
@@ -1274,6 +1279,7 @@ impl Semaphore {
 
     /// Acquire `permits` permits atomically, waiting until that many are
     /// available together.
+    #[deprecated(note = "can wait forever; use `acquire_many_within` (#433)")]
     pub async fn acquire_many(&self, permits: u32) -> SemaphorePermit {
         SemaphorePermit {
             // See `acquire`: closing is unreachable through this facade.
@@ -1295,7 +1301,10 @@ impl Semaphore {
         &self,
         timeout: Duration,
     ) -> Result<SemaphorePermit, SemaphoreAcquireTimedOut> {
-        self::timeout(timeout, self.acquire())
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.acquire();
+        self::timeout(timeout, wait)
             .await
             .map_err(|_| SemaphoreAcquireTimedOut)
     }
@@ -1311,7 +1320,10 @@ impl Semaphore {
         permits: u32,
         timeout: Duration,
     ) -> Result<SemaphorePermit, SemaphoreAcquireTimedOut> {
-        self::timeout(timeout, self.acquire_many(permits))
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.acquire_many(permits);
+        self::timeout(timeout, wait)
             .await
             .map_err(|_| SemaphoreAcquireTimedOut)
     }
@@ -1381,6 +1393,7 @@ impl<T> Sender<T> {
     ///
     /// Returns the value back to the caller if every [`Receiver`] has been
     /// dropped.
+    #[deprecated(note = "can wait forever; use `send_within` (#433)")]
     pub async fn send(&self, value: T) -> Result<(), SendError<T>> {
         self.inner
             .send(value)
@@ -2045,6 +2058,8 @@ mod tests {
     }
 
     #[test]
+    // Contract test of a form deprecated by #433.
+    #[allow(deprecated)]
     fn task_group_collects_results_as_tasks_complete() {
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()
@@ -2084,6 +2099,8 @@ mod tests {
     }
 
     #[test]
+    // Contract test of a form deprecated by #433.
+    #[allow(deprecated)]
     fn semaphore_serializes_access_to_a_single_permit() {
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()
@@ -2129,6 +2146,8 @@ mod tests {
     }
 
     #[test]
+    // Contract test of a form deprecated by #433.
+    #[allow(deprecated)]
     fn bounded_channel_delivers_values_in_order() {
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()
