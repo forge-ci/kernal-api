@@ -83,11 +83,11 @@ inputs:
   cargo-dylint-version:
     description: Forwarded to setup-soldr.
     required: false
-    default: "6.0.3"
+    default: "6.2.0"
   dylint-link-version:
     description: Forwarded to setup-soldr.
     required: false
-    default: "6.0.3"
+    default: "6.2.0"
 
 outputs:
   soldr-version:

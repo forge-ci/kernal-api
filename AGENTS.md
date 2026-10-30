@@ -92,7 +92,7 @@
   examples, adding a capability). The `kernal_api_platform_boundary` Dylint
   enforces it on this crate itself, cfg-elided modules included, and must
   pass: run
-  `soldr rustup run nightly-2026-05-28 cargo test --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib`
+  `soldr rustup run nightly-2026-08-15 cargo test --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib`
   (a seconds-long source scan of every enforced package) and
   `soldr cargo dylint --all --workspace -- --all-features --all-targets`.
   The existing debt is an exact, shrink-only baseline

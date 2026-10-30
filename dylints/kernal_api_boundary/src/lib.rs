@@ -107,7 +107,7 @@ pub fn register_lints(sess: &rustc_session::Session, lint_store: &mut rustc_lint
         KERNAL_API_GUARD_ACROSS_AWAIT,
         KERNAL_API_BLOCKING_IN_ASYNC,
     ]);
-    lint_store.register_late_pass(|_| Box::new(KernalApiBoundary));
+    lint_store.register_late_lint_pass(Box::new(|_| Box::new(KernalApiBoundary)));
 }
 
 /// The unbounded kernal-api waits a client may not call, as `(defining
@@ -465,7 +465,7 @@ fn check_public_signature(cx: &LateContext<'_>, def_id: LocalDefId) {
         _ => false,
     };
     if has_predicates {
-        for (clause, clause_span) in tcx.predicates_of(def_id).predicates {
+        for (clause, clause_span) in tcx.clauses_of(def_id).clauses {
             if let ty::ClauseKind::Trait(predicate) = clause.kind().skip_binder() {
                 leaks.record_def(cx, *clause_span, predicate.trait_ref.def_id);
                 for argument in predicate.trait_ref.args {
@@ -589,7 +589,12 @@ impl OwnedTypeLeaks {
             let def_id = match argument.kind() {
                 ty::Adt(definition, _) => definition.did(),
                 ty::FnDef(def_id, _) | ty::Closure(def_id, _) | ty::Foreign(def_id) => *def_id,
-                ty::Alias(alias) => alias.kind.def_id(),
+                ty::Alias(_, alias) => match alias.kind {
+                    ty::AliasTyKind::Projection { def_id } => def_id.into(),
+                    ty::AliasTyKind::Inherent { def_id } => def_id.into(),
+                    ty::AliasTyKind::Opaque { def_id } => def_id.into(),
+                    ty::AliasTyKind::Free { def_id } => def_id.into(),
+                },
                 _ => continue,
             };
             self.record_def(cx, span, def_id);
