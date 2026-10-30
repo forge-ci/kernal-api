@@ -13,7 +13,7 @@
 //! - **Client side.** [`connect`] negotiates through a running v2 broker and
 //!   dials the backend it names; when no broker is bound, or it has not yet
 //!   resolved a backend, it dials the published identity directly
-//!   ([`connect_published`]). Both routes return the same [`Connection`], an
+//!   ([`connect_published_within`]). Both routes return the same [`Connection`], an
 //!   ordinary blocking byte stream.
 //!
 //! Service registration stays in [`crate::daemon_registration_v2`]; the
@@ -372,6 +372,7 @@ pub fn negotiate(
 }
 
 /// Dial the endpoint `service`'s daemon published, skipping any broker.
+#[deprecated(note = "can wait forever on the dial; use `connect_published_within` (#433)")]
 pub fn connect_published(service: &str) -> Result<Connection, BrokerV2Error> {
     let identity = published(service)?.ok_or(BrokerV2Error::NotPublished)?;
     dial(identity.endpoint().address(), Route::Published, None)

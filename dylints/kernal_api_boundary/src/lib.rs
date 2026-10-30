@@ -97,8 +97,8 @@ pub fn register_lints(sess: &rustc_session::Session, lint_store: &mut rustc_lint
 /// The unbounded kernal-api waits a client may not call, as `(defining
 /// module, owner type, function, bounded replacement)`. A free function has
 /// an empty owner. Every row has a bounded form; see `docs/wait-inventory.md`.
-/// Service-lifetime listeners (`accept`, interrupt waits) are deliberately
-/// absent.
+/// Service-lifetime listeners (`accept`, interrupt waits, the interactive
+/// `WebviewHandle::wait_for_terminal` from #198) are deliberately absent.
 const UNBOUNDED_WAITS: &[(&str, &str, &str, &str)] = &[
     ("async_engine", "Receiver", "recv", "recv_within"),
     ("async_engine", "Runtime", "run", "run_within"),
@@ -158,12 +158,6 @@ const UNBOUNDED_WAITS: &[(&str, &str, &str, &str)] = &[
     ("rw_lock", "RwLock", "read_owned", "read_owned_within"),
     ("rw_lock", "RwLock", "write", "write_within"),
     ("rw_lock", "RwLock", "write_owned", "write_owned_within"),
-    (
-        "tauri",
-        "WebviewHandle",
-        "wait_for_terminal",
-        "wait_until_terminal",
-    ),
 ];
 
 /// The kernal-api lock guards that give access to protected data, as
