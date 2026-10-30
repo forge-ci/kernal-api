@@ -176,6 +176,23 @@ const UNBOUNDED_WAITS: &[(&str, &str, &str, &str)] = &[
     ("rw_lock", "RwLock", "write_owned", "write_owned_within"),
 ];
 
+/// The kernal-api futures that wait without a budget when awaited directly,
+/// as `(defining module, type, bounded replacement)`.
+const UNBOUNDED_FUTURES: &[(&str, &str, &str)] = &[
+    ("async_engine", "Notified", "Notified::wait_within"),
+    (
+        "async_engine",
+        "OneshotReceiver",
+        "OneshotReceiver::recv_within",
+    ),
+    (
+        "async_engine",
+        "OwnedNotified",
+        "OwnedNotified::wait_within",
+    ),
+    ("async_engine", "Task", "Task::join_within"),
+];
+
 /// The blocking kernal-api operations, as `(defining module, owner type,
 /// function)`: each parks its calling thread until it completes or expires,
 /// bounded or not.
@@ -298,6 +315,7 @@ impl<'tcx> LateLintPass<'tcx> for KernalApiBoundary {
             return;
         }
         check_guard_across_await(cx, expr);
+        check_unbounded_await(cx, expr);
         let def_id = match expr.kind {
             ExprKind::MethodCall(..) => cx.typeck_results().type_dependent_def_id(expr.hir_id),
             ExprKind::Path(qpath) => match cx.qpath_res(&qpath, expr.hir_id) {
@@ -766,6 +784,45 @@ fn data_guard_name(cx: &LateContext<'_>, did: DefId) -> Option<&'static str> {
         .map(|(_, row_name)| *row_name)
 }
 
+/// Reject a client `.await` applied directly to a kernal-api future that has
+/// no budget of its own. `.await` lowers to a match on
+/// `IntoFuture::into_future(operand)`, so the operand's type is the awaited
+/// future, through any references.
+fn check_unbounded_await(cx: &LateContext<'_>, expr: &Expr<'_>) {
+    let ExprKind::Match(scrutinee, _, rustc_hir::MatchSource::AwaitDesugar) = expr.kind else {
+        return;
+    };
+    let ExprKind::Call(_, [operand]) = scrutinee.kind else {
+        return;
+    };
+    let ty = cx.typeck_results().expr_ty(operand).peel_refs();
+    let ty::Adt(definition, _) = ty.kind() else {
+        return;
+    };
+    let tcx = cx.tcx;
+    let did = definition.did();
+    if did.is_local() || tcx.crate_name(did.krate).as_str() != "kernal_api" {
+        return;
+    }
+    let module = tcx.item_name(tcx.parent(did));
+    let name = tcx.item_name(did);
+    let Some((_, future, bounded)) = UNBOUNDED_FUTURES
+        .iter()
+        .find(|(m, n, _)| *m == module.as_str() && *n == name.as_str())
+    else {
+        return;
+    };
+    cx.opt_span_lint(
+        KERNAL_API_UNBOUNDED_WAIT,
+        Some(operand.span),
+        DiagDecorator(move |diag| {
+            diag.primary_message(format!(
+                "awaiting a kernal-api `{future}` can wait forever; call `{bounded}` with a time budget instead"
+            ));
+        }),
+    );
+}
+
 /// Reject a client call that resolves to an unbounded kernal-api wait.
 fn check_unbounded_wait(cx: &LateContext<'_>, span: Span, def_id: DefId) {
     let Some((owner, function, bounded)) = unbounded_wait(cx, def_id) else {
@@ -926,6 +983,11 @@ fn the_unbounded_wait_set_is_sorted_and_unique() {
 #[test]
 fn the_blocking_call_set_is_sorted_and_unique() {
     assert!(BLOCKING_CALLS.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn the_unbounded_future_set_is_sorted_and_unique() {
+    assert!(UNBOUNDED_FUTURES.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[test]
