@@ -65,7 +65,7 @@ Status key:
 
 | Site | Status | Required result |
 | --- | --- | --- |
-| `platform::terminal_input::wait_for_terminal_input_event` | optional (`timeout: Option<Duration>`); bounded `TerminalInputCore::wait_for_event_within` (`Timeout`) exists | Migrate callers, then require a budget or document the listener exception. |
+| `platform::terminal_input::wait_for_terminal_input_event` | optional (`timeout: Option<Duration>`); `TerminalInputCore::wait_for_event(Option)` **deprecated** (#433) for `wait_for_event_within` (`Timeout`); internal callers pass `Some` | Migrate callers, then require a budget or document the listener exception. |
 | `platform::ipc` and `broker_*` | audited; see [IPC and broker](#ipc-and-broker) | Bound the client paths listed there. |
 
 ## IPC and broker
