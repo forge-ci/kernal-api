@@ -262,10 +262,10 @@ fn a_child_bound_to_another_owner_dies_when_that_owner_does() {
         owner.kill().expect("end the owner");
         owner.wait().expect("reap the owner");
 
-        timeout(Duration::from_secs(10), child.wait())
+        child
+            .wait_within(Duration::from_secs(5))
             .await
-            .expect("the child must not outlive its owner")
-            .expect("waiting on the reaped child must succeed");
+            .expect("the child must not outlive its owner");
     });
 }
 

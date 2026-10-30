@@ -922,7 +922,12 @@ impl PlatformChild {
     }
 
     /// Wait for completion without capturing output.
+    #[deprecated(note = "waits forever for a live child; use `wait_within` (#433)")]
     pub async fn wait(&mut self) -> io::Result<ExitStatus> {
+        self.wait_unbounded().await
+    }
+
+    async fn wait_unbounded(&mut self) -> io::Result<ExitStatus> {
         let exit = self.inner.wait().await;
         if exit.is_ok() {
             // Nothing left to protect: keeping the owner watch open past this
@@ -940,10 +945,10 @@ impl PlatformChild {
     /// # Errors
     ///
     /// Returns [`io::ErrorKind::TimedOut`] if the child is still running when
-    /// `timeout` elapses, or the error [`Self::wait`] would return. Requires
+    /// `timeout` elapses, or the error the child's wait reports. Requires
     /// a runtime with its timer enabled.
     pub async fn wait_within(&mut self, timeout: std::time::Duration) -> io::Result<ExitStatus> {
-        async_engine::timeout(timeout, self.wait())
+        async_engine::timeout(timeout, self.wait_unbounded())
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "child did not exit within its timeout"))?
     }
