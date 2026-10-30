@@ -176,7 +176,7 @@ tools = ["soldr", "uv"]
 [local.gate.trust]
 mode = "enforce"
 skip = ["ci.yml:linux", "ci.yml:dylints"]
-covered-by = { "ci.yml:linux" = ["linux-minimal"], "ci.yml:dylints" = ["dylint-minimal"] }
+covered-by = { "ci.yml:linux" = ["linux-minimal", "lint"], "ci.yml:dylints" = ["dylint-minimal", "lint"] }
 full-labels = ["ci-full", "ci-test"]
 audit-rate = 10
 
