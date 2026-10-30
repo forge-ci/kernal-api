@@ -1467,6 +1467,101 @@ pub fn hard_link(existing: impl AsRef<Path>, new: impl AsRef<Path>) -> io::Resul
     std::fs::hard_link(existing, new)
 }
 
+// ---------------------------------------------------------------------------
+// Read-side drop-ins
+// ---------------------------------------------------------------------------
+//
+// The facade already owns bounded and containable reads; these are the plain
+// shapes clients reach for when they leave `std::fs`, so a migration is a
+// rename rather than a rewrite of every call site. A caller that needs a byte
+// ceiling or a containment answer uses `read_context_regular_file_bounded` /
+// `context_path_metadata_no_follow` instead.
+
+/// Read the whole file at `path`.
+///
+/// Unbounded: the caller owns the size decision. For anything that may be large
+/// or attacker-influenced use [`read_context_regular_file_bounded`].
+///
+/// # Errors
+///
+/// Returns an error when the file is missing, when it is a directory, or when
+/// the read is denied.
+#[cfg(feature = "fs")]
+pub fn read_file(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+    std::fs::read(path)
+}
+
+/// Read the whole file at `path` as UTF-8.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or is not valid UTF-8.
+#[cfg(feature = "fs")]
+pub fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
+    std::fs::read_to_string(path)
+}
+
+/// Report `path`'s metadata without following a symbolic link at the final
+/// component.
+///
+/// This is the drop-in for `std::fs::symlink_metadata`: it answers about the
+/// link itself. [`context_path_metadata_no_follow`] is the facade's own
+/// containment-carrying form.
+///
+/// # Errors
+///
+/// Returns an error when `path` is missing or the stat is denied.
+#[cfg(feature = "fs")]
+pub fn symlink_metadata(path: impl AsRef<Path>) -> io::Result<std::fs::Metadata> {
+    std::fs::symlink_metadata(path)
+}
+
+/// Copy `from` to `to`, returning the bytes copied.
+///
+/// Plain byte copy, no reflink attempt: a caller that wants copy-on-write uses
+/// [`copy_file`] and inspects its [`CopyOutcome`].
+///
+/// # Errors
+///
+/// Returns an error for the ordinary reasons a copy fails.
+#[cfg(feature = "fs")]
+pub fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
+    std::fs::copy(from, to)
+}
+
+/// Set `path`'s permissions from an already-built [`std::fs::Permissions`].
+///
+/// The portable accessors are [`set_readonly`] and [`apply_metadata_mode`];
+/// this exists for call sites that carry a `Permissions` value around.
+///
+/// # Errors
+///
+/// Returns an error when `path` is missing or the change is denied.
+#[cfg(feature = "fs")]
+pub fn set_permissions(path: impl AsRef<Path>, permissions: std::fs::Permissions) -> io::Result<()> {
+    std::fs::set_permissions(path, permissions)
+}
+
+/// List `path`'s entries as paths.
+///
+/// `std::fs::read_dir` yields `DirEntry` values; this yields the paths, which
+/// is what almost every caller reduces them to. A caller that needs the entry's
+/// own file type uses [`DirectoryCursor`].
+///
+/// # Errors
+///
+/// Returns an error when `path` is missing, is not a directory, or the listing
+/// is denied.
+#[cfg(feature = "fs")]
+pub fn read_dir_paths(path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    for entry in std::fs::read_dir(path)? {
+        paths.push(entry?.path());
+    }
+    Ok(paths)
+}
+
+
 #[cfg(all(test, feature = "fs"))]
 mod tests {
     use super::*;
