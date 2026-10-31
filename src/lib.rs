@@ -53,6 +53,11 @@ use platform_imp::input_daemon as native_input_daemon;
 /// Microphone capture as mono 16 kHz chunks.
 #[cfg(feature = "audio-capture")]
 pub mod audio_capture;
+/// Installed applications, launching them, and opening URIs.
+#[cfg(feature = "app-catalog")]
+pub mod app_catalog;
+#[cfg(feature = "app-catalog")]
+use platform_imp::app_catalog as native_app_catalog;
 /// Optional desktop status area, with explicit unsupported-host fallback.
 #[cfg(feature = "system-tray")]
 pub mod system_tray;

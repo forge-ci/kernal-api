@@ -45,6 +45,8 @@ path = "src/lib.rs"
 [[example]]
 name = "audio-capture"
 required-features = ["audio-capture"]
+name = "app-catalog"
+required-features = ["app-catalog"]
 
 [[example]]
 name = "wasm-admission"
@@ -220,6 +222,8 @@ desktop-input = []
 desktop-input-daemon = ["desktop-input"]
 # Microphone capture: ALSA, WASAPI, CoreAudio through a private cpal backend.
 audio-capture = ["dep:cpal"]
+# Installed applications, launch, and default-handler URI opening.
+app-catalog = []
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
@@ -509,6 +513,7 @@ windows-sys = { version = "=0.61.2", features = [
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 

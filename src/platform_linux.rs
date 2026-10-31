@@ -10,6 +10,9 @@ pub(crate) mod desktop_input;
 #[cfg(feature = "desktop-input-daemon")]
 #[path = "platform_linux/input_daemon.rs"]
 pub(crate) mod input_daemon;
+#[cfg(feature = "app-catalog")]
+#[path = "platform_linux/app_catalog.rs"]
+pub(crate) mod app_catalog;
 
 #[cfg(feature = "system-tray")]
 #[path = "platform_linux/system_tray.rs"]
