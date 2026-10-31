@@ -38,6 +38,11 @@ pub use independent_spawn::{
 
 #[cfg(feature = "command-arguments")]
 pub mod arguments;
+/// Synthesized keyboard and pointer input (Linux through the `kernal-inputd` daemon).
+#[cfg(feature = "desktop-input")]
+pub mod desktop_input;
+#[cfg(feature = "desktop-input")]
+use platform_imp::desktop_input as native_desktop_input;
 /// Optional desktop status area, with explicit unsupported-host fallback.
 #[cfg(feature = "system-tray")]
 pub mod system_tray;

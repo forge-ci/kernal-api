@@ -1,5 +1,9 @@
 //! Windows implementation root for the process capability.
 
+#[cfg(feature = "desktop-input")]
+#[path = "platform_win/desktop_input.rs"]
+pub(crate) mod desktop_input;
+
 #[cfg(feature = "system-tray")]
 #[path = "platform_win/system_tray.rs"]
 pub(crate) mod system_tray;

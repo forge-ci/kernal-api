@@ -47,6 +47,11 @@ name = "wasm-admission"
 required-features = ["wasm-sketch-host"]
 
 [[bin]]
+name = "kernal-inputd"
+path = "src/bin/kernal-inputd.rs"
+required-features = ["desktop-input-daemon"]
+
+[[bin]]
 name = "kernal-symbolize"
 path = "src/bin/kernal-symbolize.rs"
 required-features = ["symbolize-worker"]
@@ -198,6 +203,10 @@ tauri-webview = [
 # Private acceptance-only observation for the process-main-thread smoke
 # executable. It exposes semantic counts only, never a Tauri/Wry/native type.
 system-tray = ["dep:ksni"]
+# Keyboard/pointer synthesis: SendInput, CGEventPost, Linux via the privileged kernal-inputd.
+desktop-input = []
+# The Linux kernal-inputd daemon that owns /dev/uinput.
+desktop-input-daemon = ["desktop-input"]
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
@@ -484,6 +493,7 @@ windows-sys = { version = "=0.61.2", features = [
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
 ] }
 
 [dev-dependencies]
