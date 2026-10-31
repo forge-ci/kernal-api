@@ -3,6 +3,13 @@
 #[cfg(feature = "global-hotkey")]
 #[path = "platform_linux/global_hotkey.rs"]
 pub(crate) mod global_hotkey;
+#[cfg(feature = "desktop-input")]
+#[path = "platform_linux/desktop_input.rs"]
+pub(crate) mod desktop_input;
+
+#[cfg(feature = "desktop-input-daemon")]
+#[path = "platform_linux/input_daemon.rs"]
+pub(crate) mod input_daemon;
 
 #[cfg(feature = "system-tray")]
 #[path = "platform_linux/system_tray.rs"]
