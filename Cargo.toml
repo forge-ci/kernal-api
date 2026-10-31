@@ -43,6 +43,10 @@ name = "kernal_api"
 path = "src/lib.rs"
 
 [[example]]
+name = "audio-capture"
+required-features = ["audio-capture"]
+
+[[example]]
 name = "wasm-admission"
 required-features = ["wasm-sketch-host"]
 
