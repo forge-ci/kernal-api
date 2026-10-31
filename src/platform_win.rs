@@ -4,6 +4,10 @@
 #[path = "platform_win/desktop_input.rs"]
 pub(crate) mod desktop_input;
 
+#[cfg(feature = "desktop-input-daemon")]
+#[path = "platform_win/input_daemon.rs"]
+pub(crate) mod input_daemon;
+
 #[cfg(feature = "system-tray")]
 #[path = "platform_win/system_tray.rs"]
 pub(crate) mod system_tray;

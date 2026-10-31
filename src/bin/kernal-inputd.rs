@@ -1,7 +1,6 @@
 //! Privileged keyboard/pointer injection daemon for Linux:
 //! `kernal-inputd [--socket PATH] --allow-uid UID [--allow-uid UID ...]`.
 
-#[cfg(target_os = "linux")]
 fn main() {
     let mut socket = std::path::PathBuf::from("/run/kernal-inputd/socket");
     let mut allowed = Vec::new();
@@ -30,10 +29,4 @@ fn main() {
         eprintln!("kernal-inputd: {err}");
         std::process::exit(1);
     }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn main() {
-    eprintln!("kernal-inputd is Linux-only; other hosts inject in-process");
-    std::process::exit(2);
 }

@@ -49,6 +49,7 @@ required-features = ["wasm-sketch-host"]
 [[bin]]
 name = "kernal-inputd"
 path = "src/bin/kernal-inputd.rs"
+test = false
 required-features = ["desktop-input-daemon"]
 
 [[bin]]
