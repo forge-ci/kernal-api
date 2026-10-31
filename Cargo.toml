@@ -198,6 +198,8 @@ tauri-webview = [
 # Private acceptance-only observation for the process-main-thread smoke
 # executable. It exposes semantic counts only, never a Tauri/Wry/native type.
 system-tray = ["dep:ksni"]
+# Microphone capture: ALSA, WASAPI, CoreAudio through a private cpal backend.
+audio-capture = ["dep:cpal"]
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
@@ -292,6 +294,7 @@ full = [
 ]
 
 [dependencies]
+cpal = { version = "=0.18.2", optional = true }
 # Portable decoding is opt-in for native screenshot proofs and window icons.
 png = { version = "=0.17.16", optional = true }
 reqwest = { version = "=0.12.28", default-features = false, optional = true }

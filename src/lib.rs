@@ -38,6 +38,9 @@ pub use independent_spawn::{
 
 #[cfg(feature = "command-arguments")]
 pub mod arguments;
+/// Microphone capture as mono 16 kHz chunks.
+#[cfg(feature = "audio-capture")]
+pub mod audio_capture;
 /// Optional desktop status area, with explicit unsupported-host fallback.
 #[cfg(feature = "system-tray")]
 pub mod system_tray;
