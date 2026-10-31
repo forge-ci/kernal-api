@@ -1,5 +1,9 @@
 //! Linux implementation root for the process capability.
 
+#[cfg(feature = "global-hotkey")]
+#[path = "platform_linux/global_hotkey.rs"]
+pub(crate) mod global_hotkey;
+
 #[cfg(feature = "system-tray")]
 #[path = "platform_linux/system_tray.rs"]
 pub(crate) mod system_tray;
