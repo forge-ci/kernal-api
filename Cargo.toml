@@ -46,6 +46,10 @@ path = "src/lib.rs"
 name = "wasm-admission"
 required-features = ["wasm-sketch-host"]
 
+[[example]]
+name = "global-hotkey"
+required-features = ["global-hotkey"]
+
 [[bin]]
 name = "kernal-symbolize"
 path = "src/bin/kernal-symbolize.rs"
@@ -198,6 +202,8 @@ tauri-webview = [
 # Private acceptance-only observation for the process-main-thread smoke
 # executable. It exposes semantic counts only, never a Tauri/Wry/native type.
 system-tray = ["dep:ksni"]
+# Desktop-wide key chords: XDG GlobalShortcuts portal, Win32 RegisterHotKey, Carbon (pending).
+global-hotkey = ["dep:zbus", "dep:futures-util", "dep:serde"]
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
@@ -408,6 +414,7 @@ wry = { version = "=0.57.0", default-features = false, features = ["os-webview"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "=0.3.6", optional = true }
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"], optional = true }
 gio = { version = "=0.18.4", optional = true }
 cairo-rs = { version = "=0.18.5", features = ["png"], optional = true }
 addr2line = { version = "=0.24.2", default-features = false, features = ["std", "loader"], optional = true }
@@ -484,6 +491,8 @@ windows-sys = { version = "=0.61.2", features = [
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]

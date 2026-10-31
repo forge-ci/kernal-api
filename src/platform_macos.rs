@@ -1,5 +1,9 @@
 //! macOS implementation root for the process capability.
 
+#[cfg(feature = "global-hotkey")]
+#[path = "platform_macos/global_hotkey.rs"]
+pub(crate) mod global_hotkey;
+
 #[cfg(feature = "system-tray")]
 #[path = "platform_macos/system_tray.rs"]
 pub(crate) mod system_tray;

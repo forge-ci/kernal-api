@@ -38,6 +38,11 @@ pub use independent_spawn::{
 
 #[cfg(feature = "command-arguments")]
 pub mod arguments;
+/// Desktop-wide key chords, with explicit unsupported-host fallback.
+#[cfg(feature = "global-hotkey")]
+pub mod global_hotkey;
+#[cfg(feature = "global-hotkey")]
+use platform_imp::global_hotkey as native_global_hotkey;
 /// Optional desktop status area, with explicit unsupported-host fallback.
 #[cfg(feature = "system-tray")]
 pub mod system_tray;
