@@ -112,7 +112,7 @@ without compiling anything as the lint crate's repository test, over every
 target of every manifest the lint crate classifies as enforced:
 
 ```console
-soldr rustup run nightly-2026-05-28 cargo test \
+soldr rustup run nightly-2026-08-15 cargo test \
   --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib
 ```
 

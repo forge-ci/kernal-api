@@ -533,7 +533,7 @@ impl OperationHub {
         }
         let limit = self.maximum_operations.min(4) as u64;
         self.native_open_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < limit).then_some(active + 1)
             })
             .map_err(|_| HubError::Quota)?;
@@ -559,7 +559,7 @@ impl OperationHub {
         }
         let limit = self.maximum_operations.min(4) as u64;
         self.native_capture_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < limit).then_some(active + 1)
             })
             .map_err(|_| HubError::Quota)?;
@@ -1174,7 +1174,7 @@ impl OperationHub {
         // Count physical timer tasks independently of consumable operations:
         // cancel/poll/resubmit cannot grow a stalled runtime's task queue.
         self.clock_count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < self.maximum_operations as u64).then_some(active + 1)
             })
             .map_err(|_| HubError::Quota)?;
@@ -3426,7 +3426,7 @@ impl Drop for BlobCommitLease<'_> {
 
 fn next(counter: &AtomicU64) -> Result<u64, HubError> {
     counter
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
             value.checked_add(1)
         })
         .map(|value| value + 1)

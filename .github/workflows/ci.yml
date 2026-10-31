@@ -726,7 +726,7 @@ jobs:
     if: needs.verify.outputs.skip_dylints != 'true' && github.event_name != 'push'
     name: Dylint workspace
     env:
-      DYLINT_TOOLCHAIN: nightly-2026-05-28
+      DYLINT_TOOLCHAIN: nightly-2026-08-15
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -790,8 +790,8 @@ jobs:
           # restore (~41 s) and set this step's wall time.
           cargo-registry-cache: false
           dylint-toolchain: ${{ env.DYLINT_TOOLCHAIN }}
-          cargo-dylint-version: 6.0.3
-          dylint-link-version: 6.0.3
+          cargo-dylint-version: 6.2.0
+          dylint-link-version: 6.2.0
       - name: Restore native pkg-config search path
         run: echo "PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
       - name: Select the pinned Dylint compiler
@@ -919,7 +919,7 @@ jobs:
     needs: verify
     if: github.event_name == 'push'
     env:
-      DYLINT_TOOLCHAIN: nightly-2026-05-28
+      DYLINT_TOOLCHAIN: nightly-2026-08-15
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -965,8 +965,8 @@ jobs:
           dylint: true
           cargo-registry-cache: false
           dylint-toolchain: ${{ env.DYLINT_TOOLCHAIN }}
-          cargo-dylint-version: 6.0.3
-          dylint-link-version: 6.0.3
+          cargo-dylint-version: 6.2.0
+          dylint-link-version: 6.2.0
       - name: Restore native pkg-config search path
         run: python3 ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
       - name: Select the pinned Dylint compiler

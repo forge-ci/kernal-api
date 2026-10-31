@@ -8,5 +8,5 @@ build. Re-entering soldr here is forbidden (and used to hide a stale pin).
 import os
 import sys
 
-toolchain = os.environ.get("RUSTUP_TOOLCHAIN") or "nightly-2026-05-28"
+toolchain = os.environ.get("RUSTUP_TOOLCHAIN") or "nightly-2026-08-15"
 os.execvp("rustup", ["rustup", "run", toolchain, "cargo", *sys.argv[1:]])
