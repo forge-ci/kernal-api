@@ -118,6 +118,14 @@ impl HotkeyOptions {
             chord,
         })
     }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
 }
 
 /// Registration is optional; callers keep a fallback such as a launcher binding.

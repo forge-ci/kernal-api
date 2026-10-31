@@ -202,7 +202,7 @@ tauri-webview = [
 # Private acceptance-only observation for the process-main-thread smoke
 # executable. It exposes semantic counts only, never a Tauri/Wry/native type.
 system-tray = ["dep:ksni"]
-# Desktop-wide key chords: XDG GlobalShortcuts portal, Win32 RegisterHotKey, Carbon (pending).
+# Desktop-wide key chords: XDG GlobalShortcuts portal, Win32 RegisterHotKey, Carbon RegisterEventHotKey.
 global-hotkey = ["dep:zbus", "dep:futures-util", "dep:serde"]
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
