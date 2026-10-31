@@ -52,7 +52,7 @@ pub async fn click(button: MouseButton) -> Result<(), InputError> {
 /// The `kernal-inputd` daemon side; only Linux runs it, other hosts report `Unsupported`.
 #[cfg(feature = "desktop-input-daemon")]
 pub mod daemon {
-    pub use crate::platform_imp::input_daemon::run;
+    pub use crate::native_input_daemon::run;
 }
 
 #[cfg(test)]
