@@ -45,6 +45,8 @@ path = "src/lib.rs"
 [[example]]
 name = "audio-capture"
 required-features = ["audio-capture"]
+
+[[example]]
 name = "app-catalog"
 required-features = ["app-catalog"]
 
