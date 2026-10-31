@@ -204,7 +204,7 @@ jobs:
       # image's libssl-dev, which this step never installed.
       - name: Install native webview packages and a virtual display
         if: steps.mode.outputs.mode == 'full'
-        run: python3 ci/runner_setup.py apt-install dbus-x11 jq libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xdotool
+        run: python3 ci/runner_setup.py apt-install dbus-x11 jq libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xdotool
       # No restored crate registry here. This job compiles dozens of different
       # feature graphs, and a registry cache seeded by a job that needed only
       # part of the graph restores trimmed crate directories cargo trusts as
@@ -466,7 +466,7 @@ jobs:
         run: python3 ci/verify_source_sha.py "${{ needs.linux.outputs.sha }}"
       - name: Install native webview development packages
         if: matrix.cross == ''
-        run: python3 ci/runner_setup.py apt-install libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: python3 ci/runner_setup.py apt-install libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
       - uses: ./.github/actions/soldr # the one setup-soldr call site
         with:
           # The plan saves only on main pushes; PRs and manually selected
@@ -620,7 +620,7 @@ jobs:
         # The binaries link webkit2gtk at run time, and the screenshot proofs
         # need a display. Windows and macOS carry their webviews with the OS.
         if: runner.os == 'Linux'
-        run: uv run --no-project --python 3.12 ci/runner_setup.py apt-install dbus-x11 libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
+        run: uv run --no-project --python 3.12 ci/runner_setup.py apt-install dbus-x11 libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: kernal-tests-${{ matrix.target }}
@@ -744,7 +744,7 @@ jobs:
       # ~40 s instead of adding its own 22-46 s to the critical path. Bounded
       # mirror retries/timeouts: a stalled connection otherwise hangs apt.
       - name: Start installing native webview development packages
-        run: python3 ci/runner_setup.py apt-start libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: python3 ci/runner_setup.py apt-start libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Set up uv
         uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
@@ -929,7 +929,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Start installing native webview development packages
-        run: python3 ci/runner_setup.py apt-start libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: python3 ci/runner_setup.py apt-start libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Set up uv
         uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
