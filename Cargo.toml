@@ -47,6 +47,10 @@ name = "app-catalog"
 required-features = ["app-catalog"]
 
 [[example]]
+name = "audio-capture"
+required-features = ["audio-capture"]
+
+[[example]]
 name = "wasm-admission"
 required-features = ["wasm-sketch-host"]
 
