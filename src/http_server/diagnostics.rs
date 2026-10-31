@@ -65,7 +65,7 @@ impl Diagnostics {
 }
 
 pub(super) fn increment(counter: &AtomicU64) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
         Some(n.saturating_add(1))
     });
 }
