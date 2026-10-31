@@ -6,6 +6,9 @@ pub(crate) mod global_hotkey;
 #[cfg(feature = "app-catalog")]
 #[path = "platform_macos/app_catalog.rs"]
 pub(crate) mod app_catalog;
+#[cfg(feature = "desktop-input")]
+#[path = "platform_macos/desktop_input.rs"]
+pub(crate) mod desktop_input;
 
 #[cfg(feature = "system-tray")]
 #[path = "platform_macos/system_tray.rs"]

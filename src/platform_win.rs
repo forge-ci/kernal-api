@@ -6,6 +6,9 @@ pub(crate) mod global_hotkey;
 #[cfg(feature = "app-catalog")]
 #[path = "platform_win/app_catalog.rs"]
 pub(crate) mod app_catalog;
+#[cfg(feature = "desktop-input")]
+#[path = "platform_win/desktop_input.rs"]
+pub(crate) mod desktop_input;
 
 #[cfg(feature = "system-tray")]
 #[path = "platform_win/system_tray.rs"]

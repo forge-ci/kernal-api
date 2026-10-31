@@ -55,6 +55,11 @@ name = "global-hotkey"
 required-features = ["global-hotkey"]
 
 [[bin]]
+name = "kernal-inputd"
+path = "src/bin/kernal-inputd.rs"
+required-features = ["desktop-input-daemon"]
+
+[[bin]]
 name = "kernal-symbolize"
 path = "src/bin/kernal-symbolize.rs"
 required-features = ["symbolize-worker"]
@@ -210,6 +215,10 @@ system-tray = ["dep:ksni"]
 global-hotkey = ["dep:zbus", "dep:futures-util", "dep:serde"]
 # Installed applications, launch, and default-handler URI opening.
 app-catalog = []
+# Keyboard/pointer synthesis: SendInput, CGEventPost, Linux via the privileged kernal-inputd.
+desktop-input = []
+# The Linux kernal-inputd daemon that owns /dev/uinput.
+desktop-input-daemon = ["desktop-input"]
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
