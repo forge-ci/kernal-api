@@ -3,6 +3,9 @@
 #[cfg(feature = "global-hotkey")]
 #[path = "platform_macos/global_hotkey.rs"]
 pub(crate) mod global_hotkey;
+#[cfg(feature = "app-catalog")]
+#[path = "platform_macos/app_catalog.rs"]
+pub(crate) mod app_catalog;
 
 #[cfg(feature = "system-tray")]
 #[path = "platform_macos/system_tray.rs"]

@@ -43,6 +43,10 @@ name = "kernal_api"
 path = "src/lib.rs"
 
 [[example]]
+name = "app-catalog"
+required-features = ["app-catalog"]
+
+[[example]]
 name = "wasm-admission"
 required-features = ["wasm-sketch-host"]
 
@@ -204,6 +208,8 @@ tauri-webview = [
 system-tray = ["dep:ksni"]
 # Desktop-wide key chords: XDG GlobalShortcuts portal, Win32 RegisterHotKey, Carbon RegisterEventHotKey.
 global-hotkey = ["dep:zbus", "dep:futures-util", "dep:serde"]
+# Installed applications, launch, and default-handler URI opening.
+app-catalog = []
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
@@ -492,6 +498,7 @@ windows-sys = { version = "=0.61.2", features = [
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 
