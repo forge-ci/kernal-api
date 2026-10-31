@@ -1,5 +1,9 @@
 //! Linux implementation root for the process capability.
 
+#[cfg(feature = "app-catalog")]
+#[path = "platform_linux/app_catalog.rs"]
+pub(crate) mod app_catalog;
+
 #[cfg(feature = "system-tray")]
 #[path = "platform_linux/system_tray.rs"]
 pub(crate) mod system_tray;

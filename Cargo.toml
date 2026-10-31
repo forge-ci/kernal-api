@@ -43,6 +43,10 @@ name = "kernal_api"
 path = "src/lib.rs"
 
 [[example]]
+name = "app-catalog"
+required-features = ["app-catalog"]
+
+[[example]]
 name = "wasm-admission"
 required-features = ["wasm-sketch-host"]
 
@@ -198,6 +202,8 @@ tauri-webview = [
 # Private acceptance-only observation for the process-main-thread smoke
 # executable. It exposes semantic counts only, never a Tauri/Wry/native type.
 system-tray = ["dep:ksni"]
+# Installed applications, launch, and default-handler URI opening.
+app-catalog = []
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
@@ -484,6 +490,8 @@ windows-sys = { version = "=0.61.2", features = [
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]

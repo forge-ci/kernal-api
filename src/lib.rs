@@ -38,6 +38,11 @@ pub use independent_spawn::{
 
 #[cfg(feature = "command-arguments")]
 pub mod arguments;
+/// Installed applications, launching them, and opening URIs.
+#[cfg(feature = "app-catalog")]
+pub mod app_catalog;
+#[cfg(feature = "app-catalog")]
+use platform_imp::app_catalog as native_app_catalog;
 /// Optional desktop status area, with explicit unsupported-host fallback.
 #[cfg(feature = "system-tray")]
 pub mod system_tray;
