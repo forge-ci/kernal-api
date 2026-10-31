@@ -49,8 +49,8 @@ pub async fn click(button: MouseButton) -> Result<(), InputError> {
     native_desktop_input::click(button).await
 }
 
-/// The Linux daemon side, for the `kernal-inputd` binary.
-#[cfg(all(target_os = "linux", feature = "desktop-input-daemon"))]
+/// The `kernal-inputd` daemon side; only Linux runs it, other hosts report `Unsupported`.
+#[cfg(feature = "desktop-input-daemon")]
 pub mod daemon {
     pub use crate::platform_imp::input_daemon::run;
 }
