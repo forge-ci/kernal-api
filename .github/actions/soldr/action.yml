@@ -100,10 +100,18 @@ runs:
     - uses: zackees/setup-soldr@v0 # v0.9.82 or later (floating major)
       id: setup
       with:
-        # No `version:`: every job takes setup-soldr's default Soldr runtime,
-        # the one soldr pin (bumped by setup-soldr per release). `@v0` moves
-        # only through setup-soldr's gated promotion, so every step in a run
-        # resolves the same default -- one runtime, one cache generation.
+        # PINNED, not floating: soldr 0.9.47 (setup-soldr's current default)
+        # fetches a cargo-nextest built for rustc 1.98.1 on jobs whose pinned
+        # toolchain is 1.95.0, and `soldr cargo nextest --version` then exits 1
+        # on the cross-target Build jobs -- which fails the full-CI candidate
+        # dispatch the release gate requires (0.1.36 could not publish).
+        # 0.9.44 is the runtime that passed the 0.1.35 gate. Revert this line to
+        # the floating default once the soldr issue is fixed.
+        version: 0.9.44
+        # Otherwise every job takes setup-soldr's default Soldr runtime, the one
+        # soldr pin (bumped by setup-soldr per release). `@v0` moves only
+        # through setup-soldr's gated promotion, so every step in a run resolves
+        # the same default -- one runtime, one cache generation.
         cook-delta: false # per-commit delta layer off (setup-soldr#528)
         save-cache: ${{ inputs.save-cache }}
         save-cache-remote: ${{ inputs.save-cache-remote }}

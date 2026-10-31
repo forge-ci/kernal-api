@@ -742,3 +742,10 @@ path    = "tests/wasm_worker_containment.rs"
 reason  = "platform-boundary migration debt still listed in the shrink-only Dylint baseline, which rejects new occurrences"
 issue   = "https://github.com/forge-ci/kernal-api/issues/152"
 expires = "2027-01-31"
+
+[[exceptions]]
+rule    = "RUST-013"
+path    = ".github/actions/soldr/action.yml"
+reason  = "soldr 0.9.47 (setup-soldr's floating default) fails `soldr cargo nextest --version` on the cross-target Build jobs, which fails the full-CI candidate dispatch every kernal-api release requires; 0.9.44 is the runtime that passed the 0.1.35 gate. Remove this exception and the literal version: together once the soldr issue is fixed."
+issue   = "https://github.com/forge-ci/soldr/issues/4007"
+expires = "2026-12-31"
