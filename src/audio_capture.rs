@@ -72,6 +72,56 @@ impl Resampler {
     }
 }
 
+/// Downmix one device callback's interleaved frames and resample them to [`SAMPLE_RATE`].
+fn to_output_chunk(
+    data: &[f32],
+    channels: usize,
+    resampler: &mut Resampler,
+    mono: &mut Vec<f32>,
+) -> Vec<f32> {
+    mono.clear();
+    downmix(data, channels, mono);
+    let mut out = Vec::with_capacity(mono.len());
+    resampler.push(mono, &mut out);
+    out
+}
+
+/// Recorded or generated input played through [`Capture::open_test_source`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct TestSource {
+    /// Interleaved frames, `channels` samples each.
+    pub samples: Vec<f32>,
+    /// The rate the samples were recorded at; resampled to [`SAMPLE_RATE`].
+    pub rate: u32,
+    /// Channels per frame; downmixed to mono.
+    pub channels: u16,
+    /// Frames per simulated device callback.
+    pub frames_per_callback: usize,
+}
+
+impl TestSource {
+    /// `samples` as mono input already at [`SAMPLE_RATE`], in 10 ms callbacks.
+    pub fn mono_16k(samples: Vec<f32>) -> Self {
+        Self {
+            samples,
+            rate: SAMPLE_RATE,
+            channels: 1,
+            frames_per_callback: (SAMPLE_RATE / 100) as usize,
+        }
+    }
+
+    /// A sine tone of `frequency` Hz and `amplitude`, `duration` long, as [`Self::mono_16k`].
+    pub fn sine(frequency: f32, amplitude: f32, duration: Duration) -> Self {
+        let count = (duration.as_secs_f64() * f64::from(SAMPLE_RATE)).round() as usize;
+        let step = std::f32::consts::TAU * frequency / SAMPLE_RATE as f32;
+        Self::mono_16k(
+            (0..count)
+                .map(|n| amplitude * (step * n as f32).sin())
+                .collect(),
+        )
+    }
+}
+
 /// A running capture from the default input device. Dropping it stops the device.
 pub struct Capture {
     chunks: mpsc::Receiver<Vec<f32>>,
@@ -102,6 +152,42 @@ impl Capture {
         })
     }
 
+    /// Play `source` through the same downmix, resampling and chunk queue as a
+    /// real device, with no hardware: for testing capture consumers on hosts
+    /// without a microphone.
+    ///
+    /// Every callback's chunk is delivered (none are dropped, unlike a live
+    /// device that outpaces its reader), as fast as they are read. When the
+    /// source is exhausted the capture reports stopped:
+    /// [`Self::next_chunk_within`] returns `None` once the queue drains.
+    pub fn open_test_source(source: TestSource) -> Result<Self, AudioError> {
+        let channels = usize::from(source.channels);
+        if source.rate == 0 || channels == 0 || source.frames_per_callback == 0 {
+            return Err(AudioError::Unavailable);
+        }
+        let (chunk_tx, chunks) = mpsc::channel(BUFFERED_CHUNKS);
+        let device_rate = source.rate;
+        let thread = std::thread::Builder::new()
+            .name("kernal-api-audio-test".into())
+            .spawn(move || {
+                let mut resampler = Resampler::new(source.rate, SAMPLE_RATE);
+                let mut mono = Vec::new();
+                for callback in source.samples.chunks(source.frames_per_callback * channels) {
+                    let out = to_output_chunk(callback, channels, &mut resampler, &mut mono);
+                    if chunk_tx.blocking_send(out).is_err() {
+                        return;
+                    }
+                }
+            })
+            .map_err(|_| AudioError::Unavailable)?;
+        Ok(Self {
+            chunks,
+            stop: None,
+            thread: Some(thread),
+            device_rate,
+        })
+    }
+
     /// The device's native rate, before resampling to [`SAMPLE_RATE`].
     pub fn device_rate(&self) -> u32 {
         self.device_rate
@@ -124,6 +210,8 @@ impl Capture {
 impl Drop for Capture {
     fn drop(&mut self) {
         drop(self.stop.take());
+        // Unblocks a test source waiting on a full queue.
+        self.chunks.close();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -157,10 +245,7 @@ fn run_device(
             .build_input_stream(
                 config.config(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    mono.clear();
-                    downmix(data, channels, &mut mono);
-                    let mut out = Vec::with_capacity(mono.len());
-                    resampler.push(&mono, &mut out);
+                    let out = to_output_chunk(data, channels, &mut resampler, &mut mono);
                     let _ = chunks.try_send(out);
                 },
                 |_err| {},
@@ -213,6 +298,32 @@ mod tests {
         r.push(&[0.0, 1.0], &mut out);
         r.push(&[2.0], &mut out);
         assert_eq!(out, [0.0, 0.5, 1.0, 1.5, 2.0]);
+    }
+
+    #[tokio::test]
+    async fn a_test_source_is_delivered_whole_then_stops() {
+        // Stereo 48 kHz: left 0.5, right 0.0, so the mono 16 kHz output is 0.25.
+        let frames = 48_000 / 2;
+        let source = TestSource {
+            samples: [0.5, 0.0].repeat(frames),
+            rate: 48_000,
+            channels: 2,
+            frames_per_callback: 480,
+        };
+        let mut capture = Capture::open_test_source(source).expect("test source");
+        assert_eq!(capture.device_rate(), 48_000);
+        let mut out = Vec::new();
+        while let Some(chunk) = capture.next_chunk_within(Duration::from_secs(5)).await {
+            out.extend(chunk);
+        }
+        assert!((7_999..=8_001).contains(&out.len()), "{}", out.len());
+        assert!(out[10..].iter().all(|s| (s - 0.25).abs() < 1e-6));
+    }
+
+    #[test]
+    fn dropping_an_unread_test_source_does_not_hang() {
+        let source = TestSource::sine(440.0, 0.5, Duration::from_secs(60));
+        drop(Capture::open_test_source(source).expect("test source"));
     }
 
     #[tokio::test]
