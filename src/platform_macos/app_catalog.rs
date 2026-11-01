@@ -1,5 +1,5 @@
 //! `.app` bundles in the standard Applications folders, launched and opened through `open`.
-use crate::app_catalog::{AppEntry, LaunchError};
+use crate::app_catalog::{AppEntry, LaunchError, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -42,9 +42,9 @@ pub(crate) async fn list_apps() -> Vec<AppEntry> {
     .unwrap_or_default()
 }
 
-async fn open(arg: &std::ffi::OsStr) -> Result<(), LaunchError> {
+async fn open(args: &[&std::ffi::OsStr]) -> Result<(), LaunchError> {
     let status = tokio::process::Command::new("/usr/bin/open")
-        .arg(arg)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -56,11 +56,15 @@ async fn open(arg: &std::ffi::OsStr) -> Result<(), LaunchError> {
 }
 
 pub(crate) async fn launch(app: &AppEntry) -> Result<(), LaunchError> {
-    open(app.target.as_os_str()).await
+    open(&[app.target.as_os_str()]).await
 }
 
 pub(crate) async fn open_uri(uri: &str) -> Result<(), LaunchError> {
-    open(uri.as_ref()).await
+    open(&[uri.as_ref()]).await
+}
+
+pub(crate) async fn open_uri_with(app: &AppEntry, uri: &str, _options: OpenOptions) -> Result<(), LaunchError> {
+    open(&["-a".as_ref(), app.target.as_os_str(), uri.as_ref()]).await
 }
 
 #[cfg(test)]

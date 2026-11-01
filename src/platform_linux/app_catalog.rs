@@ -1,5 +1,5 @@
 //! XDG desktop entries (Desktop Entry Specification 1.5) and `xdg-open`.
-use crate::app_catalog::{AppEntry, LaunchError};
+use crate::app_catalog::{AppEntry, LaunchError, OpenOptions};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -93,7 +93,8 @@ pub(crate) async fn list_apps() -> Vec<AppEntry> {
 }
 
 /// Split an `Exec` value into argv and expand its field codes (spec section "The Exec key").
-pub(crate) fn exec_argv(exec: &str, name: &str, desktop_file: &Path) -> Option<Vec<String>> {
+/// `uri` fills the first `%u`/`%U`/`%f`/`%F`, or is appended when the line has none.
+pub(crate) fn exec_argv(exec: &str, name: &str, desktop_file: &Path, uri: Option<&str>) -> Option<Vec<String>> {
     let mut args = Vec::new();
     let mut current = String::new();
     let mut in_arg = false;
@@ -125,14 +126,17 @@ pub(crate) fn exec_argv(exec: &str, name: &str, desktop_file: &Path) -> Option<V
         args.push(current);
     }
     let mut argv = Vec::new();
+    let mut uri = uri;
     for arg in args {
         match arg.as_str() {
-            "%f" | "%F" | "%u" | "%U" | "%i" | "%d" | "%D" | "%n" | "%N" | "%v" | "%m" => continue,
+            "%f" | "%F" | "%u" | "%U" => argv.extend(uri.take().map(str::to_owned)),
+            "%i" | "%d" | "%D" | "%n" | "%N" | "%v" | "%m" => continue,
             "%c" => argv.push(name.to_owned()),
             "%k" => argv.push(desktop_file.to_string_lossy().into_owned()),
             _ => argv.push(arg.replace("%%", "%")),
         }
     }
+    argv.extend(uri.map(str::to_owned));
     (!argv.is_empty()).then_some(argv)
 }
 
@@ -153,17 +157,32 @@ fn spawn_detached(argv: &[String]) -> Result<(), LaunchError> {
     Ok(())
 }
 
-pub(crate) async fn launch(app: &AppEntry) -> Result<(), LaunchError> {
-    let text = std::fs::read_to_string(&app.target).map_err(|_| LaunchError::NotFound)?;
-    let exec = text
-        .lines()
-        .skip_while(|l| l.trim() != "[Desktop Entry]")
+/// The `Exec=` line of `section` (`[Desktop Entry]`, `[Desktop Action new-window]`, ...).
+fn section_exec<'a>(text: &'a str, section: &str) -> Option<&'a str> {
+    text.lines()
+        .skip_while(|l| l.trim() != section)
         .skip(1)
         .take_while(|l| !l.trim_start().starts_with('['))
         .find_map(|l| l.trim().strip_prefix("Exec="))
+}
+
+fn run_entry(app: &AppEntry, uri: Option<&str>, new_window: bool) -> Result<(), LaunchError> {
+    let text = std::fs::read_to_string(&app.target).map_err(|_| LaunchError::NotFound)?;
+    let exec = new_window
+        .then(|| section_exec(&text, "[Desktop Action new-window]"))
+        .flatten()
+        .or_else(|| section_exec(&text, "[Desktop Entry]"))
         .ok_or(LaunchError::NotFound)?;
-    let argv = exec_argv(exec, &app.name, &app.target).ok_or(LaunchError::InvalidInput)?;
+    let argv = exec_argv(exec, &app.name, &app.target, uri).ok_or(LaunchError::InvalidInput)?;
     spawn_detached(&argv)
+}
+
+pub(crate) async fn launch(app: &AppEntry) -> Result<(), LaunchError> {
+    run_entry(app, None, false)
+}
+
+pub(crate) async fn open_uri_with(app: &AppEntry, uri: &str, options: OpenOptions) -> Result<(), LaunchError> {
+    run_entry(app, Some(uri), options.new_window)
 }
 
 pub(crate) async fn open_uri(uri: &str) -> Result<(), LaunchError> {
@@ -188,12 +207,29 @@ mod tests {
     #[test]
     fn expands_exec_field_codes() {
         let file = Path::new("/apps/x.desktop");
-        assert_eq!(exec_argv("dolphin %u", "Files", file).unwrap(), ["dolphin"]);
+        assert_eq!(exec_argv("dolphin %u", "Files", file, None).unwrap(), ["dolphin"]);
         assert_eq!(
-            exec_argv("\"/opt/My App/run\" --name %c --file %k 100%%", "Files", file).unwrap(),
+            exec_argv("\"/opt/My App/run\" --name %c --file %k 100%%", "Files", file, None).unwrap(),
             ["/opt/My App/run", "--name", "Files", "--file", "/apps/x.desktop", "100%"]
         );
-        assert!(exec_argv("\"unterminated", "x", file).is_none());
+        assert!(exec_argv("\"unterminated", "x", file, None).is_none());
+    }
+
+    #[test]
+    fn a_uri_fills_the_first_field_code_or_is_appended() {
+        let file = Path::new("/x.desktop");
+        let uri = Some("https://go/docs");
+        assert_eq!(exec_argv("brave %U", "B", file, uri).unwrap(), ["brave", "https://go/docs"]);
+        assert_eq!(exec_argv("a %u %u", "A", file, uri).unwrap(), ["a", "https://go/docs"]);
+        assert_eq!(exec_argv("brave --new-window", "B", file, uri).unwrap(), ["brave", "--new-window", "https://go/docs"]);
+    }
+
+    #[test]
+    fn new_window_uses_the_entrys_new_window_action() {
+        let text = "[Desktop Entry]\nExec=brave %U\n[Desktop Action new-window]\nExec=brave --new-window\n";
+        assert_eq!(section_exec(text, "[Desktop Action new-window]"), Some("brave --new-window"));
+        assert_eq!(section_exec(text, "[Desktop Entry]"), Some("brave %U"));
+        assert_eq!(section_exec("[Desktop Entry]\nExec=a\n", "[Desktop Action new-window]"), None);
     }
 
     #[tokio::test]
