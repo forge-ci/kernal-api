@@ -1008,6 +1008,27 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: uv run --no-project --python 3.12 ci/full_coverage.py
 
+  # The single required context (the `main merge queue` ruleset requires only
+  # this). It lists every job of this run attempt and fails on any that did not
+  # succeed, so adding or renaming a job never needs a ruleset edit.
+  ci-summary:
+    name: CI summary
+    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Fail on any unsuccessful job of this run attempt
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ci/ci_summary.py
+
   # setup-soldr cook bases restore exact-only and include the runtime Soldr
   # version in the key. After every producer job has completed its post-step,
   # retire old Soldr versions, superseded lock-scoped entries with an exact
@@ -1061,7 +1082,7 @@ jobs:
   # sweep at a time across runs.
   cache-janitor:
     name: Cache janitor
-    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention]
+    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary]
     if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
