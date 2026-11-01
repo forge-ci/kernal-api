@@ -16,6 +16,9 @@ pub(crate) mod input_daemon;
 
 #[path = "platform_linux/dylib.rs"]
 pub(crate) mod dylib;
+#[cfg(feature = "control-signal")]
+#[path = "platform_linux/control_signal.rs"]
+pub(crate) mod control_signal;
 
 #[cfg(feature = "system-tray")]
 #[path = "platform_linux/system_tray.rs"]

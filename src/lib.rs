@@ -58,6 +58,11 @@ use platform_imp::input_daemon as native_input_daemon;
 /// Microphone capture as mono 16 kHz chunks.
 #[cfg(feature = "audio-capture")]
 pub mod audio_capture;
+/// Daemon control signals: SIGUSR1/SIGUSR2/SIGTERM and their Windows equivalents.
+#[cfg(feature = "control-signal")]
+pub mod control_signal;
+#[cfg(feature = "control-signal")]
+use platform_imp::control_signal as native_control_signal;
 /// Optional desktop status area, with explicit unsupported-host fallback.
 #[cfg(feature = "system-tray")]
 pub mod system_tray;
