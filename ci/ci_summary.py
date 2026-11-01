@@ -18,8 +18,10 @@ import urllib.request
 
 BLOCKING = frozenset({"failure", "cancelled", "timed_out", "startup_failure", "action_required"})
 # Only the gate itself is exempt: it is still running while it reads the job
-# list, so it cannot police its own conclusion. The maintenance jobs are not
-# exempt; the gate `needs` them, so a skipped one passes and a failed one blocks.
+# list, so it cannot police its own conclusion. Maintenance jobs are not exempt:
+# the gate `needs` cache-retention, so a skipped one passes and a failed one
+# blocks. The cache janitor must run after this gate (GEN-022), so it is still
+# queued here and has no conclusion to judge; it is not hidden by name either.
 EXEMPT_PREFIXES = ("CI summary",)
 ATTEMPTS = 6
 

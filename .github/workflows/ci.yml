@@ -1011,12 +1011,14 @@ jobs:
   # The single required context (the `main merge queue` ruleset requires only
   # this). It lists every job of this run attempt and fails on any that did not
   # succeed, so adding or renaming a job never needs a ruleset edit. It needs
-  # the maintenance jobs too, so it runs last and sees their final conclusion:
-  # a skipped maintenance job (pull_request, merge_group) passes, a failed one
-  # (push to main) turns the gate red.
+  # cache-retention so it sees that maintenance job's final conclusion: skipped
+  # (pull_request, merge_group) passes, failed (push to main) turns the gate
+  # red. The cache janitor is the one job it cannot wait on: GEN-022 requires
+  # the janitor to follow every job, this one included, so its own failure
+  # shows only as the run's conclusion.
   ci-summary:
     name: CI summary
-    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer, cache-retention, cache-janitor]
+    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer, cache-retention]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -1078,15 +1080,14 @@ jobs:
           --version "${SOLDR_VERSION}" --apply
 
   # GEN-022 (forge-ci/ci.yml#405): every queue run and main push ends with the
-  # ci-lint cache janitor. It runs after every other job but the CI summary
-  # (which waits on it so a janitor failure is reported), even failed ones, so
+  # ci-lint cache janitor. It runs after every other job, even failed ones, so
   # the repository stays under [cache].budget by our LRU order instead of
   # GitHub's, which can evict a seed a required job restores. The queue
   # serializes default-branch cache writes; the non-cancelling group keeps one
   # sweep at a time across runs.
   cache-janitor:
     name: Cache janitor
-    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention]
+    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary]
     if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -134,16 +134,11 @@ class NativeProofJobsTests(unittest.TestCase):
         self.assertNotIn("needs.verify.outputs.reuse", self.text())
 
     def test_cache_janitor_ends_every_queue_run_and_main_push(self):
-        """GEN-022: the janitor follows every job, even failed ones, one sweep at a time.
-
-        The gate alone runs after it, so a janitor failure reaches CI summary.
-        """
+        """GEN-022: the janitor follows every job, even failed ones, one sweep at a time."""
         job = self.job("cache-janitor")
-        others = EXPECTED_JOBS - {"cache-janitor", "ci-summary"}
+        others = EXPECTED_JOBS - {"cache-janitor"}
         needs = set(re.search(r"needs: \[(.*)\]", job).group(1).split(", "))
         self.assertEqual(needs, others)
-        gate_needs = set(re.search(r"needs: \[(.*)\]", self.job("ci-summary")).group(1).split(", "))
-        self.assertEqual(gate_needs, EXPECTED_JOBS - {"ci-summary"})
         self.assertIn("if: always() && github.event_name != 'pull_request'", job)
         self.assertIn("group: cache-janitor\n      cancel-in-progress: false", job)
         self.assertIn("ci_lint cache janitor", job)
