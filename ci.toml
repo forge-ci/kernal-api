@@ -265,14 +265,15 @@ expires = "2027-06-30"
 # -- GEN-021: validation skips main pushes under a live merge queue -----------
 # GEN-022 step 6 (forge-ci/ci.yml#432). `fast`, `linux` and `dylints` carry
 # `github.event_name != 'push'`: the `main merge queue` ruleset requires
-# verify/linux/Dylint workspace on the `merge_group` run, which validates the
+# the single `CI summary` context on the `merge_group` run (it fails on any
+# unsuccessful job of verify/linux/Dylint workspace and the rest), which validates the
 # exact merge commit that lands (policy-general.md: the queue is the one other
 # justification for a blanket push skip). Main's cache writes moved to the
 # push-only `linux-cache-writer`/`dylint-cache-writer` jobs first (step 5).
 [[exceptions]]
 rule    = "GEN-021"
 path    = ".github/workflows/ci.yml"
-reason  = "merge queue validates the exact merge commit (merge_group runs verify/linux/Dylint workspace); push runs only the cache writers"
+reason  = "merge queue validates the exact merge commit (merge_group runs verify/linux/Dylint workspace, aggregated by the required CI summary); push runs only the cache writers"
 issue   = "https://github.com/forge-ci/ci.yml/issues/432"
 expires = "2027-04-30"
 
