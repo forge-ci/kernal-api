@@ -35,7 +35,10 @@ from urllib.request import Request, urlopen
 GIB = 1024**3
 BUDGET_BYTES = 19 * GIB // 2  # 9.5 GiB leaves room for ordinary cache growth.
 MAIN_REF = "refs/heads/main"
-COOK_BASE_PREFIX = "cook-base-v2-"
+# setup-soldr cook-base key schemas: v2 ends `-soldrvX.Y.Z-<variant>`, v3
+# (setup-soldr for Soldr 0.9.47) ends `-<variant>-soldrvX.Y.Z`. Both are
+# cook bases; a schema this script does not know is not, so it is never touched.
+COOK_BASE_PREFIX = ("cook-base-v2-", "cook-base-v3-")
 BUILD_CACHE_PREFIX = "setup-soldr-buildcache-v2-"
 CARGO_REGISTRY_PREFIX = "setup-soldr-cargoregistry-v"
 VERSION_RE = re.compile(r"(?:^|-)soldrv(?P<version>\d+\.\d+\.\d+)(?:-|$)")
@@ -67,7 +70,7 @@ def lock_generation_shape(cache: Cache) -> tuple[str, str, str] | None:
     key = cache.key
     if key.startswith(COOK_BASE_PREFIX):
         match = re.fullmatch(
-            r"(?P<shape>cook-base-v2-.+-f[^-]+)-l(?P<lock>[0-9a-f]{16})(?P<tail>-soldrv.+)",
+            r"(?P<shape>cook-base-v[23]-.+-f[^-]+)-l(?P<lock>[0-9a-f]{16})(?P<tail>-(?:.+-)?soldrv.+)",
             key,
         )
         if match is None:
@@ -262,6 +265,11 @@ def version_tuple(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
+def cook_variant(key: str) -> str:
+    """The cook-base key without its Soldr version, so v2 and v3 share variant suffixes."""
+    return VERSION_RE.sub(lambda m: "-" if m.group(0).startswith("-") and m.group(0).endswith("-") else "", key)
+
+
 def cache_version(key: str) -> str | None:
     match = VERSION_RE.search(key)
     return match.group("version") if match else None
@@ -294,13 +302,19 @@ def retired_cross_target_cook_bases(caches: list[Cache], current_version: str) -
             raise ValueError(f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}")
         if version_tuple(found) != current:
             continue
-        if any(cache.key.endswith(f"-xbuild-{target}") for target in DISABLED_CROSS_TARGETS):
+        if any(cook_variant(cache.key).endswith(f"-xbuild-{target}") for target in DISABLED_CROSS_TARGETS):
             candidates.append(cache)
     return candidates
 
 
-def require_current_generation_present(caches: list[Cache], current_version: str) -> None:
-    """Permit old-generation pruning only when a usable current generation exists."""
+def require_current_generation_present(caches: list[Cache], current_version: str) -> bool:
+    """Permit old-generation pruning only when a usable current generation exists.
+
+    Returns False for the just-bumped case: main holds only older-version cook
+    bases because no producer has saved one for ``current_version`` yet. The
+    caller must then delete nothing. An empty main cook-base inventory, a
+    future version, or an unparseable key still fail.
+    """
     current = version_tuple(current_version)
     versions = set()
     for cache in caches:
@@ -313,8 +327,11 @@ def require_current_generation_present(caches: list[Cache], current_version: str
         if parsed > current:
             raise ValueError(f"future Soldr cook-base generation {found} exceeds current {current_version}")
         versions.add(parsed)
-    if current not in versions:
+    if not versions:
         raise ValueError(f"refusing to prune old cook bases: no main cook-base exists for Soldr {current_version}")
+    if current not in versions:
+        return False
+    return True
 
 
 def require_single_current_generation(caches: list[Cache], current_version: str) -> None:
@@ -342,7 +359,7 @@ def require_retained_native_cook_base(caches: list[Cache], current_version: str,
         found = cache_version(cache.key)
         if found is None:
             raise ValueError(f"cannot safely classify cook-base cache {cache.cache_id}: {cache.key}")
-        if version_tuple(found) == current and cache.key.endswith("-xlinux") and cache.size > 0:
+        if version_tuple(found) == current and cook_variant(cache.key).endswith("-xlinux") and cache.size > 0:
             return
     raise ValueError(
         f"refusing to prune cook bases: no retained native xlinux cook base exists for Soldr {current_version}"
@@ -463,7 +480,21 @@ def prune(
 ) -> tuple[int, int]:
     current_lock_hash = current_lock_hash or checked_out_lock_hash()
     before = api.caches()
-    require_current_generation_present(before, current_version)
+    if not require_current_generation_present(before, current_version):
+        older = ", ".join(
+            sorted(
+                {
+                    ".".join(map(str, version_tuple(v)))
+                    for c in before
+                    if (v := cache_version(c.key)) and c.ref == MAIN_REF and c.key.startswith(COOK_BASE_PREFIX)
+                }
+            )
+        )
+        print(
+            f"nothing to prune yet: no main cook-base exists for Soldr {current_version} "
+            f"(main holds only older generations: {older}); deleting nothing until one is saved"
+        )
+        return 0, 0
     candidates_by_id = {
         cache.cache_id: cache
         for cache in (

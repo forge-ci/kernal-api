@@ -1010,10 +1010,15 @@ jobs:
 
   # The single required context (the `main merge queue` ruleset requires only
   # this). It lists every job of this run attempt and fails on any that did not
-  # succeed, so adding or renaming a job never needs a ruleset edit.
+  # succeed, so adding or renaming a job never needs a ruleset edit. It needs
+  # cache-retention so it sees that maintenance job's final conclusion: skipped
+  # (pull_request, merge_group) passes, failed (push to main) turns the gate
+  # red. The cache janitor is the one job it cannot wait on: GEN-022 requires
+  # the janitor to follow every job, this one included, so its own failure
+  # shows only as the run's conclusion.
   ci-summary:
     name: CI summary
-    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer]
+    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer, cache-retention]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
