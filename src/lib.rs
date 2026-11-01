@@ -339,6 +339,8 @@ pub use platform_imp::{process_same_executable_path, ProcessLiveness};
 pub(crate) use platform_imp::process_inspect::process_executable_path;
 
 pub use platform_imp::NativeJobserver;
+
+pub(crate) use platform_imp::dylib as native_dylib;
 pub(crate) use platform_imp::{
     process_configure_session_leader_command, process_cpu_ticks_for_pid,
     process_detach_standard_streams, process_force_terminate_child_process_group,

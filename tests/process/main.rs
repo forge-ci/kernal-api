@@ -7,6 +7,7 @@
 
 mod ape_launch;
 mod bounded_child_wait;
+mod dylib_probe;
 mod executable_naming;
 mod foreground_command;
 mod interrupt_notification;
