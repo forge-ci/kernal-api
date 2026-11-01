@@ -46,15 +46,14 @@ def fetch(url: str, token: str) -> dict:
 
 
 def list_jobs(repo: str, run_id: str, attempt: str, token: str) -> list[dict]:
-    jobs: list[dict] = []
-    page = 1
-    while True:
-        url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}"
-        body = fetch(url, token)
-        jobs.extend(body.get("jobs", []))
-        if len(jobs) >= body.get("total_count", 0) or not body.get("jobs"):
-            return jobs
-        page += 1
+    """Every job of one terminal attempt; the page count is fixed by the first page."""
+    base = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"
+    first = fetch(f"{base}&page=1", token)
+    jobs: list[dict] = list(first.get("jobs", []))
+    pages = -(-int(first.get("total_count", 0)) // 100)
+    for page in range(2, pages + 1):
+        jobs.extend(fetch(f"{base}&page={page}", token).get("jobs", []))
+    return jobs
 
 
 def blocking_jobs(jobs: list[dict]) -> list[dict]:
