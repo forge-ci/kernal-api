@@ -17,8 +17,10 @@ import urllib.error
 import urllib.request
 
 BLOCKING = frozenset({"failure", "cancelled", "timed_out", "startup_failure", "action_required"})
-# This gate itself and the maintenance jobs that sweep caches after it.
-EXEMPT_PREFIXES = ("CI summary", "Cache janitor", "Retire superseded")
+# Only the gate itself is exempt: it is still running while it reads the job
+# list, so it cannot police its own conclusion. The maintenance jobs are not
+# exempt; the gate `needs` them, so a skipped one passes and a failed one blocks.
+EXEMPT_PREFIXES = ("CI summary",)
 ATTEMPTS = 6
 
 

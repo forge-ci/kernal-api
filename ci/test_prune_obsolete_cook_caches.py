@@ -1,4 +1,6 @@
+import contextlib
 import hashlib
+import io
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -504,7 +506,7 @@ class CookCacheRetentionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot safely classify"):
             stale_cook_bases([cache], "0.9.23")
 
-    def test_prune_refuses_to_delete_old_generation_without_current_replacement(self):
+    def test_just_bumped_version_is_a_no_op_that_deletes_nothing(self):
         class FakeGitHub:
             def __init__(self):
                 self.entries = [Cache(1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900)]
@@ -519,10 +521,35 @@ class CookCacheRetentionTests(unittest.TestCase):
                 return True
 
         api = FakeGitHub()
-        with self.assertRaisesRegex(ValueError, "no main cook-base exists"):
-            prune(api, "0.9.23", apply=True)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(prune(api, "0.9.23", apply=True, current_lock_hash="0" * 16), (0, 0))
+        self.assertIn("nothing to prune yet: no main cook-base exists for Soldr 0.9.23", out.getvalue())
+        self.assertIn("0.9.22", out.getvalue())
         self.assertEqual(api.deletions, [])
         self.assertEqual(api.entries[0].cache_id, 1)
+
+    def test_prune_still_refuses_an_empty_main_cook_base_inventory(self):
+        class FakeGitHub:
+            deletions: list = []
+
+            def caches(self):
+                return [Cache(1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/pull/9/merge", 900)]
+
+            def delete_cache(self, cache_id):
+                self.deletions.append(cache_id)
+
+        api = FakeGitHub()
+        with self.assertRaisesRegex(ValueError, "no main cook-base exists for Soldr 0.9.23"):
+            prune(api, "0.9.23", apply=True, current_lock_hash="0" * 16)
+        self.assertEqual(api.deletions, [])
+
+    def test_prune_still_refuses_a_future_cook_base_generation(self):
+        class FakeGitHub:
+            def caches(self):
+                return [Cache(1, "cook-base-v2-linux-x64-soldrv0.9.24-xlinux", "refs/heads/main", 900)]
+
+        with self.assertRaisesRegex(ValueError, "future Soldr cook-base generation"):
+            prune(FakeGitHub(), "0.9.23", apply=True, current_lock_hash="0" * 16)
 
     def test_versions_and_budget_use_gib_units(self):
         self.assertEqual(version_tuple("v0.9.23"), (0, 9, 23))

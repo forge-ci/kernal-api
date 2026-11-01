@@ -299,8 +299,14 @@ def retired_cross_target_cook_bases(caches: list[Cache], current_version: str) -
     return candidates
 
 
-def require_current_generation_present(caches: list[Cache], current_version: str) -> None:
-    """Permit old-generation pruning only when a usable current generation exists."""
+def require_current_generation_present(caches: list[Cache], current_version: str) -> bool:
+    """Permit old-generation pruning only when a usable current generation exists.
+
+    Returns False for the just-bumped case: main holds only older-version cook
+    bases because no producer has saved one for ``current_version`` yet. The
+    caller must then delete nothing. An empty main cook-base inventory, a
+    future version, or an unparseable key still fail.
+    """
     current = version_tuple(current_version)
     versions = set()
     for cache in caches:
@@ -313,8 +319,11 @@ def require_current_generation_present(caches: list[Cache], current_version: str
         if parsed > current:
             raise ValueError(f"future Soldr cook-base generation {found} exceeds current {current_version}")
         versions.add(parsed)
-    if current not in versions:
+    if not versions:
         raise ValueError(f"refusing to prune old cook bases: no main cook-base exists for Soldr {current_version}")
+    if current not in versions:
+        return False
+    return True
 
 
 def require_single_current_generation(caches: list[Cache], current_version: str) -> None:
@@ -463,7 +472,21 @@ def prune(
 ) -> tuple[int, int]:
     current_lock_hash = current_lock_hash or checked_out_lock_hash()
     before = api.caches()
-    require_current_generation_present(before, current_version)
+    if not require_current_generation_present(before, current_version):
+        older = ", ".join(
+            sorted(
+                {
+                    ".".join(map(str, version_tuple(v)))
+                    for c in before
+                    if (v := cache_version(c.key)) and c.ref == MAIN_REF and c.key.startswith(COOK_BASE_PREFIX)
+                }
+            )
+        )
+        print(
+            f"nothing to prune yet: no main cook-base exists for Soldr {current_version} "
+            f"(main holds only older generations: {older}); deleting nothing until one is saved"
+        )
+        return 0, 0
     candidates_by_id = {
         cache.cache_id: cache
         for cache in (
