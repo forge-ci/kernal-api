@@ -226,6 +226,9 @@ desktop-input = []
 desktop-input-daemon = ["desktop-input"]
 # Microphone capture: ALSA, WASAPI, CoreAudio through a private cpal backend.
 audio-capture = ["dep:cpal"]
+# Daemon control signals (start/stop/terminate): POSIX signals on Unix,
+# per-PID named events plus console close/shutdown on Windows.
+control-signal = []
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
