@@ -116,7 +116,10 @@ pub(crate) async fn click(button: MouseButton) -> Result<(), InputError> {
 mod tests {
     use super::*;
 
+    // Moves the real pointer of whatever desktop runs the suite, under every
+    // other test in parallel; run it deliberately on an interactive session.
     #[tokio::test]
+    #[ignore = "injects real input into the host desktop"]
     async fn pointer_round_trip_posts() {
         pointer_move_by(5, 5).await.expect("move");
         pointer_move_by(-5, -5).await.expect("move back");

@@ -83,7 +83,10 @@ mod tests {
         assert_eq!(flags[1], KEYEVENTF_UNICODE | KEYEVENTF_KEYUP);
     }
 
+    // Moves the real pointer of whatever desktop runs the suite, under every
+    // other test in parallel; run it deliberately on an interactive session.
     #[tokio::test]
+    #[ignore = "injects real input into the host desktop"]
     async fn pointer_round_trip_is_accepted_by_the_desktop() {
         pointer_move_by(5, 5).await.expect("move");
         pointer_move_by(-5, -5).await.expect("move back");
