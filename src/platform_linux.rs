@@ -6,6 +6,13 @@ pub(crate) mod global_hotkey;
 #[cfg(feature = "app-catalog")]
 #[path = "platform_linux/app_catalog.rs"]
 pub(crate) mod app_catalog;
+#[cfg(feature = "desktop-input")]
+#[path = "platform_linux/desktop_input.rs"]
+pub(crate) mod desktop_input;
+
+#[cfg(feature = "desktop-input-daemon")]
+#[path = "platform_linux/input_daemon.rs"]
+pub(crate) mod input_daemon;
 
 #[cfg(feature = "system-tray")]
 #[path = "platform_linux/system_tray.rs"]

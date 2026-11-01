@@ -48,6 +48,13 @@ use platform_imp::global_hotkey as native_global_hotkey;
 pub mod app_catalog;
 #[cfg(feature = "app-catalog")]
 use platform_imp::app_catalog as native_app_catalog;
+/// Synthesized keyboard and pointer input (Linux through the `kernal-inputd` daemon).
+#[cfg(feature = "desktop-input")]
+pub mod desktop_input;
+#[cfg(feature = "desktop-input")]
+use platform_imp::desktop_input as native_desktop_input;
+#[cfg(feature = "desktop-input-daemon")]
+use platform_imp::input_daemon as native_input_daemon;
 /// Optional desktop status area, with explicit unsupported-host fallback.
 #[cfg(feature = "system-tray")]
 pub mod system_tray;
