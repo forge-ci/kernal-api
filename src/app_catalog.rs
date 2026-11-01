@@ -31,7 +31,7 @@ pub enum LaunchError {
 /// Every visible application, sorted by name, first definition of each id winning.
 pub async fn list_apps() -> Vec<AppEntry> {
     let mut apps = native_app_catalog::list_apps().await;
-    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    apps.sort_by_key(|a| a.name.to_lowercase());
     apps
 }
 

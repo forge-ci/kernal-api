@@ -181,7 +181,7 @@ mod tests {
         assert_eq!(app.name, "Files");
         assert_eq!(app.keywords, ["browser", "folder", "File Manager"]);
         assert!(parse_entry("a".into(), Path::new("/x"), &text.replace("Type=Application", "Type=Link")).is_none());
-        assert!(parse_entry("a".into(), Path::new("/x"), &format!("{text}")
+        assert!(parse_entry("a".into(), Path::new("/x"), &text
             .replace("Icon=", "NoDisplay=true\nIcon=")).is_none());
     }
 
