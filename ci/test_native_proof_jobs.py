@@ -42,6 +42,7 @@ EXPECTED_JOBS = {
     "cache-retention",
     # GEN-022: must follow every other job, failed ones included -- no step can.
     "cache-janitor",
+    "scratch-maintenance-failure",
     # The single required context: fails on any unsuccessful job of the attempt.
     "ci-summary",
 }

@@ -1018,7 +1018,7 @@ jobs:
   # shows only as the run's conclusion.
   ci-summary:
     name: CI summary
-    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer, cache-retention]
+    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer, cache-retention, scratch-maintenance-failure]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -1033,6 +1033,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 ci/ci_summary.py
+
+  # SCRATCH PROOF ONLY - never merge: a maintenance-shaped job that fails.
+  scratch-maintenance-failure:
+    name: Retire superseded scratch proof (deliberate failure)
+    needs: [verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - run: "false"
 
   # setup-soldr cook bases restore exact-only and include the runtime Soldr
   # version in the key. After every producer job has completed its post-step,
@@ -1087,7 +1097,7 @@ jobs:
   # sweep at a time across runs.
   cache-janitor:
     name: Cache janitor
-    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary]
+    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary, scratch-maintenance-failure]
     if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
