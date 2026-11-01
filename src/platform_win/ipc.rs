@@ -289,16 +289,22 @@ impl Stream {
     /// [`io::ErrorKind::TimedOut`] on expiry.
     ///
     /// The local-socket layer ignores connect wait modes on Windows, so this
-    /// dials the named pipe with the bound and adopts the connected handle.
+    /// dials the named pipe with the bound and wraps that connected stream.
+    ///
+    /// The stream is wrapped as is, never round-tripped through an
+    /// `OwnedHandle`: interprocess's `TryFrom<OwnedHandle>` for a pipe stream
+    /// calls `ReOpenFile`, which on a client pipe handle opens a *second*
+    /// connection to the next free server instance and closes the dialed one
+    /// (kotauskas/interprocess#100). The server then accepts a connection that
+    /// is already closed while this client talks to an instance nobody
+    /// accepted. Whether a free instance exists at that moment depends on the
+    /// server's `accept`, so the swap happened only some of the time.
     pub fn connect_within(endpoint: &Endpoint, timeout: std::time::Duration) -> io::Result<Self> {
         let pipe = DuplexPipeStream::<pipe_mode::Bytes>::connect_by_path_with_wait_mode(
             pipe_path(endpoint.display()),
             ConnectWaitMode::Timeout(timeout),
         )?;
-        let handle = std::os::windows::io::OwnedHandle::try_from(pipe)
-            .map_err(|_| io::Error::other("cannot take ownership of a shared named pipe stream"))?;
-        let stream = interprocess::os::windows::named_pipe::local_socket::Stream::try_from(handle)
-            .map_err(|error| io::Error::other(error.to_string()))?;
+        let stream = interprocess::os::windows::named_pipe::local_socket::Stream::from(pipe);
         Ok(Self(stream.into()))
     }
 

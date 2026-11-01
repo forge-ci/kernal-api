@@ -42,7 +42,12 @@ fn owner_death_helper_spawns_an_adapted_child() {
             std::time::Duration::from_secs(60),
         )
         .expect("test runtime budget");
-    std::fs::write(pid_file, pid.to_string()).expect("publish adapted child PID");
+    // Publish by rename: `fs::write` creates the file before it writes the
+    // bytes, and the polling parent can read it empty in between.
+    let mut staged = pid_file.clone();
+    staged.push(".tmp");
+    std::fs::write(&staged, pid.to_string()).expect("stage adapted child PID");
+    std::fs::rename(&staged, &pid_file).expect("publish adapted child PID");
 }
 
 #[test]
