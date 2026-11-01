@@ -4,6 +4,7 @@
 //! Callers will use these stable capability names rather than selecting a host.
 
 pub mod autostart;
+pub mod dylib;
 pub mod executable;
 pub mod fs;
 pub mod fs_watch;

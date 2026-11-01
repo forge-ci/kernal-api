@@ -14,6 +14,9 @@ pub(crate) mod desktop_input;
 #[path = "platform_win/input_daemon.rs"]
 pub(crate) mod input_daemon;
 
+#[path = "platform_win/dylib.rs"]
+pub(crate) mod dylib;
+
 #[cfg(feature = "system-tray")]
 #[path = "platform_win/system_tray.rs"]
 pub(crate) mod system_tray;
