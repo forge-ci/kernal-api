@@ -7,11 +7,8 @@
 
 mod ape_launch;
 mod bounded_child_wait;
-<<<<<<< HEAD
 mod dylib_probe;
-=======
 mod control_signal;
->>>>>>> 1bcef40 (feat(process): bare-PID liveness probe and cross-platform control signals (#545, #547))
 mod executable_naming;
 mod foreground_command;
 mod interrupt_notification;
