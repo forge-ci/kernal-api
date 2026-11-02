@@ -253,6 +253,13 @@ const OWNED_IMPLEMENTATION_CRATES: &[&str] = &[
     "console_api",
     "console_subscriber",
     "crash_handler",
+    "ecolor",
+    "eframe",
+    "egui",
+    "egui_wgpu",
+    "egui_winit",
+    "emath",
+    "epaint",
     "framehop",
     "globset",
     "interprocess",
@@ -270,9 +277,11 @@ const OWNED_IMPLEMENTATION_CRATES: &[&str] = &[
     "rusqlite",
     "sysinfo",
     "tokio",
+    "wgpu",
     "widestring",
     "winapi",
     "windows_sys",
+    "winit",
 ];
 
 /// The owned-crate traits a facade type may implement, as `(crate, trait)`.
@@ -1038,6 +1047,43 @@ fn manifest_scan_finds_normal_aliased_target_and_test_dependencies() {
             "running-process",
             "rusqlite",
             "tokio"
+        ]
+    );
+}
+
+#[test]
+fn manifest_scan_finds_the_gfx_backend_stack() {
+    // The `gfx-egui` backend: a client that names any crate of the stack
+    // directly is drawing outside `kernal_api::gfx`.
+    let manifest = r#"
+        [package]
+        name = "client"
+
+        [dependencies]
+        eframe = "0.37"
+        egui = "0.37"
+        egui-wgpu = "0.37"
+        renderer = { package = "wgpu", version = "30" }
+
+        [target.'cfg(unix)'.dependencies]
+        winit = "0.30"
+        egui-winit = "0.37"
+        epaint = "0.37"
+        emath = "0.37"
+        ecolor = "0.37"
+    "#;
+    assert_eq!(
+        direct_owned_dependencies_in(manifest),
+        [
+            "ecolor",
+            "eframe",
+            "egui",
+            "egui-wgpu",
+            "egui-winit",
+            "emath",
+            "epaint",
+            "wgpu",
+            "winit"
         ]
     );
 }

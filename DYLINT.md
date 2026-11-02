@@ -153,6 +153,16 @@ and a `libc::termios` or a `windows_sys` handle in a public position here is
 the same leak as a backend type. Heavy private use inside the platform trees
 stays legal, exactly as it does for any other owned crate.
 
+The owned set also carries the whole `gfx-egui` stack -- `eframe`, `egui`,
+`egui_wgpu`, `egui_winit`, `epaint`, `emath`, `ecolor`, `wgpu`, `winit` --
+because `kernal_api::gfx` is the only way a client is meant to draw a window
+(see [docs/gfx-backend.md](docs/gfx-backend.md)). A client `use egui::...` or
+a direct `wgpu` dependency is rejected; inside this crate the egui backend in
+`src/gfx_egui/` may use them freely, but a public field, signature or
+`pub use` naming one is rejected exactly as for Tokio. The UI tests
+`ui/gfx_client_backend.rs` and `ui/gfx_facade_backend.rs` and the
+`manifest_scan_finds_the_gfx_backend_stack` unit test pin this.
+
 The same coupling arrives from the other direction when this crate implements
 a backend's trait for one of its own exported types. `impl
 tokio::io::AsyncRead for IpcAsyncStream` names no backend in any signature,
