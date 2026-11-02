@@ -134,12 +134,17 @@ impl Frame<'_> {
 
     /// Capture the window's framebuffer after the next frame is painted. The
     /// pixels arrive as [`Event::Screenshot`] in a later frame's
-    /// [`Frame::events`]; a repaint is scheduled for it.
+    /// [`Frame::events`]; a repaint is scheduled for it. Delivery needs that
+    /// later frame: a window the compositor is not painting (for example on
+    /// a locked Wayland session) gets none. Use
+    /// [`snapshot`](super::snapshot) for pixels without a window.
     pub fn request_screenshot(&mut self) {
         self.imp.request_screenshot();
     }
 
-    /// Schedule another frame even without input (for animation).
+    /// Schedule another frame even without input (for animation). The frame
+    /// runs once the windowing system lets the window draw; see
+    /// `docs/gfx-backend.md`, "When frames happen".
     pub fn request_repaint(&mut self) {
         self.imp.request_repaint();
     }

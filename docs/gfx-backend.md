@@ -26,12 +26,38 @@ a public type position or `pub use`s one.
 | Widget subset | `label`, `heading`, `button`, `toggle`, `text_field`, `slider`, `separator`, `space`, `horizontal`, `scroll`, `list`, `selectable_row` | The intersection every candidate backend can render. Each interactive widget returns "acted on this frame" as `bool`; no widget handles or response objects. See "Provisional widget set". |
 | Input | `Frame::events() -> &[Event]`: `Key`, `Text`, `PointerMoved`, `PointerButton`, `PointerLeft`, `Scroll` (pixels), `Focused`, `Screenshot` | Logical pixels, delivery order. `Frame::request_screenshot()` reads back the window's own rendered framebuffer (not the compositor's) and delivers it in a later frame as `Event::Screenshot { width, height, rgba }` (physical pixels, straight-alpha sRGB); it works wherever the renderer does, including llvmpipe, so CI can prove what was drawn. Backend-specific events (IME, touch, accessibility, clipboard) are dropped, not passed through. |
 | Theme tokens | `Theme { mode, accent, background, text_size, spacing, corner_radius }`, `Color` | Tokens, not a style tree. A backend maps them onto its own style system. |
+| Windowless render | `gfx::snapshot(&WindowOptions, &mut impl App) -> Result<Snapshot, GfxError>`; `Snapshot::{width, height, rgba}` | Lays the UI out at `options.size` (one pixel per point) over three input-less settling frames and paints it offscreen. No window, no compositor, so it works on a locked or display-less session where `request_screenshot` cannot. Same pixel layout as `Event::Screenshot`; fields are private. |
 | Capability query | `gfx::capabilities() -> Capabilities` of `Support::{Supported, BestEffort, Unsupported}` | `run` validates options against it first and fails with `GfxErrorKind::Unsupported`; it never silently degrades. |
 
 Every public enum and `Capabilities` is `#[non_exhaustive]`. The frame
 context is a facade struct with a private, feature-selected implementation
 field; there is no public backend trait and no `impl` of a backend trait for
 a facade type.
+
+## When frames happen
+
+A frame is one call to `App::frame`. Within `run`, it happens only when the
+windowing system lets the window draw:
+
+- On first show, on input, after `Frame::request_repaint` (or a backend
+  repaint for `set_theme` / `request_screenshot`), **if** the window is being
+  painted.
+- On Wayland, frames are paced by the compositor. After each present the
+  backend (winit, via egui-wgpu's `pre_present_notify`) waits for the
+  compositor's `wl_surface.frame` callback before running the next frame. A
+  surface the compositor is not painting (locked session, minimised or
+  hidden window, and on some compositors an off-screen workspace) gets no
+  callback, so **no frames run at all** until it is painted again.
+  `request_repaint` cannot override this, and a pending
+  `request_screenshot` is delivered only when frames resume. Present mode
+  makes no difference. See issue #561 for the trace.
+- X11 and Xvfb have no frame callbacks, so frames run on request. A Vulkan
+  present to an unmapped XWayland window can still block.
+
+So `App::frame` is not a timer. A frame means "the window may be drawn now".
+App logic that must make progress while a window is unpainted (IPC refresh,
+timeouts) belongs on another thread. Pixels that are needed regardless of
+the compositor come from `gfx::snapshot`, which never opens a window.
 
 ## Provisional widget set
 
