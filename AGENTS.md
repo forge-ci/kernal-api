@@ -1,7 +1,8 @@
 # Agent instructions
 
-- Ordinary PRs and pushes to `main` run minimal CI; the `ci-test` PR label adds
-  extended tests, and `ci-full` runs the complete platform matrix. Apply
+- Ordinary PRs run minimal CI; the `ci-test` PR label adds extended tests, and
+  `ci-full` runs the complete platform matrix. Merge-queue runs and pushes to
+  `main` always run the full matrix, Dylints and Full coverage. Apply
   `ci-full` to platform-, target-, ABI-, or toolchain-sensitive PRs. A release
   must pass full CI on its exact candidate SHA before any tag or publication;
   use the explicit release workflow, never a direct tag or version-bump trigger.

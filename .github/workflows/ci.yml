@@ -87,9 +87,7 @@ jobs:
   fast:
     name: Python lint
     needs: verify
-    # GEN-022 step 6 (forge-ci/ci.yml#432): the merge queue linted the tree
-    # that lands, so a main push does not lint it again.
-    if: github.event_name != 'push'
+    # Runs on every event, a main push included: post-merge main is linted too.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -138,9 +136,9 @@ jobs:
   # on one runner: the Linux-only checks first, then lint and the full suite.
   linux:
     needs: verify
-    # GEN-022 step 6 (forge-ci/ci.yml#432): a main push skips validation; the
-    # merge queue proved the tree, and `linux-cache-writer` owns main's saves.
-    if: needs.verify.outputs.skip_linux != 'true' && github.event_name != 'push'
+    # A main push and a queue run select full mode (ci/ci_mode.py): the full
+    # matrix and Full coverage run post-merge; a plain PR stays on the cheap tier.
+    if: needs.verify.outputs.skip_linux != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
@@ -150,7 +148,9 @@ jobs:
       mode: ${{ steps.mode.outputs.mode }}
       sha: ${{ steps.mode.outputs.sha }}
       soldr_version: ${{ steps.setup_soldr.outputs.soldr-version }}
-      cache_save: ${{ steps.plan.outputs.cache_save }}
+      # Never true for the jobs that read it: a main push runs full mode, and
+      # the non-x64 build/test hosts must not write (one writer shape, ci.toml).
+      cache_save: 'false'
       cache_key_pr: ${{ steps.plan.outputs.cache_key_pr }}
     env:
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -217,10 +217,10 @@ jobs:
         uses: ./.github/actions/soldr # the one setup-soldr call site
         id: setup_soldr
         with:
-          # The plan saves only on main pushes; PRs and manually selected
-          # candidate SHAs restore without racing main retention or stranding
-          # unreachable lock generations.
-          save-cache-remote: ${{ steps.plan.outputs.cache_save }}
+          # Restore only. A main push runs this job in full mode beside
+          # `linux-cache-writer`, which owns the `linux` key; two savers of one
+          # immutable key race and silently drop one save (ci-lint CACHE-038).
+          save-cache: "false"
           cache-key-pr: ${{ steps.plan.outputs.cache_key_pr }}
           ci-tests: true
           cache-key-suffix: linux
@@ -722,8 +722,9 @@ jobs:
   # the PR critical path. It selects its own mode and SHA the same way.
   dylints:
     needs: verify
-    # GEN-022 step 6: `dylint-cache-writer` runs the push-time Dylint pass.
-    if: needs.verify.outputs.skip_dylints != 'true' && github.event_name != 'push'
+    # A main push runs the Dylint lanes too; this job restores only, and
+    # `dylint-cache-writer` stays the single saver of the Dylint key (CACHE-038).
+    if: needs.verify.outputs.skip_dylints != 'true'
     name: Dylint workspace
     env:
       DYLINT_TOOLCHAIN: nightly-2026-08-15
@@ -774,10 +775,9 @@ jobs:
       - name: Set up soldr
         uses: ./.github/actions/soldr # the one setup-soldr call site
         with:
-          # The plan saves only on main pushes; PRs and manually selected
-          # candidate SHAs restore without racing main retention or stranding
-          # unreachable lock generations.
-          save-cache-remote: ${{ steps.plan.outputs.cache_save }}
+          # Restore only: `dylint-cache-writer` owns the Dylint key on a main
+          # push; two savers of one immutable key race (ci-lint CACHE-038).
+          save-cache: "false"
           cache-key-pr: ${{ steps.plan.outputs.cache_key_pr }}
           toolchain: 1.95.0
           cache: true

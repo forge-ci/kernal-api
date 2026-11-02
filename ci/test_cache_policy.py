@@ -74,6 +74,10 @@ PUSH_ONLY_SAVE_POLICIES = {
     "${{ steps.plan.outputs.cache_save }}",
     "${{ needs.linux.outputs.cache_save }}",
 }
+# `linux` and `dylints` restore only: on a main push they run beside
+# `linux-cache-writer` / `dylint-cache-writer`, the single writer of each key
+# (CACHE-038).
+RESTORE_ONLY_JOBS = {("ci.yml", "linux"), ("ci.yml", "dylints")}
 
 # The first setup-soldr release whose main action honors `cook-delta`
 # (zackees/setup-soldr#528). Older pins always write the delta layer.
@@ -199,6 +203,9 @@ class CachePolicyTests(unittest.TestCase):
         self.assertEqual(len(steps), 5)
         for step in steps:
             with self.subTest(job=step["job"]):
+                if (step["workflow"], step["job"]) in RESTORE_ONLY_JOBS:
+                    self.assertEqual(step["inputs"].get("save-cache"), "false")
+                    continue
                 self.assertNotIn("save-cache", step["inputs"])
                 self.assertIn(step["inputs"].get("save-cache-remote"), PUSH_ONLY_SAVE_POLICIES)
         wrapper = WRAPPER.read_text(encoding="utf-8")
@@ -335,6 +342,9 @@ class CachePolicyTests(unittest.TestCase):
         self.assertEqual(len(steps), 5)
         for step in steps:
             with self.subTest(job=step["job"]):
+                if (step["workflow"], step["job"]) in RESTORE_ONLY_JOBS:
+                    self.assertEqual(step["inputs"].get("save-cache"), "false")
+                    continue
                 self.assertIn(
                     step["inputs"].get("save-cache-remote"),
                     PUSH_ONLY_SAVE_POLICIES,
@@ -343,15 +353,14 @@ class CachePolicyTests(unittest.TestCase):
     def test_main_writers_are_linux_x64_only(self):
         """ci.toml declares every cache family `per = "none"`: one writer shape.
 
-        A main push runs minimal mode, so the only jobs that can save there
-        are the ones that run in every mode: `linux` and `dylints`, both on
-        ubuntu-24.04 x64. The full-mode `build` matrix restores but never
-        reaches a push. If this fails, re-derive ci.toml [cache.family].
+        A main push runs full mode, so the full-mode matrix reaches a push;
+        `linux` pins the `cache_save` output those jobs read to 'false', and
+        only the ubuntu-24.04 x64 jobs save. If this fails, re-derive ci.toml
+        [cache.family].
         """
-        from ci import ci_mode
-
-        self.assertEqual(ci_mode.select("push", {}, "a" * 40)[0], "minimal")
         text = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+        linux = re.search(r"(?ms)^  linux:\n(.*?)(?=^  [\w-]+:\n|\Z)", text).group(1)
+        self.assertIn("      cache_save: 'false'\n", linux.split("steps:", 1)[0])
         for step in self.steps():
             if step["inputs"].get("save-cache") not in PUSH_ONLY_SAVE_POLICIES:
                 continue
