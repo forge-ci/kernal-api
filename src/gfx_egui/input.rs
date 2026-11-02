@@ -5,7 +5,7 @@ use crate::gfx::{Event, Key, Modifiers, PointerButton};
 /// Logical pixels per wheel line, matching egui's own line-to-point scale.
 const LINE_HEIGHT: f32 = 24.0;
 
-pub(super) fn translate(events: &[egui::Event], out: &mut Vec<Event>) {
+pub(crate) fn translate(events: &[egui::Event], out: &mut Vec<Event>) {
     out.extend(events.iter().filter_map(translate_one));
 }
 

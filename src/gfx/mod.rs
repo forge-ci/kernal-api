@@ -20,7 +20,7 @@ mod window;
 pub use frame::Frame;
 pub use input::{Event, Key, Modifiers, PointerButton};
 pub use theme::{Color, Theme, ThemeMode};
-pub use window::{Placement, WindowOptions};
+pub use window::{Edge, Placement, WindowOptions};
 
 #[cfg(feature = "gfx-egui")]
 use crate::gfx_egui as backend;
@@ -103,6 +103,7 @@ mod backend {
             undecorated: Support::Unsupported,
             absolute_placement: Support::Unsupported,
             monitor_placement: Support::Unsupported,
+            dock: Support::Unsupported,
         }
     }
 
@@ -175,6 +176,11 @@ pub struct Capabilities {
     pub absolute_placement: Support,
     /// [`Placement::Monitor`].
     pub monitor_placement: Support,
+    /// [`Placement::Dock`]: a desktop-reserved edge surface. Decided per
+    /// session, not per build (for example only Wayland compositors that
+    /// offer the layer-shell protocol); [`run`] reports the exact reason
+    /// when it is unavailable.
+    pub dock: Support,
 }
 
 /// The capabilities of the backend compiled into this build.
@@ -234,7 +240,13 @@ impl GfxError {
 /// backend feature, and [`GfxErrorKind::Backend`] when the windowing system
 /// or renderer fails.
 pub fn run(options: WindowOptions, app: impl App + 'static) -> Result<(), GfxError> {
-    options.validate(&capabilities())?;
+    let mut caps = capabilities();
+    if matches!(options.placement, Placement::Dock { .. }) {
+        // Whether a dock can be shown is decided per session; the backend
+        // checks again and its `Unsupported` error says why.
+        caps.dock = Support::Supported;
+    }
+    options.validate(&caps)?;
     backend::run(options, Box::new(app))
 }
 
@@ -295,6 +307,12 @@ impl Snapshot {
 /// backend feature, and [`GfxErrorKind::Backend`] when no GPU adapter (or
 /// software rasteriser) can be created.
 pub fn snapshot(options: &WindowOptions, app: &mut impl App) -> Result<Snapshot, GfxError> {
-    options.validate(&capabilities())?;
+    // No surface is created, so where a window would be placed is moot: a
+    // dock renders on a host that cannot show one.
+    let caps = Capabilities {
+        dock: Support::Supported,
+        ..capabilities()
+    };
+    options.validate(&caps)?;
     backend::snapshot(options, app)
 }

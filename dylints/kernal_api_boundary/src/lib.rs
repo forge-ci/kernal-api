@@ -250,6 +250,7 @@ const DATA_GUARDS: &[(&str, &str)] = &[
 const OWNED_IMPLEMENTATION_CRATES: &[&str] = &[
     "addr2line",
     "blake3",
+    "calloop",
     "console_api",
     "console_subscriber",
     "crash_handler",
@@ -272,11 +273,14 @@ const OWNED_IMPLEMENTATION_CRATES: &[&str] = &[
     "notify",
     "pdb_addr2line",
     "portable_pty",
+    "raw_window_handle",
     "reflink_copy",
     "running_process",
     "rusqlite",
+    "smithay_client_toolkit",
     "sysinfo",
     "tokio",
+    "wayland_client",
     "wgpu",
     "widestring",
     "winapi",
@@ -1068,6 +1072,8 @@ fn manifest_scan_finds_the_gfx_backend_stack() {
         [target.'cfg(unix)'.dependencies]
         winit = "0.30"
         egui-winit = "0.37"
+        smithay-client-toolkit = "0.19"
+        raw-window-handle = "0.6"
         epaint = "0.37"
         emath = "0.37"
         ecolor = "0.37"
@@ -1082,6 +1088,8 @@ fn manifest_scan_finds_the_gfx_backend_stack() {
             "egui-winit",
             "emath",
             "epaint",
+            "raw-window-handle",
+            "smithay-client-toolkit",
             "wgpu",
             "winit"
         ]

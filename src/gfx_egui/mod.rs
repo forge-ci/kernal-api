@@ -1,10 +1,10 @@
 //! Private egui backend for [`crate::gfx`]. Every egui, eframe, wgpu and
 //! winit name stays inside this module tree.
 
-mod input;
+pub(crate) mod input;
 mod offscreen;
 
-pub(crate) use offscreen::snapshot;
+pub(crate) use offscreen::{block_on, read_back, snapshot};
 
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -26,10 +26,19 @@ pub(crate) fn capabilities() -> Capabilities {
         absolute_placement: Support::BestEffort,
         // eframe creates the window before monitors can be enumerated.
         monitor_placement: Support::Unsupported,
+        // A layer-shell surface on Linux Wayland, probed once per process;
+        // see docs/gfx-backend.md, "Docks".
+        dock: crate::native_gfx_dock::support(),
     }
 }
 
 pub(crate) fn run(options: WindowOptions, app: Box<dyn App>) -> Result<(), GfxError> {
+    if let Placement::Dock { edge, thickness } = options.placement {
+        // winit creates every Wayland window as an xdg_toplevel, a role a
+        // surface can never trade for the layer-shell role a dock needs, so
+        // a dock is a separate surface path that does not go through eframe.
+        return crate::native_gfx_dock::run(&options, edge, thickness, app);
+    }
     let native = native_options(&options);
     let title = options.title.clone();
     let theme = options.theme;
@@ -69,7 +78,7 @@ fn native_options(options: &WindowOptions) -> eframe::NativeOptions {
         Placement::At { x, y } => viewport = viewport.with_position([x, y]),
         Placement::Centered => centered = true,
         // Rejected by `WindowOptions::validate` before reaching here.
-        Placement::Default | Placement::Monitor { .. } => {}
+        Placement::Default | Placement::Monitor { .. } | Placement::Dock { .. } => {}
     }
     eframe::NativeOptions {
         viewport,
@@ -79,11 +88,11 @@ fn native_options(options: &WindowOptions) -> eframe::NativeOptions {
     }
 }
 
-fn color32(color: Color) -> egui::Color32 {
+pub(crate) fn color32(color: Color) -> egui::Color32 {
     egui::Color32::from_rgba_unmultiplied(color.r, color.g, color.b, color.a)
 }
 
-fn apply_theme(ctx: &egui::Context, theme: Theme) {
+pub(crate) fn apply_theme(ctx: &egui::Context, theme: Theme) {
     let mut visuals = match theme.mode {
         ThemeMode::Light => egui::Visuals::light(),
         ThemeMode::Dark => egui::Visuals::dark(),
@@ -204,7 +213,7 @@ impl eframe::App for Adapter {
 }
 
 /// Lay out one frame of `app` in a central panel.
-fn draw(ui: &mut egui::Ui, transparent: bool, app: &mut dyn App, shared: &mut Shared) {
+pub(crate) fn draw(ui: &mut egui::Ui, transparent: bool, app: &mut dyn App, shared: &mut Shared) {
     let panel = egui::CentralPanel::default();
     let panel = if transparent {
         panel.frame(egui::Frame::NONE)
@@ -219,15 +228,27 @@ fn draw(ui: &mut egui::Ui, transparent: bool, app: &mut dyn App, shared: &mut Sh
     });
 }
 
-struct Shared {
-    events: Vec<Event>,
-    theme: Option<Theme>,
-    close: bool,
-    screenshot: bool,
+/// What one frame of app code asked of the backend.
+pub(crate) struct Shared {
+    pub(crate) events: Vec<Event>,
+    pub(crate) theme: Option<Theme>,
+    pub(crate) close: bool,
+    pub(crate) screenshot: bool,
+}
+
+impl Shared {
+    pub(crate) fn new(events: Vec<Event>) -> Self {
+        Self {
+            events,
+            theme: None,
+            close: false,
+            screenshot: false,
+        }
+    }
 }
 
 /// A captured frame as a neutral event: straight-alpha sRGB bytes.
-fn screenshot_event(image: &egui::ColorImage) -> Event {
+pub(crate) fn screenshot_event(image: &egui::ColorImage) -> Event {
     let [width, height] = image.size;
     let rgba: Vec<u8> = image
         .pixels

@@ -24,6 +24,31 @@ pub enum Placement {
         /// Zero-based monitor index.
         index: u32,
     },
+    /// A dock (panel, bar) along one screen edge: it spans that edge, is
+    /// `thickness` logical pixels deep, and the desktop reserves the space so
+    /// ordinary windows do not cover it. [`WindowOptions::size`] is ignored
+    /// for the window (it still sizes a [`snapshot`](super::snapshot)).
+    /// Requires [`Capabilities::dock`].
+    Dock {
+        /// The screen edge the dock spans.
+        edge: Edge,
+        /// Depth away from the edge, in logical pixels.
+        thickness: f32,
+    },
+}
+
+/// A screen edge, for [`Placement::Dock`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Edge {
+    /// The top edge.
+    Top,
+    /// The bottom edge.
+    Bottom,
+    /// The left edge.
+    Left,
+    /// The right edge.
+    Right,
 }
 
 /// Everything [`run`](super::run) needs to create the window.
@@ -113,6 +138,14 @@ impl WindowOptions {
                 format!("window size must be positive and finite, got {width}x{height}"),
             ));
         }
+        if let Placement::Dock { thickness, .. } = self.placement {
+            if !(thickness.is_finite() && thickness > 0.0) {
+                return Err(GfxError::new(
+                    GfxErrorKind::InvalidOptions,
+                    format!("dock thickness must be positive and finite, got {thickness}"),
+                ));
+            }
+        }
         let requested = [
             (self.transparent, caps.transparent, "transparent"),
             (self.click_through, caps.click_through, "click_through"),
@@ -127,6 +160,11 @@ impl WindowOptions {
                 matches!(self.placement, Placement::Monitor { .. }),
                 caps.monitor_placement,
                 "Placement::Monitor",
+            ),
+            (
+                matches!(self.placement, Placement::Dock { .. }),
+                caps.dock,
+                "Placement::Dock",
             ),
         ];
         for (wanted, support, name) in requested {
@@ -155,6 +193,7 @@ mod tests {
             undecorated: Support::Supported,
             absolute_placement: Support::BestEffort,
             monitor_placement: Support::Unsupported,
+            dock: Support::Unsupported,
         }
     }
 
@@ -187,5 +226,26 @@ mod tests {
             .validate(&caps)
             .expect_err("monitor placement is unsupported here");
         assert_eq!(err.kind(), GfxErrorKind::Unsupported);
+    }
+
+    #[test]
+    fn a_dock_needs_the_capability_and_a_positive_thickness() {
+        let dock = |thickness| {
+            WindowOptions::new("bar").placement(Placement::Dock {
+                edge: Edge::Top,
+                thickness,
+            })
+        };
+        let err = dock(36.0)
+            .validate(&all_best_effort())
+            .expect_err("dock is unsupported here");
+        assert_eq!(err.kind(), GfxErrorKind::Unsupported);
+        let caps = Capabilities {
+            dock: Support::Supported,
+            ..all_best_effort()
+        };
+        assert!(dock(36.0).validate(&caps).is_ok());
+        let err = dock(0.0).validate(&caps).expect_err("zero thickness");
+        assert_eq!(err.kind(), GfxErrorKind::InvalidOptions);
     }
 }

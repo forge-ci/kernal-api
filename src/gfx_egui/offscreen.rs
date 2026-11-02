@@ -157,7 +157,7 @@ fn paint(
 }
 
 /// Copy `target` out after the recorded `encoder` work and wait for it.
-fn read_back(
+pub(crate) fn read_back(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     target: &wgpu::Texture,
@@ -215,7 +215,7 @@ fn read_back(
 /// Drive a future to completion on this thread. wgpu's native adapter and
 /// device requests resolve without an executor; this only parks between
 /// polls.
-fn block_on<F: Future>(future: F) -> F::Output {
+pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
     struct Unpark(std::thread::Thread);
     impl Wake for Unpark {
         fn wake(self: Arc<Self>) {

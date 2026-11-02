@@ -60,6 +60,14 @@ name = "gfx-window"
 required-features = ["gfx-egui"]
 
 [[example]]
+name = "gfx-parity"
+required-features = ["gfx-egui"]
+
+[[example]]
+name = "gfx-dock"
+required-features = ["gfx-egui"]
+
+[[example]]
 name = "global-hotkey"
 required-features = ["global-hotkey"]
 
@@ -226,7 +234,7 @@ system-tray = ["dep:ksni"]
 gfx = []
 # egui immediate-mode backend for `gfx`: eframe glue over egui, egui-wgpu,
 # wgpu and winit, all private (see docs/gfx-backend.md).
-gfx-egui = ["gfx", "dep:eframe", "dep:egui", "dep:egui-wgpu", "dep:wgpu", "dep:winit"]
+gfx-egui = ["gfx", "dep:eframe", "dep:egui", "dep:egui-wgpu", "dep:wgpu", "dep:winit", "dep:smithay-client-toolkit", "dep:raw-window-handle"]
 # Desktop-wide key chords: XDG GlobalShortcuts portal, Win32 RegisterHotKey, Carbon RegisterEventHotKey.
 global-hotkey = ["dep:zbus", "dep:futures-util", "dep:serde"]
 # Installed applications, launch, and default-handler URI opening.
@@ -464,6 +472,11 @@ tauri-utils = { version = "=2.9.3", optional = true }
 wry = { version = "=0.57.0", default-features = false, features = ["os-webview"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# `gfx-egui` docks: a wlr-layer-shell surface beside eframe, since winit only
+# makes xdg_toplevel windows. Both are already in the tree under winit, pinned
+# to the versions winit resolves (see docs/gfx-backend.md, "Docks").
+smithay-client-toolkit = { version = "=0.19.2", default-features = false, features = ["calloop"], optional = true }
+raw-window-handle = { version = "=0.6.2", optional = true }
 ksni = { version = "=0.3.6", optional = true }
 zbus = { version = "=5.19.0", default-features = false, features = ["tokio"], optional = true }
 gio = { version = "=0.18.4", optional = true }

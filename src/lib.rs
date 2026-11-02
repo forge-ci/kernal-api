@@ -68,6 +68,8 @@ use platform_imp::control_signal as native_control_signal;
 pub mod gfx;
 #[cfg(feature = "gfx-egui")]
 mod gfx_egui;
+#[cfg(feature = "gfx-egui")]
+use platform_imp::gfx_dock as native_gfx_dock;
 #[cfg(feature = "system-tray")]
 pub mod system_tray;
 #[cfg(feature = "system-tray")]
