@@ -5,7 +5,44 @@ use kernal_api::webview::{ExternalWebviewHost, WebviewUrlGrant};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
+mod deadline;
 mod status;
+
+/// Bound on the whole in-process run. Legitimate runs take up to ~36s (30s
+/// load hold plus the 5s guest sleep); the test's 90s stall guard must never
+/// be what notices a hang.
+const IN_PROCESS_DEADLINE: Duration = Duration::from_secs(75);
+/// Exit status for an elapsed in-process deadline.
+const DEADLINE_EXIT: i32 = 124;
+
+/// Print webview trace events not yet printed. Called by the watchdog while
+/// the run is live and once at completion, so a hang still shows its trace.
+#[cfg(feature = "tauri-webview-test-support")]
+fn emit_webview_trace(
+    client: &kernal_api::webview::ExternalWebviewClient,
+    printed: &std::sync::Mutex<usize>,
+) -> usize {
+    let mut printed = printed.lock().unwrap_or_else(|poison| poison.into_inner());
+    let (events, omitted) = client.test_trace();
+    for event in events.iter().skip(*printed) {
+        eprint!(
+            "kernal-webview-trace phase={} elapsed_us={} opcode={}",
+            event.phase,
+            event.elapsed.as_micros(),
+            event.opcode.unwrap_or(0)
+        );
+        if let Some(counts) = event.observation {
+            eprint!(
+                " clocks={} output_jobs={}",
+                counts.active_clocks, counts.active_output_jobs
+            );
+            eprint!(" captures={} opens={} blobs={} transfer_bytes={} backings={} resources={} operations={}", counts.active_native_captures, counts.active_native_opens, counts.live_blobs, counts.retained_transfer_capacity, counts.native_backings, counts.live_resources, counts.pending_operations);
+        }
+        eprintln!();
+    }
+    *printed = (*printed).max(events.len());
+    omitted
+}
 
 fn build_guest() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -159,6 +196,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = ExternalWebviewHost::new(runtime.handle())?;
     let client = host.client();
     let handle = runtime.handle();
+    let stage = deadline::Stage::default();
+    #[cfg(feature = "tauri-webview-test-support")]
+    let printed = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+    let progress = {
+        #[cfg(feature = "tauri-webview-test-support")]
+        let (client, printed) = (client.clone(), printed.clone());
+        move || {
+            #[cfg(feature = "tauri-webview-test-support")]
+            emit_webview_trace(&client, &printed);
+        }
+    };
+    let watchdog = deadline::arm(
+        IN_PROCESS_DEADLINE,
+        Duration::from_millis(250),
+        stage.clone(),
+        progress,
+        |message| {
+            eprintln!("{message}");
+            std::process::exit(DEADLINE_EXIT);
+        },
+    );
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let task = handle.clone().launch(async move {
         let result = sketch
@@ -172,15 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await;
         #[cfg(feature = "tauri-webview-test-support")]
         {
-            let (events, omitted) = client.test_trace();
-            for event in events {
-                eprint!("kernal-webview-trace phase={} elapsed_us={} opcode={}", event.phase, event.elapsed.as_micros(), event.opcode.unwrap_or(0));
-                if let Some(counts) = event.observation {
-                    eprint!(" clocks={} output_jobs={}", counts.active_clocks, counts.active_output_jobs);
-                    eprint!(" captures={} opens={} blobs={} transfer_bytes={} backings={} resources={} operations={}", counts.active_native_captures, counts.active_native_opens, counts.live_blobs, counts.retained_transfer_capacity, counts.native_backings, counts.live_resources, counts.pending_operations);
-                }
-                eprintln!();
-            }
+            let omitted = emit_webview_trace(&client, &printed);
             drop(sketch);
             let counts = compiler.execution_limits_snapshot();
             eprintln!("kernal-webview-trace phase=trace-end omitted={} roots={} threads={} stores={} instances={} epochs={} memory_bytes={}", omitted, counts.active_root_executions(), counts.live_guest_threads(), counts.live_stores(), counts.live_instances(), counts.active_epoch_registrations(), counts.reserved_shared_memory_bytes());
@@ -188,11 +238,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = sender.send(result);
         let _ = client.request_exit();
     });
+    stage.enter(0);
     host.run();
+    stage.enter(1);
     let result = receiver.recv_timeout(Duration::from_secs(60))?;
+    stage.enter(2);
     runtime
         .run_within(task, Duration::from_secs(60))
         .expect("screenshot runner budget")?;
+    watchdog.disarm();
     result.map_err(screenshot_error)?;
     Ok(())
 }
