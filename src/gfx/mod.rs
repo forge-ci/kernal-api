@@ -59,6 +59,9 @@ mod backend {
         pub(crate) fn text_field(&mut self, _: &mut String) -> bool {
             match self.0 {}
         }
+        pub(crate) fn text_area(&mut self, _: &mut String, _: usize) -> bool {
+            match self.0 {}
+        }
         pub(crate) fn slider(&mut self, _: &mut f64, _: RangeInclusive<f64>, _: &str) -> bool {
             match self.0 {}
         }

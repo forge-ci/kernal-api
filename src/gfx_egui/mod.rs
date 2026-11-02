@@ -359,6 +359,18 @@ impl FrameImp<'_> {
         response.changed()
     }
 
+    pub(crate) fn text_area(&mut self, value: &mut String, rows: usize) -> bool {
+        let edit = egui::TextEdit::multiline(value)
+            .code_editor()
+            .desired_rows(rows.max(1))
+            .desired_width(f32::INFINITY);
+        let response = self.ui.add(edit);
+        if self.ui.ctx().memory(|memory| memory.focused().is_none()) {
+            response.request_focus();
+        }
+        response.changed()
+    }
+
     pub(crate) fn slider(&mut self, value: &mut f64, range: RangeInclusive<f64>, text: &str) -> bool {
         self.ui
             .add(egui::Slider::new(value, range).text(text))
@@ -764,6 +776,28 @@ mod tests {
             f.text_field(&mut query);
         });
         assert_eq!(query, "fi");
+    }
+
+    #[test]
+    fn text_area_takes_focus_and_enter_inserts_a_newline() {
+        let ctx = egui::Context::default();
+        let mut text = String::from("- [ ] a");
+        frame(&ctx, Vec::new(), |f| {
+            f.text_area(&mut text, 4);
+        });
+        let enter = egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut edited = false;
+        frame(&ctx, vec![enter, egui::Event::Text("b".into())], |f| {
+            edited = f.text_area(&mut text, 4);
+        });
+        assert!(edited);
+        assert!(text.contains('\n') && text.contains('b'), "{text:?}");
     }
 
     /// Lay `body` out exactly as `run` does, in a central panel.

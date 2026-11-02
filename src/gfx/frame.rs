@@ -56,6 +56,14 @@ impl Frame<'_> {
         self.imp.text_field(value)
     }
 
+    /// A multi-line, monospace text area bound to `value`, as wide as the
+    /// space left and at least `rows` lines tall; `true` when edited. Enter
+    /// inserts a newline (the app decides when to save), and it takes
+    /// keyboard focus like [`Frame::text_field`] when nothing has it.
+    pub fn text_area(&mut self, value: &mut String, rows: usize) -> bool {
+        self.imp.text_area(value, rows)
+    }
+
     /// A labelled slider bound to `value` within `range`; `true` when moved.
     pub fn slider(&mut self, value: &mut f64, range: RangeInclusive<f64>, text: &str) -> bool {
         self.imp.slider(value, range, text)
