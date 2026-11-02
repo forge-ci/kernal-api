@@ -64,6 +64,10 @@ pub mod control_signal;
 #[cfg(feature = "control-signal")]
 use platform_imp::control_signal as native_control_signal;
 /// Optional desktop status area, with explicit unsupported-host fallback.
+#[cfg(feature = "gfx")]
+pub mod gfx;
+#[cfg(feature = "gfx-egui")]
+mod gfx_egui;
 #[cfg(feature = "system-tray")]
 pub mod system_tray;
 #[cfg(feature = "system-tray")]
