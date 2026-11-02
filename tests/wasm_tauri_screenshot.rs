@@ -1269,3 +1269,79 @@ fn actual_screenshot_guest_admits_but_cannot_execute_without_webview_grants() {
     );
     assert_eq!(compiler.compiled_module_count(), 1);
 }
+
+/// Regression: the in-process runner deadline fires on a run that never
+/// completes, flushes streamed progress first and names the hung stage.
+#[path = "../examples/wasm-tauri-screenshot/deadline.rs"]
+#[allow(dead_code)]
+mod deadline;
+
+mod runner_deadline {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    #[test]
+    fn deadline_fires_on_a_run_that_never_completes_and_names_the_stage() {
+        let stage = super::deadline::Stage::default();
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let (fired, diagnostic) = mpsc::channel();
+        let watchdog = {
+            let ticks = ticks.clone();
+            super::deadline::arm(
+                Duration::from_millis(300),
+                Duration::from_millis(20),
+                stage.clone(),
+                move || {
+                    ticks.fetch_add(1, Ordering::SeqCst);
+                },
+                move |message| fired.send(message).unwrap(),
+            )
+        };
+        stage.enter(0);
+        // Fixture: the guarded work never completes; this channel never receives.
+        let (_never_sent, never) = mpsc::channel::<()>();
+        assert!(never.recv_timeout(Duration::from_millis(50)).is_err());
+        let message = diagnostic
+            .recv_timeout(Duration::from_secs(10))
+            .expect("deadline never fired on a hung run");
+        assert!(
+            message.starts_with(
+                "kernal-screenshot-runner deadline-elapsed stage=event-loop deadline_ms=300 "
+            ),
+            "{message}"
+        );
+        // Progress streamed during the hang and was flushed before the diagnostic.
+        assert!(ticks.load(Ordering::SeqCst) >= 2, "progress did not stream");
+        drop(watchdog);
+    }
+
+    #[test]
+    fn disarmed_watchdog_never_fires() {
+        let (fired, diagnostic) = mpsc::channel();
+        let watchdog = super::deadline::arm(
+            Duration::from_millis(200),
+            Duration::from_millis(20),
+            super::deadline::Stage::default(),
+            || {},
+            move |message| fired.send(message).unwrap(),
+        );
+        watchdog.disarm();
+        assert!(diagnostic.recv_timeout(Duration::from_millis(400)).is_err());
+    }
+
+    #[test]
+    fn stage_names_the_drain() {
+        let stage = super::deadline::Stage::default();
+        stage.enter(2);
+        assert_eq!(stage.name(), "drain");
+        assert_eq!(
+            super::deadline::diagnostic(
+                stage.name(),
+                Duration::from_secs(75),
+                Duration::from_millis(75_001)
+            ),
+            "kernal-screenshot-runner deadline-elapsed stage=drain deadline_ms=75000 elapsed_ms=75001"
+        );
+    }
+}
