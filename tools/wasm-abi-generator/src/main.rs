@@ -1012,7 +1012,7 @@ mod tests {
     }
     #[test]
     fn unsupported_shapes_cannot_borrow_another_imports_signature() {
-        let mut value: toml::Value = MANIFEST.parse().unwrap();
+        let mut value: toml::Table = MANIFEST.parse().unwrap();
         let imports = value.get_mut("imports").unwrap().as_array_mut().unwrap();
         let other = imports[0].clone();
         imports[0]["params"] = toml::Value::Array(vec![toml::Value::String("i32".into())]);
