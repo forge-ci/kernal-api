@@ -10,7 +10,7 @@ use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::gfx::{
-    App, BackendKind, Capabilities, Color, DockLength, Event, GfxError, GfxErrorKind, PanelOptions, Placement,
+    App, BackendKind, Capabilities, Color, DockLength, Event, GfxError, GfxErrorKind, Monitor, MonitorInfo, PanelOptions, Placement,
     PointerButton, Support, Theme, ThemeMode, WindowOptions,
 };
 
@@ -33,6 +33,8 @@ pub(crate) fn capabilities() -> Capabilities {
         panels: crate::native_gfx_dock::support(),
         // A dock's output is chosen when its layer surface is created.
         dock_monitor: crate::native_gfx_dock::support(),
+        // A running dock is re-created on the new output.
+        dock_relocation: crate::native_gfx_dock::support(),
     }
 }
 
@@ -273,6 +275,10 @@ pub(crate) struct Shared {
     pub(crate) panel: Option<PanelOptions>,
     /// A new dock length asked for this frame, if any.
     pub(crate) dock_length: Option<DockLength>,
+    /// The outputs a dock can move to (empty off a dock's own frame).
+    pub(crate) monitors: Vec<MonitorInfo>,
+    /// A move asked for this frame, if any.
+    pub(crate) monitor: Option<Monitor>,
 }
 
 impl Shared {
@@ -285,6 +291,8 @@ impl Shared {
             panels: false,
             panel: None,
             dock_length: None,
+            monitors: Vec::new(),
+            monitor: None,
         }
     }
 }
@@ -482,6 +490,30 @@ impl FrameImp<'_> {
             ));
         }
         self.shared.dock_length = Some(length);
+        Ok(())
+    }
+
+    pub(crate) fn monitors(&self) -> &[MonitorInfo] {
+        &self.shared.monitors
+    }
+
+    pub(crate) fn set_monitor(&mut self, monitor: Monitor) -> Result<(), GfxError> {
+        if !self.shared.panels {
+            return Err(GfxError::new(
+                GfxErrorKind::Unsupported,
+                "set_monitor needs an app run with Placement::Dock on a host that supports docks",
+            ));
+        }
+        if let Monitor::Named(name) = &monitor {
+            if !self.shared.monitors.iter().any(|info| &info.name == name) {
+                let present: Vec<&str> = self.shared.monitors.iter().map(|info| info.name.as_str()).collect();
+                return Err(GfxError::new(
+                    GfxErrorKind::UnknownMonitor,
+                    format!("set_monitor: {name:?} is not connected (monitors: {present:?})"),
+                ));
+            }
+        }
+        self.shared.monitor = Some(monitor);
         Ok(())
     }
 }

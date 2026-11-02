@@ -273,7 +273,12 @@ impl App for Bar {
   compositor's XKB keymap is compiled with libxkbcommon, loaded at run time
   as winit loads it (`src/platform_linux/gfx_keymap.rs`), so a `text_field`
   in a panel types in the user's layout. Shortcuts (Ctrl/Alt/Super held)
-  type nothing, and there is no key repeat yet: a held key types once. A
+  type nothing. A held key repeats on the client, as Wayland requires, at the
+  delay and rate the compositor sends in `wl_keyboard.repeat_info` (the
+  desktop's keyboard settings; 600 ms and 25/s until it arrives, rate 0 turns
+  it off). Text keys and Backspace/Delete/arrows/Home/End/Page keys repeat;
+  Escape, Enter and Tab do not, so a held Enter submits once. Nested KWin
+  sends 50/s after 250 ms: a 1 s hold typed about 38 characters. A
   host without libxkbcommon gets named keys only. When focus moves to another window (a click
   away), the backend closes the panel and the next `App::frame` sees
   `Event::PanelDismissed`. Input to the panel also schedules a dock frame, so
@@ -310,8 +315,25 @@ the Qt talos-bar made the same call. The fallback is not silent: the backend
 writes one line to stderr naming the outputs it did find, and the app gets
 `Event::Monitor { name, fallback: true }`. Every dock gets
 `Event::Monitor { name, fallback }` once it is shown, naming the output it
-landed on. Moving back when the named output reappears is not done (a
-restart does it).
+landed on. The backend does not move back by itself when the named output
+reappears; an app that wants that watches `Frame::monitors` and calls
+`Frame::set_monitor` (talos-bar does).
+
+**Moving a running dock.** `Frame::monitors()` lists the outputs as
+`MonitorInfo { name, current }` (no entry is called primary: Wayland gives
+clients no such notion), and `Frame::set_monitor(Monitor)` moves the dock
+after the frame. A name not in the list is `GfxErrorKind::UnknownMonitor` and
+changes nothing; off a dock (snapshot, eframe windows, `App::panel`) the list
+is empty and the call is `Unsupported`, as `Capabilities::dock_relocation`
+says. A layer surface's output is fixed when it is created, so the backend
+destroys the main surface (the compositor drops its exclusive zone on the old
+output) and creates it again on the new one, with the same shape, theme,
+egui context and renderer (so uploaded textures survive); an open panel is
+closed with `Event::PanelDismissed`, and `Event::Monitor { fallback: false }`
+follows on the new output. Under the same two-output nested KWin,
+`gfx-dock --cycle 4` moved the dock four times: `MaximizeArea` went from
+`Virtual-0 0,36 1280x764 / Virtual-1 1280,0 1280x800` to
+`Virtual-0 0,0 1280x800 / Virtual-1 1280,36 1280x764` and back, each time.
 
 Proven under `kwin_wayland --virtual --output-count 2` (two 1280x800
 outputs, `Virtual-0` at 0,0 and `Virtual-1` at 1280,0): with

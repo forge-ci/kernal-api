@@ -128,6 +128,26 @@ pub enum Monitor {
     Named(String),
 }
 
+/// One monitor (output) a running dock can be shown on, as listed by
+/// [`Frame::monitors`](super::Frame::monitors).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct MonitorInfo {
+    /// The connector name (`HDMI-A-1`), the same string
+    /// [`Monitor::Named`] and [`Event::Monitor`](super::Event::Monitor)
+    /// use; empty when the desktop does not name its outputs.
+    pub name: String,
+    /// The dock is on this monitor now.
+    pub current: bool,
+}
+
+impl MonitorInfo {
+    #[cfg_attr(not(feature = "gfx-egui"), allow(dead_code, reason = "built by a backend"))]
+    pub(crate) fn new(name: String, current: bool) -> Self {
+        Self { name, current }
+    }
+}
+
 /// How much of its edge a [`Placement::Dock`] spans. Set with
 /// [`WindowOptions::dock_length`] and changed while running with
 /// [`Frame::set_dock_length`](super::Frame::set_dock_length).
@@ -375,6 +395,7 @@ mod tests {
             dock: Support::Unsupported,
             panels: Support::Unsupported,
             dock_monitor: Support::Unsupported,
+            dock_relocation: Support::Unsupported,
         }
     }
 

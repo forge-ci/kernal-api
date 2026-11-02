@@ -3,7 +3,7 @@
 use std::ops::RangeInclusive;
 
 use super::backend::FrameImp;
-use super::{DockLength, Event, GfxError, PanelOptions, PointerButton, Theme};
+use super::{DockLength, Event, GfxError, Monitor, MonitorInfo, PanelOptions, PointerButton, Theme};
 
 /// One frame of UI. Widgets are laid out top to bottom unless nested in
 /// [`Frame::horizontal`]. Each widget returns whether the user acted on it
@@ -142,8 +142,8 @@ impl Frame<'_> {
     /// `show_panel` again. A panel receives named keys
     /// ([`Key::Escape`](super::Key::Escape), arrows, Enter, ...) and typed
     /// text through the desktop's keyboard layout, so a
-    /// [`Frame::text_field`] in it is editable (no key repeat: a held key
-    /// types once). Calling this from [`App::panel`](super::App::panel) has no
+    /// [`Frame::text_field`] in it is editable; a held key repeats at the
+    /// desktop's keyboard repeat delay and rate. Calling this from [`App::panel`](super::App::panel) has no
     /// effect.
     ///
     /// # Errors
@@ -176,6 +176,43 @@ impl Frame<'_> {
     pub fn set_dock_length(&mut self, length: DockLength) -> Result<(), GfxError> {
         length.validate()?;
         self.imp.set_dock_length(length)
+    }
+
+    /// The monitors a running [`Placement::Dock`](super::Placement::Dock)
+    /// can be moved to with [`Frame::set_monitor`], in the desktop's order,
+    /// with [`MonitorInfo::current`] marking the one the dock is on. A
+    /// per-frame value that follows hot-plugging. Empty where
+    /// [`Capabilities::dock_relocation`](super::Capabilities::dock_relocation)
+    /// is not available, from [`App::panel`](super::App::panel), and under
+    /// [`snapshot`](super::snapshot). No entry is marked as the desktop's
+    /// primary: Wayland has no such notion for clients.
+    #[must_use]
+    pub fn monitors(&self) -> &[MonitorInfo] {
+        self.imp.monitors()
+    }
+
+    /// Move a running [`Placement::Dock`](super::Placement::Dock) to
+    /// `monitor` after this frame: the desktop stops reserving the dock's
+    /// thickness on the monitor it leaves and reserves it on the new one.
+    /// An open panel is closed (with [`Event::PanelDismissed`]); the dock's
+    /// length, alignment and theme carry over, and an
+    /// [`Event::Monitor`](super::Event::Monitor) with `fallback: false`
+    /// follows once the dock is shown there. [`Monitor::Primary`] hands the
+    /// choice back to the desktop. Moving to the monitor the dock is on
+    /// does nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`GfxErrorKind::UnknownMonitor`](super::GfxErrorKind::UnknownMonitor)
+    /// when no monitor in [`Frame::monitors`] has that name (nothing
+    /// changes), and
+    /// [`GfxErrorKind::Unsupported`](super::GfxErrorKind::Unsupported) when
+    /// the app is not running as a dock (see
+    /// [`Capabilities::dock_relocation`](super::Capabilities::dock_relocation)),
+    /// including under [`snapshot`](super::snapshot) and from
+    /// [`App::panel`](super::App::panel).
+    pub fn set_monitor(&mut self, monitor: Monitor) -> Result<(), GfxError> {
+        self.imp.set_monitor(monitor)
     }
 
     /// Replace the theme from the next frame on.

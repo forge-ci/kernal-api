@@ -4,6 +4,7 @@
 //! soldr cargo run --example gfx-dock --features gfx-egui
 //! soldr cargo run --example gfx-dock --features gfx-egui -- --screenshot /tmp/dock.pam
 //! soldr cargo run --example gfx-dock --features gfx-egui -- --fit center
+//! soldr cargo run --example gfx-dock --features gfx-egui -- --cycle 3
 //! ```
 //!
 //! The desktop reserves the bar's space, so maximised windows stop below it.
@@ -12,6 +13,8 @@
 //! PAM image after a few frames and exits. `--fit start|center|end` makes the
 //! bar only as long as its content (measured with `Frame::text_width`) at
 //! that end of the edge; the desktop still reserves its full thickness.
+//! `--cycle SECS` moves the running bar to the next monitor in
+//! `Frame::monitors` every `SECS` seconds and prints each move.
 
 use std::io::Write as _;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -30,6 +33,8 @@ struct Bar {
     out: Option<std::path::PathBuf>,
     /// `--fit`: the length last asked for, so it is only asked again on change.
     fit: Option<f32>,
+    /// `--cycle`: the move interval and when the bar last moved.
+    cycle: Option<(std::time::Duration, std::time::Instant)>,
 }
 
 /// `HH:MM:SS` UTC, without a time-zone database.
@@ -56,6 +61,29 @@ impl App for Bar {
             } => Some((*width, *height, rgba.clone())),
             _ => None,
         });
+        for event in frame.events() {
+            if let Event::Monitor { name, fallback } = event {
+                println!("monitor: on {name:?} (fallback {fallback})");
+            }
+        }
+        if let Some((every, since)) = self.cycle {
+            if since.elapsed() >= every {
+                let monitors = frame.monitors().to_vec();
+                let here = monitors.iter().position(|info| info.current);
+                let next = here.map_or(0, |here| (here + 1) % monitors.len().max(1));
+                if let Some(target) = monitors.get(next) {
+                    let names: Vec<_> = monitors
+                        .iter()
+                        .map(|info| format!("{}{}", info.name, if info.current { "*" } else { "" }))
+                        .collect();
+                    println!("cycle: monitors {names:?}; moving to {:?}", target.name);
+                    if let Err(err) = frame.set_monitor(gfx::Monitor::Named(target.name.clone())) {
+                        eprintln!("cycle: {err}");
+                    }
+                }
+                self.cycle = Some((every, std::time::Instant::now()));
+            }
+        }
         if let Some((width, height, rgba)) = captured {
             if let Some(path) = self.out.take() {
                 write_pam(&path, width, height, &rgba).expect("write capture");
@@ -110,21 +138,28 @@ fn write_pam(path: &std::path::Path, width: u32, height: u32, rgba: &[u8]) -> st
 
 fn main() -> Result<(), gfx::GfxError> {
     let mut args = std::env::args().skip(1);
-    let (mut out, mut align) = (None, None);
+    let (mut out, mut align, mut cycle) = (None, None, None);
     while let Some(arg) = args.next() {
         match (arg.as_str(), args.next().as_deref()) {
             ("--screenshot", Some(path)) => out = Some(path.into()),
             ("--fit", Some("start")) => align = Some(DockAlign::Start),
             ("--fit", Some("center")) => align = Some(DockAlign::Center),
             ("--fit", Some("end")) => align = Some(DockAlign::End),
+            ("--cycle", Some(secs)) if secs.parse::<u64>().is_ok() => {
+                let every = std::time::Duration::from_secs(secs.parse().unwrap_or(3));
+                cycle = Some((every, std::time::Instant::now()));
+            }
             _ => {
-                eprintln!("usage: gfx-dock [--screenshot OUT.pam] [--fit start|center|end]");
+                eprintln!("usage: gfx-dock [--screenshot OUT.pam] [--fit start|center|end] [--cycle SECS]");
                 std::process::exit(2);
             }
         }
     }
     let caps = gfx::capabilities();
-    println!("gfx dock support: {:?}", caps.dock);
+    println!(
+        "gfx dock support: {:?}, relocation: {:?}",
+        caps.dock, caps.dock_relocation
+    );
     if caps.dock == Support::Unsupported {
         eprintln!("no dock here; run explains why:");
     }
@@ -141,6 +176,7 @@ fn main() -> Result<(), gfx::GfxError> {
             clicks: 0,
             out,
             fit: align.map(|_| 0.0),
+            cycle,
         },
     )
 }

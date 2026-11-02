@@ -59,7 +59,7 @@ use smithay_client_toolkit::{
 use smithay_client_toolkit::reexports::client::EventQueue;
 
 use crate::gfx::{
-    App, DockAlign, DockLength, Edge, Event, GfxError, GfxErrorKind, Monitor, PanelOptions, Support, Theme,
+    App, DockAlign, DockLength, Edge, Event, GfxError, GfxErrorKind, Monitor, MonitorInfo, PanelOptions, Support, Theme,
     WindowOptions,
 };
 use super::gfx_keymap::Keymap;
@@ -73,6 +73,48 @@ const LAYER_SHELL: &str = "zwlr_layer_shell_v1";
 /// Longest sleep between frames when the app asked for none: the loop still
 /// wakes to notice a closed connection.
 const IDLE: Duration = Duration::from_secs(1);
+
+/// Key repeat until the compositor sends `wl_keyboard.repeat_info`: the
+/// delay and rate (25 per second) most desktops ship with.
+const REPEAT: Repeat = Repeat {
+    delay: Duration::from_millis(600),
+    interval: Some(Duration::from_millis(40)),
+};
+
+/// The desktop's keyboard repeat setting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Repeat {
+    /// How long a key is held before it starts repeating.
+    delay: Duration,
+    /// Time between repeats; `None` when repeat is off.
+    interval: Option<Duration>,
+}
+
+impl Repeat {
+    /// From `wl_keyboard.repeat_info`: `rate` keys per second (0 turns
+    /// repeat off) after `delay` milliseconds.
+    fn from_info(rate: i32, delay: i32) -> Self {
+        let interval = u64::try_from(rate)
+            .ok()
+            .filter(|rate| *rate > 0)
+            .map(|rate| Duration::from_micros(1_000_000 / rate));
+        Self {
+            delay: Duration::from_millis(u64::try_from(delay).unwrap_or(0)),
+            interval,
+        }
+    }
+}
+
+/// Whether a held key with this evdev code repeats. Keys that act rather
+/// than edit (Escape, Enter, Tab) and modifiers do not; text keys and
+/// editing or cursor keys do.
+fn repeats(code: u32, types_text: bool) -> bool {
+    match named_key(code) {
+        Some(egui::Key::Escape | egui::Key::Enter | egui::Key::Tab) => false,
+        Some(_) => true,
+        None => types_text,
+    }
+}
 
 pub(crate) fn support() -> Support {
     if unavailable().is_none() {
@@ -211,6 +253,8 @@ pub(crate) fn run(
         title: options.title.clone(),
         theme: options.theme,
         transparent: options.transparent,
+        repeat: REPEAT,
+        held: None,
         start: Instant::now(),
         qh: qh.clone(),
         _conn: conn.clone(),
@@ -224,6 +268,7 @@ pub(crate) fn run(
         let next = [
             dock.main.next_frame,
             dock.panel.as_ref().and_then(|panel| panel.view.next_frame),
+            dock.held.map(|(_, at)| at),
         ]
         .into_iter()
         .flatten()
@@ -233,6 +278,7 @@ pub(crate) fn run(
         event_loop
             .dispatch(Some(timeout), &mut dock)
             .map_err(backend_error)?;
+        dock.repeat_held();
         dock.maybe_draw()?;
     }
     Ok(())
@@ -857,6 +903,10 @@ struct Dock {
     title: String,
     theme: Theme,
     transparent: bool,
+    /// The desktop's key repeat setting.
+    repeat: Repeat,
+    /// The key held in the panel and when it next repeats.
+    held: Option<(u32, Instant)>,
     start: Instant,
     qh: QueueHandle<Self>,
     _conn: Connection,
@@ -877,6 +927,7 @@ impl Dock {
         if self.main.due() {
             let mut shared = Shared::new(Vec::new());
             shared.panels = true;
+            shared.monitors = self.monitor_list();
             let app = &mut *self.app;
             let drawn = self.main.draw(
                 &self.gpu,
@@ -898,6 +949,12 @@ impl Dock {
                         length,
                         ..self.shape
                     });
+                }
+                if let Some(monitor) = shared.monitor {
+                    if self.relocate(&monitor)? {
+                        // The panel belonged to the old output.
+                        return Ok(());
+                    }
                 }
                 self.sync_panel(shared.panel)?;
             }
@@ -970,6 +1027,119 @@ impl Dock {
             start,
         });
         Ok(())
+    }
+
+    /// The outputs the dock can move to, in the compositor's order.
+    fn monitor_list(&self) -> Vec<MonitorInfo> {
+        self.outputs
+            .outputs()
+            .filter_map(|output| self.outputs.info(&output))
+            .map(|info| {
+                let name = info.name.unwrap_or_default();
+                let current = self.monitor.as_ref() == Some(&name);
+                MonitorInfo::new(name, current)
+            })
+            .collect()
+    }
+
+    /// Move the dock to `monitor`. A layer surface's output is fixed when it
+    /// is created, so the main surface is destroyed (which releases its
+    /// exclusive zone on the old output) and created again on the new one,
+    /// keeping its egui context and shape. `Ok(true)` when it moved.
+    fn relocate(&mut self, monitor: &Monitor) -> Result<bool, GfxError> {
+        let (output, info) = match monitor {
+            Monitor::Named(name) => {
+                if !self.fallback && self.monitor.as_ref() == Some(name) {
+                    return Ok(false);
+                }
+                let found = self.outputs.outputs().find_map(|output| {
+                    let info = self.outputs.info(&output)?;
+                    (info.name.as_ref() == Some(name)).then_some((output, info))
+                });
+                let Some((output, info)) = found else {
+                    // Unplugged between the frame's check and now.
+                    return Err(GfxError::new(
+                        GfxErrorKind::UnknownMonitor,
+                        format!("set_monitor: {name:?} is no longer connected"),
+                    ));
+                };
+                if !self.fallback && self.output.as_ref() == Some(&output) {
+                    // Already there, or on its way (before the enter arrives).
+                    return Ok(false);
+                }
+                (Some(output), Some(info))
+            }
+            _ => {
+                if self.output.is_none() && !self.fallback {
+                    return Ok(false);
+                }
+                (None, None)
+            }
+        };
+        if self.panel.is_some() {
+            self.held = None;
+            self.dismiss_panel();
+        }
+        let surface = self.compositor.create_surface(&self.qh);
+        let layer = self.layer_shell.create_layer_surface(
+            &self.qh,
+            surface.clone(),
+            Layer::Top,
+            Some(self.title.clone()),
+            output.as_ref(),
+        );
+        self.shape.edge_len = info.and_then(|info| edge_length(self.shape.edge, info.logical_size));
+        self.shape.apply(&layer);
+        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+        layer.commit();
+        let mut target = self.gpu.open(&self._conn, &surface, self.transparent)?;
+        if target.config.format == self.main.target.config.format {
+            // The renderer holds the textures egui already uploaded (the
+            // font atlas); egui sends only deltas from here on.
+            std::mem::swap(&mut target.renderer, &mut self.main.target.renderer);
+        } else {
+            // A fresh context uploads every texture again.
+            self.main.ctx = egui::Context::default();
+            apply_theme(&self.main.ctx, self.main.theme);
+        }
+        // Field by field, in drop order: the old swapchain goes while its
+        // surface is still alive, then the old layer surface (destroying it
+        // and its wl_surface), so the compositor releases the old zone.
+        self.main.target = target;
+        self.main.layer = layer;
+        self.main.surface = surface;
+        self.main.size = (0, 0);
+        self.main.configured = false;
+        self.main.frame_pending = false;
+        self.main.resized = true;
+        self.main.request_frame(Duration::ZERO);
+        self.output = output;
+        self.fallback = false;
+        // The enter on the new output reports `Event::Monitor` again.
+        self.monitor = None;
+        Ok(true)
+    }
+
+    /// Repeat the key held in the panel, at the desktop's delay and rate.
+    fn repeat_held(&mut self) {
+        let Some((code, at)) = self.held else {
+            return;
+        };
+        let now = Instant::now();
+        if at > now {
+            return;
+        }
+        let (Some(interval), Some(panel)) = (
+            self.repeat.interval,
+            self.panel.as_mut().filter(|panel| panel.view.focused),
+        ) else {
+            self.held = None;
+            return;
+        };
+        push_key(&mut panel.view, self.keymap.as_ref(), code, true, true);
+        // A stalled loop does not burst the missed repeats.
+        let next = at + interval;
+        self.held = Some((code, if next > now { next } else { now + interval }));
     }
 
     /// Ask the compositor for a new main-surface shape, if it changed. The
@@ -1290,6 +1460,32 @@ fn named_key(code: u32) -> Option<egui::Key> {
     })
 }
 
+/// Queue one key press, release or repeat (and the text it types) for
+/// `view`. Text is typed on press, after the key event, as winit orders them.
+fn push_key(view: &mut View, keymap: Option<&Keymap>, code: u32, pressed: bool, repeat: bool) {
+    let mods = keymap.map(Keymap::mods).unwrap_or_default();
+    let modifiers = egui::Modifiers {
+        alt: mods.alt,
+        ctrl: mods.ctrl,
+        shift: mods.shift,
+        mac_cmd: false,
+        command: mods.ctrl,
+    };
+    if let Some(key) = named_key(code) {
+        view.egui_events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat,
+            modifiers,
+        });
+    }
+    if let Some(text) = keymap.filter(|_| pressed).and_then(|keymap| keymap.text(code)) {
+        view.egui_events.push(egui::Event::Text(text));
+    }
+    view.request_frame(Duration::ZERO);
+}
+
 impl Dispatch<wl_keyboard::WlKeyboard, ()> for Dock {
     fn event(
         dock: &mut Self,
@@ -1308,6 +1504,7 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Dock {
                 }
             }
             wl_keyboard::Event::Leave { surface, .. } => {
+                dock.held = None;
                 if let Some((which, view)) = dock.view(&surface) {
                     view.focused = false;
                     if which == Which::Panel {
@@ -1338,36 +1535,30 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Dock {
             }
             wl_keyboard::Event::Key { key: code, state, .. } => {
                 let Some(panel) = dock.panel.as_mut().filter(|panel| panel.view.focused) else {
+                    dock.held = None;
                     return;
                 };
                 let pressed = matches!(
                     state,
                     smithay_client_toolkit::reexports::client::WEnum::Value(wl_keyboard::KeyState::Pressed)
                 );
-                let mods = dock.keymap.as_ref().map(Keymap::mods).unwrap_or_default();
-                let modifiers = egui::Modifiers {
-                    alt: mods.alt,
-                    ctrl: mods.ctrl,
-                    shift: mods.shift,
-                    mac_cmd: false,
-                    command: mods.ctrl,
-                };
-                if let Some(key) = named_key(code) {
-                    panel.view.egui_events.push(egui::Event::Key {
-                        key,
-                        physical_key: None,
-                        pressed,
-                        repeat: false,
-                        modifiers,
-                    });
+                push_key(&mut panel.view, dock.keymap.as_ref(), code, pressed, false);
+                if pressed {
+                    let types_text = dock.keymap.as_ref().and_then(|keymap| keymap.text(code)).is_some();
+                    // A new press takes over the repeat, as on every desktop.
+                    dock.held = (dock.repeat.interval.is_some() && repeats(code, types_text))
+                        .then(|| (code, Instant::now() + dock.repeat.delay));
+                } else if dock.held.is_some_and(|(held, _)| held == code) {
+                    dock.held = None;
                 }
-                // Text is typed on press, after the key event, as winit orders them.
-                if let Some(text) = dock.keymap.as_ref().filter(|_| pressed).and_then(|keymap| keymap.text(code)) {
-                    panel.view.egui_events.push(egui::Event::Text(text));
-                }
-                panel.view.request_frame(Duration::ZERO);
             }
-            // No key repeat: a held key types once.
+            wl_keyboard::Event::RepeatInfo { rate, delay } => {
+                dock.repeat = Repeat::from_info(rate, delay);
+                eprintln!("gfx dock: key repeat from the desktop: {rate}/s after {delay} ms");
+                if dock.repeat.interval.is_none() {
+                    dock.held = None;
+                }
+            }
             _ => {}
         }
     }
@@ -1389,7 +1580,11 @@ delegate_registry!(Dock);
 
 #[cfg(test)]
 mod tests {
-    use super::{choose, logical_px, DockAlign, DockLength, Shape, named_key, panel_anchor, to_rgba, Anchor, Choice};
+    use super::{
+        choose, logical_px, named_key, panel_anchor, repeats, to_rgba, Anchor, Choice, DockAlign, DockLength,
+        Repeat, Shape,
+    };
+    use std::time::Duration;
     use crate::gfx::{Edge, Monitor};
 
     #[test]
@@ -1458,6 +1653,25 @@ mod tests {
         assert_eq!(named_key(1), Some(egui::Key::Escape));
         assert_eq!(named_key(108), Some(egui::Key::ArrowDown));
         assert_eq!(named_key(30), None, "letters are text, from the keymap");
+    }
+
+    #[test]
+    fn repeat_info_becomes_a_delay_and_interval() {
+        let repeat = Repeat::from_info(25, 600);
+        assert_eq!(repeat.delay, Duration::from_millis(600));
+        assert_eq!(repeat.interval, Some(Duration::from_millis(40)));
+        assert_eq!(Repeat::from_info(0, 600).interval, None, "rate 0 turns repeat off");
+        assert_eq!(Repeat::from_info(-3, -1).delay, Duration::ZERO);
+    }
+
+    #[test]
+    fn editing_keys_repeat_and_acting_keys_do_not() {
+        assert!(repeats(30, true), "a letter");
+        assert!(repeats(14, false), "Backspace");
+        assert!(repeats(105, false), "ArrowLeft");
+        assert!(!repeats(28, false), "Enter submits once");
+        assert!(!repeats(1, false), "Escape");
+        assert!(!repeats(42, false), "Shift types nothing");
     }
 
     #[test]

@@ -20,7 +20,7 @@ mod window;
 pub use frame::Frame;
 pub use input::{Event, Key, Modifiers, PointerButton};
 pub use theme::{Color, Theme, ThemeMode};
-pub use window::{DockAlign, DockLength, Edge, Monitor, PanelOptions, Placement, WindowOptions};
+pub use window::{DockAlign, DockLength, Edge, Monitor, MonitorInfo, PanelOptions, Placement, WindowOptions};
 
 #[cfg(feature = "gfx-egui")]
 use crate::gfx_egui as backend;
@@ -34,7 +34,7 @@ mod backend {
     use std::marker::PhantomData;
     use std::ops::RangeInclusive;
 
-    use super::{DockLength, Event, PanelOptions, PointerButton, Theme};
+    use super::{DockLength, Event, Monitor, MonitorInfo, PanelOptions, PointerButton, Theme};
 
     /// Uninhabited: no frame is ever produced without a backend.
     pub(crate) struct FrameImp<'a>(Infallible, PhantomData<&'a mut ()>);
@@ -116,6 +116,12 @@ mod backend {
         pub(crate) fn button_click(&mut self, _: &str) -> Option<PointerButton> {
             match self.0 {}
         }
+        pub(crate) fn monitors(&self) -> &[MonitorInfo] {
+            match self.0 {}
+        }
+        pub(crate) fn set_monitor(&mut self, _: Monitor) -> Result<(), GfxError> {
+            match self.0 {}
+        }
     }
 
     pub(crate) fn capabilities() -> Capabilities {
@@ -130,6 +136,7 @@ mod backend {
             dock: Support::Unsupported,
             panels: Support::Unsupported,
             dock_monitor: Support::Unsupported,
+            dock_relocation: Support::Unsupported,
         }
     }
 
@@ -223,6 +230,11 @@ pub struct Capabilities {
     /// [`WindowOptions::monitor`] with a [`Monitor::Named`] monitor for a
     /// dock. Available exactly where [`Capabilities::dock`] is.
     pub dock_monitor: Support,
+    /// [`Frame::monitors`] and [`Frame::set_monitor`]: listing the monitors
+    /// and moving a running dock between them. Available exactly where
+    /// [`Capabilities::dock`] is; elsewhere `monitors` is empty and
+    /// `set_monitor` returns [`GfxErrorKind::Unsupported`].
+    pub dock_relocation: Support,
 }
 
 /// The capabilities of the backend compiled into this build.
@@ -244,6 +256,8 @@ pub enum GfxErrorKind {
     InvalidOptions,
     /// The windowing system or GPU could not be initialised.
     Backend,
+    /// [`Frame::set_monitor`] named a monitor that is not connected.
+    UnknownMonitor,
 }
 
 /// A failed [`run`].
@@ -288,6 +302,7 @@ pub fn run(options: WindowOptions, app: impl App + 'static) -> Result<(), GfxErr
         // checks again and its `Unsupported` error says why.
         caps.dock = Support::Supported;
         caps.dock_monitor = Support::Supported;
+        caps.dock_relocation = Support::Supported;
     }
     options.validate(&caps)?;
     backend::run(options, Box::new(app))
