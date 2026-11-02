@@ -122,12 +122,11 @@ class NativeProofJobsTests(unittest.TestCase):
         self.assertNotRegex(writer, r"cargo test (?!--locked --lib --no-run)")
         self.assertIn("ci/dylint_steps.py lanes", self.job("dylint-cache-writer"))
 
-    def test_main_push_skips_validation_and_runs_only_the_writers(self):
-        """GEN-022 step 6: the queue proved the tree; a main push only writes caches."""
-        for name, skip in (("linux", "skip_linux"), ("dylints", "skip_dylints")):
-            with self.subTest(job=name):
-                head = self.job(name).split("steps:", 1)[0]
-                self.assertIn(f"if: needs.verify.outputs.{skip} != 'true' && github.event_name != 'push'", head)
+    def test_main_push_runs_the_full_tier(self):
+        """A main push runs `linux` (full mode) and `dylints`; neither is push-gated."""
+        self.assertIn("if: needs.verify.outputs.skip_linux != 'true'\n", self.job("linux"))
+        self.assertIn("if: needs.verify.outputs.skip_dylints != 'true'\n", self.job("dylints"))
+        self.assertIn("needs: [linux, build, test, dylints]\n", self.job("full-coverage"))
         self.assertIn("if: github.event_name != 'push'", self.job("fast").split("steps:", 1)[0])
         # No GEN-021 reuse decision is left to consume.
         self.assertNotIn("reuse-check", self.text())
