@@ -63,7 +63,15 @@ fn build_fixture(directory: &Path, name: &str, build_id: bool) -> Option<PathBuf
     } else {
         "-Clink-arg=-Wl,--build-id=none"
     };
+    // Compile from the fixture's own directory, never from the repository:
+    // there `rust-toolchain.toml` pins a channel, and a `rustc` that is a
+    // rustup proxy on a host without that channel (the aarch64 test runner)
+    // downloads it -- concurrently, from every fixture at once -- which hung
+    // a test past its 120 s budget. `RUSTUP_AUTO_INSTALL=0` keeps a test from
+    // ever installing a toolchain: no usable `rustc` falls through to `cc`.
     let rustc = Command::new("rustc")
+        .current_dir(directory)
+        .env("RUSTUP_AUTO_INSTALL", "0")
         .args(["-g", "-Cdebuginfo=2", link_argument, "-o"])
         .arg(&binary)
         .arg(&rust_source)
