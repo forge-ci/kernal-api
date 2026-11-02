@@ -1,6 +1,6 @@
 [package]
 name = "kernal-api"
-version = "0.1.36"
+version = "0.1.37"
 build = "build.rs"
 edition = "2021"
 rust-version = "1.95.0"
@@ -348,12 +348,12 @@ embed-resource = { version = "=3.0.11", optional = true }
 # exact for the reason given below.
 dirs = { version = "6.0.0", optional = true }
 flate2 = { version = "=1.1.9", optional = true }
-framehop = { version = "=0.13.3", optional = true }
+framehop = { version = "=0.16.0", optional = true }
 futures-core = { version = "=0.3.34", optional = true }
 futures-util = { version = "=0.3.34", default-features = false, features = ["sink"], optional = true }
 getrandom = { version = "=0.4.3", optional = true }
 strsim = { version = "=0.11.1", optional = true }
-toml = { version = "=0.8.23", optional = true }
+toml = { version = "=1.1.8", optional = true }
 shell-words = { version = "=1.1.1", optional = true }
 clap = { version = "=4.6.0", features = ["std", "string"], optional = true }
 tree-sitter = { version = "=0.26.11", optional = true }
@@ -410,26 +410,26 @@ wit-bindgen = { version = "=0.58.0", default-features = false, features = ["macr
 # facade-owned semantic types. The opt-in `independent-spawn` feature is the
 # narrowly scoped exception: its live handles and options cross this boundary
 # unchanged, so callers and the substrate share type identity.
-running-process = { version = "=4.10.20", default-features = false, features = ["kernel-substrate", "ape-loader"] }
+running-process = { version = "=4.10.21", default-features = false, features = ["kernel-substrate", "ape-loader"] }
 # `rayon` backs native parallel memory-mapped hashing; its global pool is lazy.
 # Keep native SIMD enabled: Soldr supplies the clang/SDK needed by BLAKE3's
 # ARM64 NEON C backend, including Linux-hosted Windows ARM64 cross-checks.
 blake3 = { version = "=1.8.7", features = ["rayon"] }
 memmap2 = "=0.9.11"
-sysinfo = "=0.30.13"
+sysinfo = "=0.39.6"
 tokio = { version = "=1.53.1", default-features = false, features = [
   "fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread",
   "signal", "sync", "time",
 ] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-object = { version = "=0.36.7", default-features = false, features = ["read", "std"], optional = true }
+object = { version = "=0.39.1", default-features = false, features = ["read", "std"], optional = true }
 # Linux and macOS carry no divergence from the published release -- the fork
 # zccache and soldr vendored exists only for the Windows fixes this crate
 # implements privately in `src/platform_win/fs_watch.rs` -- so this depends
 # on the exact upstream `notify` release directly. Default features are kept
 # so macOS retains its `macos_fsevent` backend.
-notify = { version = "=7.0.0", optional = true }
+notify = { version = "=8.2.1", optional = true }
 
 # A webview is a native desktop facility. Keeping these declarations target
 # scoped ensures enabling its feature for a Wasm guest never resolves a web
@@ -449,7 +449,7 @@ ksni = { version = "=0.3.6", optional = true }
 zbus = { version = "=5.19.0", default-features = false, features = ["tokio"], optional = true }
 gio = { version = "=0.18.4", optional = true }
 cairo-rs = { version = "=0.18.5", features = ["png"], optional = true }
-addr2line = { version = "=0.24.2", default-features = false, features = ["std", "loader"], optional = true }
+addr2line = { version = "=0.26.1", default-features = false, features = ["std", "loader"], optional = true }
 lzma-rs = { version = "=0.3.0", optional = true }
 x11rb = { version = "=0.13.2", optional = true }
 # These are the exact GTK/WebKitGTK bindings linked privately by the pinned
@@ -467,7 +467,7 @@ objc2-core-foundation = { version = "=0.3.2", optional = true, default-features 
 objc2-core-graphics = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "CGDataConsumer", "CGImage"] }
 objc2-image-io = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "CGImageDestination", "objc2-core-graphics"] }
 objc2-web-kit = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "WKWebView", "WKSnapshotConfiguration", "block2"] }
-addr2line = { version = "=0.24.2", default-features = false, features = ["std", "loader"], optional = true }
+addr2line = { version = "=0.26.1", default-features = false, features = ["std", "loader"], optional = true }
 lzma-rs = { version = "=0.3.0", optional = true }
 mach2 = "=0.4.3"
 
@@ -476,7 +476,7 @@ webview2-com = { version = "=0.39.1", optional = true }
 windows = { version = "=0.62.2", optional = true, features = ["Win32_System_Com", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-core = { version = "=0.62.2", optional = true }
 libc = "=0.2.189"
-object = { version = "=0.36.7", default-features = false, features = ["read", "std"], optional = true }
+object = { version = "=0.39.1", default-features = false, features = ["read", "std"], optional = true }
 pdb = { version = "=0.8.0", optional = true }
 pdb-addr2line = { version = "=0.12.1", optional = true }
 widestring = "=1.2.1"
@@ -534,7 +534,7 @@ tempfile = "=3.27.0"
 tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "test-util", "time"] }
 
 [build-dependencies]
-toml = "=0.8.23"
+toml = "=1.1.8"
 
 [package.metadata.docs.rs]
 # `full` deliberately excludes the four daemon slices (enforced by

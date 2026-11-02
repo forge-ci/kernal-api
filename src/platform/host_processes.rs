@@ -96,7 +96,7 @@ pub fn snapshot() -> Vec<ProcessSummary> {
         .map(|(pid, process)| ProcessSummary {
             pid: pid.as_u32(),
             parent_pid: process.parent().map(sysinfo::Pid::as_u32),
-            name: process.name().to_string(),
+            name: process.name().to_string_lossy().into_owned(),
             // Only a zombie, stopped or dead entry is not running. A live
             // process can be sampled in any other state -- disk sleep under
             // I/O load, waking, parked -- and is still running.

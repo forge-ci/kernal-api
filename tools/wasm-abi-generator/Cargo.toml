@@ -16,5 +16,5 @@ warnings = "deny"
 # Core-Wasm backend with bounded caller-memory stream lowering accepted for #13.
 [dependencies]
 fp-bindgen = { git = "https://github.com/zackees/fp-bindgen.git", rev = "b8ad400", default-features = false, features = ["wasmtime-core-wasm"] }
-toml = "=0.8.23"
+toml = "=1.1.8"
 wasmparser = { version = "=0.248.0", default-features = false }

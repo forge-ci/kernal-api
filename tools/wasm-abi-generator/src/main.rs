@@ -486,8 +486,7 @@ struct Contract {
 }
 impl Contract {
     fn parse(manifest: &str) -> Result<Self, String> {
-        let value: toml::Value = manifest
-            .parse()
+        let value: toml::Value = toml::from_str(manifest)
             .map_err(|error| format!("invalid manifest: {error}"))?;
         let root = value.as_table().ok_or("manifest must be a table")?;
         let string = |key: &str| -> Result<String, String> {
@@ -1013,7 +1012,7 @@ mod tests {
     }
     #[test]
     fn unsupported_shapes_cannot_borrow_another_imports_signature() {
-        let mut value: toml::Value = MANIFEST.parse().unwrap();
+        let mut value: toml::Table = MANIFEST.parse().unwrap();
         let imports = value.get_mut("imports").unwrap().as_array_mut().unwrap();
         let other = imports[0].clone();
         imports[0]["params"] = toml::Value::Array(vec![toml::Value::String("i32".into())]);
