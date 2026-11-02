@@ -13,6 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import native_proof as proof  # pylint: disable=wrong-import-position
 
+REPO = Path(__file__).resolve().parent.parent
+
 PATTERN = ("kernal", "WebKit", "rustc", "cc1", "collect2", "ld", "bwrap", "xdg-", "dbus", "Xvfb", "wasm_tauri", "cc ")
 
 
@@ -148,16 +150,27 @@ def screenshot_loop(native_target: str, bundle: Path, guests: Path, work: Path, 
 
 
 def nextest_split_tests(native_target: str) -> None:
-    """Run the real debug_symbol_split tests first on a fresh host, then show what rustup installed."""
-    sh("rustup toolchain list")
+    """GREEN: the fixed tests on a fresh host must not install a toolchain. RED: the old fixture call does."""
+    listing = "ls ~/.rustup/toolchains"  # never a rustup proxy: that would itself auto-install
+    sh(listing)
     start = time.monotonic()
     sh(
         f"cargo-nextest nextest run --archive-file kernal-tests-{native_target}.tar.zst --workspace-remap . "
-        "--no-fail-fast -E 'test(debug_symbol_split)' --success-output immediate 2>&1 | tail -60",
+        "--no-fail-fast -E 'test(debug_symbol_split)' --no-capture 2>&1 | grep -E 'PASS|FAIL|TIMEOUT|skipping|Summary'",
         600,
     )
-    print(f"debug_symbol_split tests took {time.monotonic() - start:.1f}s", flush=True)
-    sh("rustup toolchain list")
+    print(f"GREEN: fixed debug_symbol_split tests took {time.monotonic() - start:.1f}s", flush=True)
+    sh(listing)
+    source = Path(tempfile.mkdtemp()) / "old.rs"
+    source.write_text("fn main() {}\n")
+    old = " & ".join(
+        f"rustc -g -Cdebuginfo=2 -Clink-arg=-Wl,--build-id{'=none' if index % 2 else ''} -o {source}-{index} {source}"
+        for index in range(5)
+    )
+    start = time.monotonic()
+    sh(f"cd {REPO} && ( {old} & wait ) 2>&1 | tail -12", 600)
+    print(f"RED: old fixture invocation (repo cwd, 5 concurrent) took {time.monotonic() - start:.1f}s", flush=True)
+    sh(listing)
 
 
 def main() -> None:
