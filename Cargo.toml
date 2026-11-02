@@ -64,6 +64,10 @@ name = "gfx-parity"
 required-features = ["gfx-egui"]
 
 [[example]]
+name = "gfx-frame-count"
+required-features = ["gfx-egui"]
+
+[[example]]
 name = "gfx-dock"
 required-features = ["gfx-egui"]
 

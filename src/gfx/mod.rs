@@ -92,6 +92,21 @@ mod backend {
         pub(crate) fn request_screenshot(&mut self) {
             match self.0 {}
         }
+        pub(crate) fn request_repaint_after(&mut self, _: core::time::Duration) {
+            match self.0 {}
+        }
+        pub(crate) fn text_width(&self, _: &str, _: f32) -> f32 {
+            match self.0 {}
+        }
+        pub(crate) fn line_height(&self, _: f32) -> f32 {
+            match self.0 {}
+        }
+        pub(crate) fn available_width(&self) -> f32 {
+            match self.0 {}
+        }
+        pub(crate) fn available_height(&self) -> f32 {
+            match self.0 {}
+        }
     }
 
     pub(crate) fn capabilities() -> Capabilities {

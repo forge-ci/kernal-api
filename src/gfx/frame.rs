@@ -142,6 +142,48 @@ impl Frame<'_> {
         self.imp.request_screenshot();
     }
 
+    /// Width in logical pixels that `text` occupies on one line when drawn
+    /// at font `size` (logical pixels) with the active theme's body text
+    /// style, the same font [`Frame::label`] uses. The empty string is `0`.
+    /// A per-frame value: it follows theme and font changes.
+    #[must_use]
+    pub fn text_width(&self, text: &str, size: f32) -> f32 {
+        self.imp.text_width(text, size)
+    }
+
+    /// Height in logical pixels of one line of text at font `size` with the
+    /// active theme's body text style. A per-frame value.
+    #[must_use]
+    pub fn line_height(&self, size: f32) -> f32 {
+        self.imp.line_height(size)
+    }
+
+    /// Width in logical pixels left for widgets at the current layout
+    /// position: the real surface width minus the theme's panel margin at
+    /// the top level, less inside nested layouts. A per-frame value; it
+    /// tracks resizes and the compositor-assigned size of a dock.
+    #[must_use]
+    pub fn available_width(&self) -> f32 {
+        self.imp.available_width()
+    }
+
+    /// Height in logical pixels left for widgets at the current layout
+    /// position. A per-frame value, like [`Frame::available_width`].
+    #[must_use]
+    pub fn available_height(&self) -> f32 {
+        self.imp.available_height()
+    }
+
+    /// Ask for another frame no later than `after` from now, without input.
+    /// The backend wakes the app no later than this; a compositor that is
+    /// not drawing the window may still withhold frames (see
+    /// `docs/gfx-backend.md`, "When frames happen"). Input or other requests
+    /// can bring the frame earlier. Call it every frame that needs a timer,
+    /// for example once a second for a clock.
+    pub fn request_repaint_after(&mut self, after: core::time::Duration) {
+        self.imp.request_repaint_after(after);
+    }
+
     /// Schedule another frame even without input (for animation). The frame
     /// runs once the windowing system lets the window draw; see
     /// `docs/gfx-backend.md`, "When frames happen".

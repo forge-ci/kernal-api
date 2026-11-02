@@ -22,7 +22,8 @@ a public type position or `pub use`s one.
 | --- | --- | --- |
 | App / event loop ownership | `gfx::run(WindowOptions, impl App) -> Result<(), GfxError>` | `run` owns the event loop on the calling thread (the main thread on macOS) until the window closes. One window per `run`; `run` may be called again on the same thread after it returns (a resident app opens a fresh window per show). No async: a GUI loop is not a Tokio task. |
 | Window description | `WindowOptions` (builder): title, size, resizable, decorations, always-on-top, transparent, click-through, `Placement` (`Default`, `Centered`, `At`, `Monitor`, `Dock { edge: Edge, thickness }`), initial `Theme` | Fields are private; the builder is the contract, so fields can be added without breaking callers. |
-| Frame lifecycle | `App::frame(&mut Frame)` once per frame; `App::close_requested() -> bool` | Immediate mode: the app owns all state; a frame is a pure function of state plus events. `Frame::close`, `Frame::request_repaint` drive the loop. |
+| Frame lifecycle | `App::frame(&mut Frame)` once per frame; `App::close_requested() -> bool` | Immediate mode: the app owns all state; a frame is a pure function of state plus events. `Frame::close`, `Frame::request_repaint`, `Frame::request_repaint_after(Duration)` drive the loop. |
+| Layout metrics | `Frame::text_width(&str, size) -> f32`, `Frame::line_height(size) -> f32`, `Frame::available_width() -> f32`, `Frame::available_height() -> f32` | Plain logical-pixel `f32`s, read per frame. See "Layout metrics". |
 | Widget subset | `label`, `heading`, `button`, `toggle`, `text_field`, `slider`, `separator`, `space`, `horizontal`, `scroll`, `list`, `selectable_row` | The intersection every candidate backend can render. Each interactive widget returns "acted on this frame" as `bool`; no widget handles or response objects. See "Provisional widget set". |
 | Input | `Frame::events() -> &[Event]`: `Key`, `Text`, `PointerMoved`, `PointerButton`, `PointerLeft`, `Scroll` (pixels), `Focused`, `Screenshot` | Logical pixels, delivery order. `Frame::request_screenshot()` reads back the window's own rendered framebuffer (not the compositor's) and delivers it in a later frame as `Event::Screenshot { width, height, rgba }` (physical pixels, straight-alpha sRGB); it works wherever the renderer does, including llvmpipe, so CI can prove what was drawn. Backend-specific events (IME, touch, accessibility, clipboard) are dropped, not passed through. |
 | Theme tokens | `Theme { mode, accent, background, text_size, spacing, corner_radius }`, `Color` | Tokens, not a style tree. A backend maps them onto its own style system. |
@@ -53,6 +54,19 @@ windowing system lets the window draw:
   makes no difference. See issue #561 for the trace.
 - X11 and Xvfb have no frame callbacks, so frames run on request. A Vulkan
   present to an unmapped XWayland window can still block.
+
+`Frame::request_repaint_after(d)` asks for a frame no later than `d` from
+now: the backend wakes the app no later than this; a compositor that is not
+drawing the window may still withhold frames. It is a deadline, not a
+continuous repaint, so an idle clock costs one frame per tick instead of one
+per vblank. Request it again every frame that still needs the timer. On the
+dock path the deadline schedules the next frame directly; on the window path
+it is the backend's scheduled repaint.
+
+Observed on the unlocked host `wayland-0` session (KWin 6.7.4, issue #561),
+with `examples/gfx-frame-count.rs` for 5 s: `request_repaint` every frame ran
+262 frames; `request_repaint_after(1s)` ran 10 (startup plus one per
+second). The same window while the session was locked ran 1 frame in 10 s.
 
 So `App::frame` is not a timer. A frame means "the window may be drawn now".
 App logic that must make progress while a window is unpainted (IPC refresh,
@@ -126,6 +140,25 @@ Proven under `kwin_wayland --virtual` (1280x800, on a private D-Bus):
 KWin's scripting API reports `MaximizeArea x=0 y=36 w=1280 h=764` and the
 dock at `0,0 1280x36`, and a maximised window placed at `0,36 1280x764`.
 KWin's own screenshot shows the bar above that window's title bar.
+
+## Layout metrics
+
+For layouts that must decide what fits (a dock dropping zones that do not):
+
+- `Frame::text_width(text, size)`: the width of `text` on one line, no
+  wrapping, in the backend's body font at `size` logical pixels, which is the
+  font `label` draws with. Measured by the backend's own text layout, never
+  from fixed per-character metrics. The empty string is `0`.
+- `Frame::line_height(size)`: the height of one line in that font.
+- `Frame::available_width()` / `available_height()`: the space left at the
+  current layout position. At the top level of a frame this is the real
+  surface size (for a dock, the size the compositor assigned, not
+  `WindowOptions::size`) less the panel margin; inside `horizontal` or
+  `scroll` it is what remains there.
+
+All four are per-frame values: they follow the active theme's text style and
+the current surface, so read them in the frame that uses them and do not
+cache them across theme or size changes.
 
 ## Provisional widget set
 

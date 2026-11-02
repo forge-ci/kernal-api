@@ -40,6 +40,14 @@ pub(crate) fn run(options: WindowOptions, app: Box<dyn App>) -> Result<(), GfxEr
         return crate::native_gfx_dock::run(&options, edge, thickness, app);
     }
     let native = native_options(&options);
+    run_eframe(options, native, app)
+}
+
+fn run_eframe(
+    options: WindowOptions,
+    native: eframe::NativeOptions,
+    app: Box<dyn App>,
+) -> Result<(), GfxError> {
     let title = options.title.clone();
     let theme = options.theme;
     let transparent = options.transparent;
@@ -367,6 +375,45 @@ impl FrameImp<'_> {
     pub(crate) fn request_screenshot(&mut self) {
         self.shared.screenshot = true;
     }
+
+    pub(crate) fn request_repaint_after(&mut self, after: std::time::Duration) {
+        self.ui.ctx().request_repaint_after(after);
+    }
+
+    /// The body font family at `size`, as `label` draws it.
+    fn font(&self, size: f32) -> egui::FontId {
+        let family = self
+            .ui
+            .style()
+            .text_styles
+            .get(&egui::TextStyle::Body)
+            .map_or(egui::FontFamily::Proportional, |font| font.family.clone());
+        egui::FontId::new(size.max(0.0), family)
+    }
+
+    pub(crate) fn text_width(&self, text: &str, size: f32) -> f32 {
+        if text.is_empty() {
+            return 0.0;
+        }
+        let font = self.font(size);
+        let galley = self.ui.fonts_mut(|fonts| {
+            fonts.layout_no_wrap(text.to_owned(), font, egui::Color32::PLACEHOLDER)
+        });
+        galley.size().x
+    }
+
+    pub(crate) fn line_height(&self, size: f32) -> f32 {
+        let font = self.font(size);
+        self.ui.fonts_mut(|fonts| fonts.row_height(&font))
+    }
+
+    pub(crate) fn available_width(&self) -> f32 {
+        self.ui.available_width()
+    }
+
+    pub(crate) fn available_height(&self) -> f32 {
+        self.ui.available_height()
+    }
 }
 
 #[cfg(test)]
@@ -504,5 +551,154 @@ mod tests {
             f.text_field(&mut query);
         });
         assert_eq!(query, "fi");
+    }
+
+    /// Lay `body` out exactly as `run` does, in a central panel.
+    fn panel_frame(
+        ctx: &egui::Context,
+        size: (f32, f32),
+        mut body: impl FnMut(&mut crate::gfx::Frame<'_>),
+    ) {
+        struct Body<F>(F);
+        impl<F: FnMut(&mut crate::gfx::Frame<'_>)> App for Body<F> {
+            fn frame(&mut self, frame: &mut crate::gfx::Frame<'_>) {
+                (self.0)(frame);
+            }
+        }
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(size.0, size.1),
+            )),
+            ..egui::RawInput::default()
+        };
+        let mut app = Body(&mut body);
+        let mut output = ctx.run_ui(input, |ui| {
+            draw(ui, false, &mut app, &mut Shared::new(Vec::new()));
+        });
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn gfx_text_width_measures_with_the_label_font() {
+        let ctx = egui::Context::default();
+        let mut widths = None;
+        frame(&ctx, Vec::new(), |f| {
+            let short = f.text_width("12:00", 14.0);
+            let long = f.text_width("12:00:00 UTC", 14.0);
+            let again = f.text_width("12:00:00 UTC", 14.0);
+            let empty = f.text_width("", 14.0);
+            let bigger = f.text_width("12:00:00 UTC", 28.0);
+            let line = f.line_height(14.0);
+            widths = Some((short, long, again, empty, bigger, line));
+        });
+        let Some((short, long, again, empty, bigger, line)) = widths else {
+            panic!("frame body did not run");
+        };
+        assert!(short > 0.0, "{short}");
+        assert!(long > short, "{long} <= {short}");
+        assert!((long - again).abs() < f32::EPSILON, "{long} != {again}");
+        assert!(empty.abs() < f32::EPSILON, "{empty}");
+        assert!(bigger > long * 1.5, "{bigger} vs {long}");
+        assert!(line > 10.0 && line < 30.0, "{line}");
+    }
+
+    #[test]
+    fn gfx_text_width_matches_the_drawn_label() {
+        let ctx = egui::Context::default();
+        let size = ctx.global_style().text_styles[&egui::TextStyle::Body].size;
+        let mut measured = 0.0;
+        let mut drawn = 0.0;
+        frame(&ctx, Vec::new(), |f| {
+            measured = f.text_width("Mon 2 Nov 12:00", size);
+            drawn = f.imp.ui.label("Mon 2 Nov 12:00").rect.width();
+        });
+        assert!((measured - drawn).abs() < 0.5, "{measured} vs {drawn}");
+    }
+
+    #[test]
+    fn gfx_available_width_matches_the_window_size() {
+        let options = WindowOptions::new("t").size(640.0, 36.0);
+        let ctx = egui::Context::default();
+        let mut available = (0.0, 0.0);
+        panel_frame(&ctx, options.size, |f| {
+            available = (f.available_width(), f.available_height());
+        });
+        let (width, height) = available;
+        assert!(width > 0.0 && height > 0.0, "{available:?}");
+        // The central panel's margin is all that separates them.
+        assert!((options.size.0 - width).abs() <= 24.0, "{width}");
+        assert!((options.size.1 - height).abs() <= 24.0, "{height}");
+    }
+
+    #[test]
+    fn gfx_request_repaint_after_schedules_a_frame() {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput::default();
+        let mut output = ctx.run_ui(input, |ui| {
+            let mut shared = Shared::new(Vec::new());
+            let mut frame = crate::gfx::Frame {
+                imp: FrameImp {
+                    ui,
+                    shared: &mut shared,
+                },
+            };
+            frame.request_repaint_after(std::time::Duration::from_secs(1));
+        });
+        output.textures_delta.clear();
+        let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+        assert!(delay <= std::time::Duration::from_secs(1), "{delay:?}");
+    }
+
+    /// A real window on X11: `request_repaint_after(1s)` alone keeps frames
+    /// coming. Runs only on a bare X server (Xvfb) so a test never opens a
+    /// window on a developer's Wayland desktop:
+    /// `env -u WAYLAND_DISPLAY DISPLAY=:99 cargo test ... gfx_xvfb`.
+    #[test]
+    fn gfx_xvfb_request_repaint_after_wakes_the_app() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::time::{Duration, Instant};
+        use winit::platform::x11::EventLoopBuilderExtX11;
+
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_none()
+        {
+            eprintln!("skipped: needs DISPLAY on a bare X server and no WAYLAND_DISPLAY");
+            return;
+        }
+        struct Ticker {
+            frames: Arc<AtomicU32>,
+            start: Instant,
+        }
+        impl App for Ticker {
+            fn frame(&mut self, frame: &mut crate::gfx::Frame<'_>) {
+                // Only frames past startup can come from the timer.
+                if self.start.elapsed() >= Duration::from_millis(300) {
+                    self.frames.fetch_add(1, Ordering::SeqCst);
+                }
+                frame.label("tick");
+                if self.start.elapsed() >= Duration::from_millis(2500) {
+                    frame.close();
+                } else {
+                    frame.request_repaint_after(Duration::from_secs(1));
+                }
+            }
+        }
+        let frames = Arc::new(AtomicU32::new(0));
+        let options = WindowOptions::new("repaint-after").size(160.0, 60.0);
+        let mut native = native_options(&options);
+        native.event_loop_builder = Some(Box::new(|builder| {
+            builder.with_x11().with_any_thread(true);
+        }));
+        let app = Ticker {
+            frames: Arc::clone(&frames),
+            start: Instant::now(),
+        };
+        let watchdog = Instant::now();
+        let result = run_eframe(options, native, Box::new(app));
+        let count = frames.load(Ordering::SeqCst);
+        assert!(result.is_ok(), "{result:?}");
+        // At least two timer wakes in ~2.5 s; bounded, not exact.
+        assert!(count >= 2, "only {count} frames after startup");
+        assert!(watchdog.elapsed() < Duration::from_secs(10), "{:?}", watchdog.elapsed());
     }
 }
