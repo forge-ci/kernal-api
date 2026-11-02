@@ -723,7 +723,7 @@ impl Dock {
         layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
         layer.commit();
         let target = self.gpu.open(&self._conn, &surface, self.transparent)?;
-        let mut view = View::new(target, layer, surface, self.theme);
+        let mut view = View::new(target, layer, surface, self.theme.for_panel());
         view.scale = self.main.scale;
         self.panel = Some(Panel { view, options });
         Ok(())
@@ -742,7 +742,7 @@ impl Dock {
         apply_theme(&self.main.ctx, theme);
         self.main.request_frame(Duration::ZERO);
         if let Some(panel) = &mut self.panel {
-            apply_theme(&panel.view.ctx, theme);
+            apply_theme(&panel.view.ctx, theme.for_panel());
             panel.view.request_frame(Duration::ZERO);
         }
     }

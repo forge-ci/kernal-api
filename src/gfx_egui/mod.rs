@@ -115,6 +115,9 @@ pub(crate) fn apply_theme(ctx: &egui::Context, theme: Theme) {
         visuals.panel_fill = color32(background);
         visuals.window_fill = color32(background);
     }
+    if let Some(foreground) = theme.foreground {
+        visuals.override_text_color = Some(color32(foreground));
+    }
     let radius = egui::CornerRadius::same(corner(theme.corner_radius));
     for widget in [
         &mut visuals.widgets.noninteractive,
