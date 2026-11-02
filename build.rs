@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn verify_wasm_feature_isolation(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let raw = std::fs::read_to_string(path)?;
-    let manifest = raw.parse::<toml::Value>()?;
+    let manifest = toml::from_str::<toml::Value>(&raw)?;
     let features = manifest
         .get("features")
         .and_then(toml::Value::as_table)
@@ -91,7 +91,7 @@ fn read_manifest(path: &Path) -> ParsedManifest {
     let Ok(raw) = std::fs::read_to_string(path) else {
         return ParsedManifest::default();
     };
-    let Ok(table) = raw.parse::<toml::Value>() else {
+    let Ok(table) = toml::from_str::<toml::Value>(&raw) else {
         return ParsedManifest::default();
     };
     let mut parsed = ParsedManifest::default();

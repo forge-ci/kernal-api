@@ -486,8 +486,7 @@ struct Contract {
 }
 impl Contract {
     fn parse(manifest: &str) -> Result<Self, String> {
-        let value: toml::Value = manifest
-            .parse()
+        let value: toml::Value = toml::from_str(manifest)
             .map_err(|error| format!("invalid manifest: {error}"))?;
         let root = value.as_table().ok_or("manifest must be a table")?;
         let string = |key: &str| -> Result<String, String> {

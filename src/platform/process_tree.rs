@@ -24,7 +24,7 @@ pub(crate) fn kill_tree(
     }
 
     let mut system = System::new();
-    system.refresh_processes();
+    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, sysinfo::ProcessRefreshKind::everything());
     let mut targets = vec![(root, 0_usize)];
     collect_descendants(&system, root.pid(), 1, &mut HashSet::new(), &mut targets, capture);
     targets.sort_unstable_by_key(|(_, depth)| std::cmp::Reverse(*depth));
@@ -43,7 +43,7 @@ pub(crate) fn kill_tree(
         if started.elapsed() >= timeout {
             break;
         }
-        system.refresh_processes();
+        system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, sysinfo::ProcessRefreshKind::everything());
         if !targets.iter().any(|target| matches!(capture(target.pid()), ProcessIdentityCapture::Found(current) if current == *target)) {
             break;
         }
