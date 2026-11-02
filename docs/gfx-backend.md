@@ -23,7 +23,7 @@ a public type position or `pub use`s one.
 | App / event loop ownership | `gfx::run(WindowOptions, impl App) -> Result<(), GfxError>` | `run` owns the event loop on the calling thread (the main thread on macOS) until the window closes. One window per `run`. No async: a GUI loop is not a Tokio task. |
 | Window description | `WindowOptions` (builder): title, size, resizable, decorations, always-on-top, transparent, click-through, `Placement`, initial `Theme` | Fields are private; the builder is the contract, so fields can be added without breaking callers. |
 | Frame lifecycle | `App::frame(&mut Frame)` once per frame; `App::close_requested() -> bool` | Immediate mode: the app owns all state; a frame is a pure function of state plus events. `Frame::close`, `Frame::request_repaint` drive the loop. |
-| Widget subset | `label`, `heading`, `button`, `toggle`, `text_field`, `slider`, `separator`, `space`, `horizontal` | The intersection every candidate backend can render. Each interactive widget returns "acted on this frame" as `bool`; no widget handles or response objects. |
+| Widget subset | `label`, `heading`, `button`, `toggle`, `text_field`, `slider`, `separator`, `space`, `horizontal`, `scroll`, `list`, `selectable_row` | The intersection every candidate backend can render. Each interactive widget returns "acted on this frame" as `bool`; no widget handles or response objects. See "Provisional widget set". |
 | Input | `Frame::events() -> &[Event]`: `Key`, `Text`, `PointerMoved`, `PointerButton`, `PointerLeft`, `Scroll` (pixels), `Focused` | Logical pixels, delivery order. Backend-specific events (IME, touch, accessibility, clipboard) are dropped, not passed through. |
 | Theme tokens | `Theme { mode, accent, background, text_size, spacing, corner_radius }`, `Color` | Tokens, not a style tree. A backend maps them onto its own style system. |
 | Capability query | `gfx::capabilities() -> Capabilities` of `Support::{Supported, BestEffort, Unsupported}` | `run` validates options against it first and fails with `GfxErrorKind::Unsupported`; it never silently degrades. |
@@ -32,6 +32,30 @@ Every public enum and `Capabilities` is `#[non_exhaustive]`. The frame
 context is a facade struct with a private, feature-selected implementation
 field; there is no public backend trait and no `impl` of a backend trait for
 a facade type.
+
+## Provisional widget set
+
+Added for result lists (the talos-bar search popover is the first consumer):
+
+- `Frame::scroll(height, |f| ..)`: a vertical region `height` logical pixels
+  tall and layout-wide; taller content is clipped and scrolls (wheel, drag,
+  bar). No horizontal scrolling, no programmatic offset.
+- `Frame::list(|f| ..)`: the list convention. Rows are stacked with
+  `Theme::spacing / 2` between them; groups are split with `separator`. No
+  other list styling exists, so consumers do not invent any.
+- `Frame::selectable_row(text, selected) -> bool`: a full-width row,
+  accent-filled when `selected`, with the backend's hover/press feedback;
+  `true` when clicked. Selection state is the app's. On the frame a row
+  becomes selected it scrolls itself into the enclosing `scroll`, so arrow-key
+  navigation keeps the selection visible while a wheel scroll away from a
+  selection that has not changed is left alone.
+- `text_field` focus: when nothing holds keyboard focus, the first text field
+  in a frame takes it, so a single-field window types immediately. There is no
+  explicit focus API yet.
+
+Keyboard navigation is the app's: read `Key::ArrowUp`/`ArrowDown`/`Enter`
+from `Frame::events` and move `selected`. Rows identify themselves by layout
+position, which is enough for a list rebuilt each frame.
 
 ## Deliberately not portable
 

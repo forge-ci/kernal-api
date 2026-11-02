@@ -40,6 +40,10 @@ impl Frame<'_> {
     }
 
     /// A single-line text field bound to `value`; `true` when edited.
+    ///
+    /// When no widget holds keyboard focus, the first text field drawn in a
+    /// frame takes it, so a window whose UI is one field accepts typing
+    /// immediately.
     pub fn text_field(&mut self, value: &mut String) -> bool {
         self.imp.text_field(value)
     }
@@ -57,6 +61,49 @@ impl Frame<'_> {
     /// Empty space of `amount` logical pixels along the layout direction.
     pub fn space(&mut self, amount: f32) {
         self.imp.space(amount);
+    }
+
+    /// A vertically scrolling region `height` logical pixels tall and as wide
+    /// as the layout. Content taller than the region is clipped and scrolls
+    /// with the wheel, drag or scroll bar.
+    pub fn scroll<R>(&mut self, height: f32, contents: impl FnOnce(&mut Frame<'_>) -> R) -> R {
+        let mut contents = Some(contents);
+        let mut result = None;
+        self.imp.scroll(height, &mut |imp| {
+            if let Some(contents) = contents.take() {
+                result = Some(contents(&mut Frame { imp }));
+            }
+        });
+        match result {
+            Some(result) => result,
+            None => unreachable!("the backend runs the scroll body exactly once"),
+        }
+    }
+
+    /// Lay out a list: rows added by `contents` are stacked with half the
+    /// theme spacing between them. Use [`Frame::separator`] between groups.
+    pub fn list<R>(&mut self, contents: impl FnOnce(&mut Frame<'_>) -> R) -> R {
+        let mut contents = Some(contents);
+        let mut result = None;
+        self.imp.list(&mut |imp| {
+            if let Some(contents) = contents.take() {
+                result = Some(contents(&mut Frame { imp }));
+            }
+        });
+        match result {
+            Some(result) => result,
+            None => unreachable!("the backend runs the list body exactly once"),
+        }
+    }
+
+    /// A full-width row showing `text`, highlighted with the theme accent
+    /// when `selected`, with hover and press feedback; `true` when clicked.
+    ///
+    /// Inside [`Frame::scroll`], a row scrolls itself into view on the frame
+    /// it becomes selected, so keyboard navigation keeps the selection
+    /// visible without fighting the user's own scrolling.
+    pub fn selectable_row(&mut self, text: &str, selected: bool) -> bool {
+        self.imp.selectable_row(text, selected)
     }
 
     /// Lay out the widgets added by `contents` left to right.

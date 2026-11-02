@@ -114,6 +114,11 @@ fn apply_theme(ctx: &egui::Context, theme: Theme) {
     });
 }
 
+/// Vertical gap between list rows: half the theme spacing.
+fn list_spacing(spacing: f32) -> f32 {
+    (spacing / 2.0).max(0.0)
+}
+
 /// Clamp a token radius into egui's `u8` corner radius.
 fn corner(radius: f32) -> u8 {
     if radius.is_nan() || radius <= 0.0 {
@@ -221,7 +226,11 @@ impl FrameImp<'_> {
     }
 
     pub(crate) fn text_field(&mut self, value: &mut String) -> bool {
-        self.ui.text_edit_singleline(value).changed()
+        let response = self.ui.text_edit_singleline(value);
+        if self.ui.ctx().memory(|memory| memory.focused().is_none()) {
+            response.request_focus();
+        }
+        response.changed()
     }
 
     pub(crate) fn slider(&mut self, value: &mut f64, range: RangeInclusive<f64>, text: &str) -> bool {
@@ -243,6 +252,43 @@ impl FrameImp<'_> {
         self.ui.horizontal(|ui| body(FrameImp { ui, shared }));
     }
 
+    pub(crate) fn scroll(&mut self, height: f32, body: &mut dyn FnMut(FrameImp<'_>)) {
+        let shared = &mut *self.shared;
+        egui::ScrollArea::vertical()
+            .max_height(height.max(0.0))
+            .min_scrolled_height(height.max(0.0))
+            .auto_shrink([false, false])
+            .show(self.ui, |ui| body(FrameImp { ui, shared }));
+    }
+
+    pub(crate) fn list(&mut self, body: &mut dyn FnMut(FrameImp<'_>)) {
+        let shared = &mut *self.shared;
+        self.ui.vertical(|ui| {
+            let spacing = ui.spacing().item_spacing.y;
+            ui.spacing_mut().item_spacing.y = list_spacing(spacing);
+            body(FrameImp { ui, shared });
+        });
+    }
+
+    pub(crate) fn selectable_row(&mut self, text: &str, selected: bool) -> bool {
+        let width = self.ui.available_width();
+        let row = egui::Button::selectable(selected, text)
+            .min_size(egui::vec2(width, 0.0))
+            .frame_when_inactive(selected);
+        let response = self.ui.add(row);
+        // Scroll into view only on the transition to selected, so a wheel
+        // scroll away from a still-selected row is not undone next frame.
+        let was_selected = self.ui.ctx().data_mut(|data| {
+            let was = data.get_temp::<bool>(response.id).unwrap_or(false);
+            data.insert_temp(response.id, selected);
+            was
+        });
+        if selected && !was_selected {
+            response.scroll_to_me(None);
+        }
+        response.clicked()
+    }
+
     pub(crate) fn set_theme(&mut self, theme: Theme) {
         self.shared.theme = Some(theme);
     }
@@ -253,5 +299,118 @@ impl FrameImp<'_> {
 
     pub(crate) fn request_repaint(&mut self) {
         self.ui.ctx().request_repaint();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Run one headless frame (no window, no GPU) over `events`.
+    fn frame(
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+        mut body: impl FnMut(&mut crate::gfx::Frame<'_>),
+    ) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 300.0),
+            )),
+            events,
+            ..egui::RawInput::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            let mut shared = Shared {
+                events: Vec::new(),
+                theme: None,
+                close: false,
+            };
+            let mut frame = crate::gfx::Frame {
+                imp: FrameImp {
+                    ui,
+                    shared: &mut shared,
+                },
+            };
+            body(&mut frame);
+        });
+        // Headless: there is no renderer to upload font textures to.
+        output.textures_delta.clear();
+    }
+
+    fn click(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn list_spacing_is_half_the_theme_spacing() {
+        assert!((list_spacing(8.0) - 4.0).abs() < f32::EPSILON);
+        assert!(list_spacing(-2.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn scroll_clips_tall_content_to_the_region() {
+        let ctx = egui::Context::default();
+        let mut outer = egui::Rect::NOTHING;
+        let mut inner_bottom = 0.0;
+        for _ in 0..2 {
+            frame(&ctx, Vec::new(), |f| {
+                let top = f.imp.ui.cursor().top();
+                f.scroll(100.0, |f| {
+                    for i in 0..50 {
+                        f.selectable_row(&format!("row {i}"), false);
+                    }
+                    inner_bottom = f.imp.ui.min_rect().bottom();
+                });
+                outer = egui::Rect::from_x_y_ranges(0.0..=1.0, top..=f.imp.ui.cursor().top());
+            });
+        }
+        assert!(inner_bottom - outer.top() > 500.0, "content is taller than the region");
+        let used = outer.height();
+        assert!((100.0..120.0).contains(&used), "region takes ~100 px, took {used}");
+    }
+
+    #[test]
+    fn selectable_row_reports_a_click() {
+        let ctx = egui::Context::default();
+        let rect = std::cell::Cell::new(egui::Rect::NOTHING);
+        let mut clicked = Vec::new();
+        let mut draw = |events| {
+            frame(&ctx, events, |f| {
+                let hit = f.list(|f| {
+                    let first = f.selectable_row("first", true);
+                    rect.set(f.imp.ui.min_rect());
+                    let second = f.selectable_row("second", false);
+                    (first, second)
+                });
+                clicked.push(hit);
+            });
+        };
+        draw(Vec::new());
+        let first = rect.get();
+        let target = egui::pos2(first.center().x, first.top() + 4.0);
+        draw(vec![egui::Event::PointerMoved(target)]);
+        draw(vec![click(target, true)]);
+        draw(vec![click(target, false)]);
+        assert!(clicked.iter().any(|&(first, _)| first), "first row clicked: {clicked:?}");
+        assert!(clicked.iter().all(|&(_, second)| !second), "second row untouched: {clicked:?}");
+    }
+
+    #[test]
+    fn text_field_takes_focus_when_nothing_has_it() {
+        let ctx = egui::Context::default();
+        let mut query = String::new();
+        frame(&ctx, Vec::new(), |f| {
+            f.text_field(&mut query);
+        });
+        frame(&ctx, vec![egui::Event::Text("fi".into())], |f| {
+            f.text_field(&mut query);
+        });
+        assert_eq!(query, "fi");
     }
 }

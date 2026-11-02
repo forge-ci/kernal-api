@@ -71,6 +71,15 @@ mod backend {
         pub(crate) fn horizontal(&mut self, _: &mut dyn FnMut(FrameImp<'_>)) {
             match self.0 {}
         }
+        pub(crate) fn scroll(&mut self, _: f32, _: &mut dyn FnMut(FrameImp<'_>)) {
+            match self.0 {}
+        }
+        pub(crate) fn list(&mut self, _: &mut dyn FnMut(FrameImp<'_>)) {
+            match self.0 {}
+        }
+        pub(crate) fn selectable_row(&mut self, _: &str, _: bool) -> bool {
+            match self.0 {}
+        }
         pub(crate) fn set_theme(&mut self, _: Theme) {
             match self.0 {}
         }
