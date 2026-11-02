@@ -220,13 +220,15 @@ pub struct Capabilities {
     pub absolute_placement: Support,
     /// [`Placement::Monitor`].
     pub monitor_placement: Support,
-    /// [`Placement::Dock`]: a desktop-reserved edge surface. Decided per
-    /// session, not per build (for example only Wayland compositors that
-    /// offer the layer-shell protocol); [`run`] reports the exact reason
-    /// when it is unavailable.
+    /// [`Placement::Dock`]: an edge surface the desktop reserves space for.
+    /// [`Support::Supported`] where the space really is reserved (a Wayland
+    /// layer-shell exclusive zone, decided per session; a Windows AppBar);
+    /// [`Support::BestEffort`] on macOS, where the dock is a status-level
+    /// window and nothing is reserved because AppKit has nothing to reserve.
+    /// [`run`] reports the exact reason when it is unavailable.
     pub dock: Support,
-    /// [`Frame::show_panel`]: drop-down panels beside a dock. Available
-    /// exactly where [`Capabilities::dock`] is, and only to an app run with
+    /// [`Frame::show_panel`]: drop-down panels beside a dock. Available on
+    /// layer-shell docks (Linux Wayland) only, and only to an app run with
     /// [`Placement::Dock`]; elsewhere `show_panel` returns
     /// [`GfxErrorKind::Unsupported`].
     pub panels: Support,

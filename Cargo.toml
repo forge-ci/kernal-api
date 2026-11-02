@@ -238,7 +238,7 @@ system-tray = ["dep:ksni"]
 gfx = []
 # egui immediate-mode backend for `gfx`: eframe glue over egui, egui-wgpu,
 # wgpu and winit, all private (see docs/gfx-backend.md).
-gfx-egui = ["gfx", "dep:eframe", "dep:egui", "dep:egui-wgpu", "dep:wgpu", "dep:winit", "dep:smithay-client-toolkit", "dep:raw-window-handle", "dep:xkbcommon-dl"]
+gfx-egui = ["gfx", "dep:eframe", "dep:egui", "dep:egui-wgpu", "dep:wgpu", "dep:winit", "dep:smithay-client-toolkit", "dep:raw-window-handle", "dep:xkbcommon-dl", "dep:windows", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 # Desktop-wide key chords: XDG GlobalShortcuts portal, Win32 RegisterHotKey, Carbon RegisterEventHotKey.
 global-hotkey = ["dep:zbus", "dep:futures-util", "dep:serde"]
 # Installed applications, launch, and default-handler URI opening.
@@ -480,13 +480,16 @@ tauri-utils = { version = "=2.9.3", optional = true }
 # Tauri runtime still uses private Wry 0.55 for its event-loop integration;
 # only this direct Wry creates the facade's isolated external webviews.
 wry = { version = "=0.57.0", default-features = false, features = ["os-webview"], optional = true }
+# `gfx-egui` docks reach the native window behind eframe (a Wayland surface
+# on Linux, the HWND an AppBar registers on Windows, the NSView whose window
+# a macOS dock raises). Pinned to the version winit already resolves.
+raw-window-handle = { version = "=0.6.2", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # `gfx-egui` docks: a wlr-layer-shell surface beside eframe, since winit only
 # makes xdg_toplevel windows. Both are already in the tree under winit, pinned
 # to the versions winit resolves (see docs/gfx-backend.md, "Docks").
 smithay-client-toolkit = { version = "=0.19.2", default-features = false, features = ["calloop"], optional = true }
-raw-window-handle = { version = "=0.6.2", optional = true }
 # Dock panels' text input: the compositor's keymap, loaded at run time. Pinned
 # to the version winit already resolves.
 xkbcommon-dl = { version = "=0.4.2", optional = true }
@@ -506,8 +509,8 @@ webkit2gtk = { version = "=2.0.2", features = ["v2_40"], optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = { version = "=0.6.2", optional = true }
 objc2 = { version = "=0.6.4", optional = true }
-objc2-app-kit = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSApplication", "NSImage", "NSImageRep", "NSGraphicsContext", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "objc2-core-graphics"] }
-objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSError"] }
+objc2-app-kit = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSApplication", "NSImage", "NSImageRep", "NSGraphicsContext", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "objc2-core-graphics"] }
+objc2-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "NSArray", "NSError", "NSGeometry", "NSString"] }
 objc2-core-foundation = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "CFString"] }
 objc2-core-graphics = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "CGDataConsumer", "CGImage"] }
 objc2-image-io = { version = "=0.3.2", optional = true, default-features = false, features = ["std", "CGImageDestination", "objc2-core-graphics"] }
@@ -518,7 +521,7 @@ mach2 = "=0.4.3"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = { version = "=0.39.1", optional = true }
-windows = { version = "=0.62.2", optional = true, features = ["Win32_System_Com", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "=0.62.2", optional = true, features = ["Win32_System_Com", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-core = { version = "=0.62.2", optional = true }
 libc = "=0.2.189"
 object = { version = "=0.39.1", default-features = false, features = ["read", "std"], optional = true }

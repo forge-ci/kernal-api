@@ -2,9 +2,10 @@
 //! winit name stays inside this module tree.
 
 pub(crate) mod input;
-mod offscreen;
+pub(crate) mod offscreen;
+pub(crate) mod window_dock;
 
-pub(crate) use offscreen::{block_on, read_back, snapshot};
+pub(crate) use offscreen::snapshot;
 
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -26,11 +27,13 @@ pub(crate) fn capabilities() -> Capabilities {
         absolute_placement: Support::BestEffort,
         // eframe creates the window before monitors can be enumerated.
         monitor_placement: Support::Unsupported,
-        // A layer-shell surface on Linux Wayland, probed once per process;
-        // see docs/gfx-backend.md, "Docks".
+        // Per host: a layer-shell surface on Linux Wayland (probed once per
+        // process), an AppBar on Windows, a status-level window on macOS
+        // (best effort: nothing is reserved); see docs/gfx-backend.md, "Docks".
         dock: crate::native_gfx_dock::support(),
-        // Panels are extra layer surfaces of a running dock.
-        panels: crate::native_gfx_dock::support(),
+        // Panels are extra layer surfaces of a running layer-shell dock;
+        // a window dock (Windows, macOS) has none.
+        panels: crate::native_gfx_dock::panel_support(),
         // A dock's output is chosen when its layer surface is created.
         dock_monitor: crate::native_gfx_dock::support(),
         // A running dock is re-created on the new output.
@@ -46,13 +49,16 @@ pub(crate) fn run(options: WindowOptions, app: Box<dyn App>) -> Result<(), GfxEr
         return crate::native_gfx_dock::run(&options, edge, thickness, app);
     }
     let native = native_options(&options);
-    run_eframe(options, native, app)
+    run_eframe_with(&options, native, app, None)
 }
 
-fn run_eframe(
-    options: WindowOptions,
+/// Drive `app` in an eframe window; `dock` turns the window into a dock
+/// through its host once the window exists.
+pub(crate) fn run_eframe_with(
+    options: &WindowOptions,
     native: eframe::NativeOptions,
     app: Box<dyn App>,
+    dock: Option<window_dock::WindowDock>,
 ) -> Result<(), GfxError> {
     let title = options.title.clone();
     let theme = options.theme;
@@ -62,7 +68,16 @@ fn run_eframe(
         native,
         Box::new(move |cc| {
             apply_theme(&cc.egui_ctx, theme);
+            let mut dock = dock;
+            if let Some(dock) = dock.as_mut() {
+                use raw_window_handle::HasWindowHandle as _;
+                let handle = cc
+                    .window_handle()
+                    .map_err(|error| GfxError::new(GfxErrorKind::Backend, error.to_string()))?;
+                dock.attach(handle.as_raw())?;
+            }
             Ok(Box::new(Adapter {
+                dock,
                 app,
                 theme,
                 pending_theme: None,
@@ -75,7 +90,7 @@ fn run_eframe(
     .map_err(|error| GfxError::new(GfxErrorKind::Backend, error.to_string()))
 }
 
-fn native_options(options: &WindowOptions) -> eframe::NativeOptions {
+pub(crate) fn native_options(options: &WindowOptions) -> eframe::NativeOptions {
     let (width, height) = options.size;
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(options.title.clone())
@@ -166,6 +181,8 @@ fn corner(radius: f32) -> u8 {
 
 struct Adapter {
     app: Box<dyn App>,
+    /// Set when this window is a dock (see `window_dock`).
+    dock: Option<window_dock::WindowDock>,
     theme: Theme,
     pending_theme: Option<Theme>,
     transparent: bool,
@@ -192,9 +209,23 @@ impl eframe::App for Adapter {
         if ctx.input(|input| input.viewport().close_requested()) && !self.app.close_requested() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
+        if let Some(event) = self.dock.as_mut().and_then(window_dock::WindowDock::take_event) {
+            self.events.insert(0, event);
+        }
         let mut shared = Shared::new(std::mem::take(&mut self.events));
+        if let Some(dock) = self.dock.as_mut() {
+            shared.dock = true;
+            shared.monitors = dock.monitors();
+        }
         let app = &mut *self.app;
         draw(ui, self.transparent, &mut shared, &mut |frame| app.frame(frame));
+        if let Some(dock) = self.dock.as_mut() {
+            let moved = shared.monitor.is_some();
+            dock.update(shared.monitor.take(), shared.dock_length.take());
+            if moved {
+                ctx.request_repaint();
+            }
+        }
         self.events = shared.events;
         self.pending_theme = shared.theme;
         if self.pending_theme.is_some() {
@@ -213,6 +244,12 @@ impl eframe::App for Adapter {
         }
         if shared.close {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    fn on_exit(&mut self) {
+        if let Some(dock) = self.dock.as_mut() {
+            dock.detach();
         }
     }
 
@@ -269,8 +306,10 @@ pub(crate) struct Shared {
     pub(crate) theme: Option<Theme>,
     pub(crate) close: bool,
     pub(crate) screenshot: bool,
-    /// Whether this surface may open a panel (a dock's own frame).
+    /// Whether this surface may open a panel (a layer-shell dock's frame).
     pub(crate) panels: bool,
+    /// Whether this surface is a dock (may change its length or monitor).
+    pub(crate) dock: bool,
     /// The panel asked for this frame, if any.
     pub(crate) panel: Option<PanelOptions>,
     /// A new dock length asked for this frame, if any.
@@ -289,6 +328,7 @@ impl Shared {
             close: false,
             screenshot: false,
             panels: false,
+            dock: false,
             panel: None,
             dock_length: None,
             monitors: Vec::new(),
@@ -486,7 +526,7 @@ impl FrameImp<'_> {
         if !self.shared.panels {
             return Err(GfxError::new(
                 GfxErrorKind::Unsupported,
-                "show_panel needs an app run with Placement::Dock on a host that supports docks",
+                "show_panel needs an app run with Placement::Dock on a host whose docks have panels (Capabilities::panels)",
             ));
         }
         self.shared.panel = Some(panel);
@@ -494,8 +534,7 @@ impl FrameImp<'_> {
     }
 
     pub(crate) fn set_dock_length(&mut self, length: DockLength) -> Result<(), GfxError> {
-        // Only a dock's own frame may open panels, so the flag says "dock".
-        if !self.shared.panels {
+        if !self.shared.dock {
             return Err(GfxError::new(
                 GfxErrorKind::Unsupported,
                 "set_dock_length needs an app run with Placement::Dock on a host that supports docks",
@@ -510,7 +549,7 @@ impl FrameImp<'_> {
     }
 
     pub(crate) fn set_monitor(&mut self, monitor: Monitor) -> Result<(), GfxError> {
-        if !self.shared.panels {
+        if !self.shared.dock {
             return Err(GfxError::new(
                 GfxErrorKind::Unsupported,
                 "set_monitor needs an app run with Placement::Dock on a host that supports docks",
@@ -627,6 +666,7 @@ mod tests {
         let mut output = ctx.run_ui(input, |ui| {
             let mut shared = Shared::new(Vec::new());
             shared.panels = true;
+            shared.dock = true;
             let mut frame = crate::gfx::Frame {
                 imp: FrameImp {
                     ui,
@@ -659,6 +699,7 @@ mod tests {
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let mut shared = Shared::new(Vec::new());
             shared.panels = true;
+            shared.dock = true;
             let mut frame = crate::gfx::Frame {
                 imp: FrameImp {
                     ui,
@@ -895,57 +936,5 @@ mod tests {
         output.textures_delta.clear();
         let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
         assert!(delay <= std::time::Duration::from_secs(1), "{delay:?}");
-    }
-
-    /// A real window on X11: `request_repaint_after(1s)` alone keeps frames
-    /// coming. Runs only on a bare X server (Xvfb) so a test never opens a
-    /// window on a developer's Wayland desktop:
-    /// `env -u WAYLAND_DISPLAY DISPLAY=:99 cargo test ... gfx_xvfb`.
-    #[test]
-    fn gfx_xvfb_request_repaint_after_wakes_the_app() {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        use std::time::{Duration, Instant};
-        use winit::platform::x11::EventLoopBuilderExtX11;
-
-        if std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_none()
-        {
-            eprintln!("skipped: needs DISPLAY on a bare X server and no WAYLAND_DISPLAY");
-            return;
-        }
-        struct Ticker {
-            frames: Arc<AtomicU32>,
-            start: Instant,
-        }
-        impl App for Ticker {
-            fn frame(&mut self, frame: &mut crate::gfx::Frame<'_>) {
-                // Only frames past startup can come from the timer.
-                if self.start.elapsed() >= Duration::from_millis(300) {
-                    self.frames.fetch_add(1, Ordering::SeqCst);
-                }
-                frame.label("tick");
-                if self.start.elapsed() >= Duration::from_millis(2500) {
-                    frame.close();
-                } else {
-                    frame.request_repaint_after(Duration::from_secs(1));
-                }
-            }
-        }
-        let frames = Arc::new(AtomicU32::new(0));
-        let options = WindowOptions::new("repaint-after").size(160.0, 60.0);
-        let mut native = native_options(&options);
-        native.event_loop_builder = Some(Box::new(|builder| {
-            builder.with_x11().with_any_thread(true);
-        }));
-        let app = Ticker {
-            frames: Arc::clone(&frames),
-            start: Instant::now(),
-        };
-        let watchdog = Instant::now();
-        let result = run_eframe(options, native, Box::new(app));
-        let count = frames.load(Ordering::SeqCst);
-        assert!(result.is_ok(), "{result:?}");
-        // At least two timer wakes in ~2.5 s; bounded, not exact.
-        assert!(count >= 2, "only {count} frames after startup");
-        assert!(watchdog.elapsed() < Duration::from_secs(10), "{:?}", watchdog.elapsed());
     }
 }

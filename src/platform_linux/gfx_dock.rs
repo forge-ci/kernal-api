@@ -63,9 +63,8 @@ use crate::gfx::{
     WindowOptions,
 };
 use super::gfx_keymap::Keymap;
-use crate::gfx_egui::{
-    apply_theme, block_on, clear_color, draw, input, read_back, screenshot_event, Shared,
-};
+use crate::gfx_egui::offscreen::{block_on, read_back};
+use crate::gfx_egui::{apply_theme, clear_color, draw, input, screenshot_event, Shared};
 
 /// The layer-shell global a dock needs.
 const LAYER_SHELL: &str = "zwlr_layer_shell_v1";
@@ -122,6 +121,11 @@ pub(crate) fn support() -> Support {
     } else {
         Support::Unsupported
     }
+}
+
+/// Panels are extra layer surfaces of a dock, so they exist wherever it does.
+pub(crate) fn panel_support() -> Support {
+    support()
 }
 
 /// Why this session cannot show a dock, probed once per process.
@@ -927,6 +931,7 @@ impl Dock {
         if self.main.due() {
             let mut shared = Shared::new(Vec::new());
             shared.panels = true;
+            shared.dock = true;
             shared.monitors = self.monitor_list();
             let app = &mut *self.app;
             let drawn = self.main.draw(
@@ -1684,5 +1689,61 @@ mod tests {
         assert_eq!(rgba.pixels[0].to_array(), [10, 20, 30, 255]);
         let same = to_rgba(bgra, wgpu::TextureFormat::Rgba8Unorm);
         assert_eq!(same.pixels[0].to_array(), [30, 20, 10, 255]);
+    }
+
+    /// A real eframe window (not a dock) on X11, kept with the Linux host
+    /// because it names winit's X11 extension: `request_repaint_after(1s)` alone keeps frames
+    /// coming. Runs only on a bare X server (Xvfb) so a test never opens a
+    /// window on a developer's Wayland desktop:
+    /// `env -u WAYLAND_DISPLAY DISPLAY=:99 cargo test ... gfx_xvfb`.
+    #[test]
+    fn gfx_xvfb_request_repaint_after_wakes_the_app() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+
+        use crate::gfx::{App, WindowOptions};
+        use std::time::{Duration, Instant};
+        use winit::platform::x11::EventLoopBuilderExtX11;
+
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_none()
+        {
+            eprintln!("skipped: needs DISPLAY on a bare X server and no WAYLAND_DISPLAY");
+            return;
+        }
+        struct Ticker {
+            frames: Arc<AtomicU32>,
+            start: Instant,
+        }
+        impl App for Ticker {
+            fn frame(&mut self, frame: &mut crate::gfx::Frame<'_>) {
+                // Only frames past startup can come from the timer.
+                if self.start.elapsed() >= Duration::from_millis(300) {
+                    self.frames.fetch_add(1, Ordering::SeqCst);
+                }
+                frame.label("tick");
+                if self.start.elapsed() >= Duration::from_millis(2500) {
+                    frame.close();
+                } else {
+                    frame.request_repaint_after(Duration::from_secs(1));
+                }
+            }
+        }
+        let frames = Arc::new(AtomicU32::new(0));
+        let options = WindowOptions::new("repaint-after").size(160.0, 60.0);
+        let mut native = crate::gfx_egui::native_options(&options);
+        native.event_loop_builder = Some(Box::new(|builder| {
+            builder.with_x11().with_any_thread(true);
+        }));
+        let app = Ticker {
+            frames: Arc::clone(&frames),
+            start: Instant::now(),
+        };
+        let watchdog = Instant::now();
+        let result = crate::gfx_egui::run_eframe_with(&options, native, Box::new(app), None);
+        let count = frames.load(Ordering::SeqCst);
+        assert!(result.is_ok(), "{result:?}");
+        // At least two timer wakes in ~2.5 s; bounded, not exact.
+        assert!(count >= 2, "only {count} frames after startup");
+        assert!(watchdog.elapsed() < Duration::from_secs(10), "{:?}", watchdog.elapsed());
     }
 }

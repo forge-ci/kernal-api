@@ -130,14 +130,42 @@ edge and makes the desktop reserve that space, so maximised windows stop
 short of it. It is the shape a status bar needs, and it is a different
 surface kind from a window on every host:
 
-| Host | Native shape | Today |
-| --- | --- | --- |
-| Linux, Wayland with `zwlr_layer_shell_v1` (KWin, wlroots compositors) | layer-shell surface, anchored to the edge, exclusive zone = thickness | `Supported` |
-| Linux, GNOME (Mutter has no layer-shell), X11 | none / `_NET_WM_STRUT` dock window | `Unsupported` |
-| macOS | `NSPanel` at status-bar level | `Unsupported` (not wired yet) |
-| Windows | `SHAppBarMessage` AppBar | `Unsupported` (not wired yet) |
+| Host | Native shape | Space reserved? | `dock` / `dock_monitor` / `dock_relocation` | `panels` |
+| --- | --- | --- | --- | --- |
+| Linux, Wayland with `zwlr_layer_shell_v1` (KWin, wlroots compositors) | layer-shell surface, anchored to the edge, exclusive zone = thickness | yes | `Supported` | `Supported` |
+| Windows | borderless topmost window registered as a shell AppBar (`SHAppBarMessage`) | yes, the AppBar band | `Supported` | `Unsupported` |
+| macOS | borderless window at `NSStatusWindowLevel` on the screen's visible frame | **no**: AppKit has no exclusive zone | `BestEffort` | `Unsupported` |
+| Linux, GNOME (Mutter has no layer-shell), X11; every other host | none | — | `Unsupported` | `Unsupported` |
 
-`capabilities().dock` is decided per session: on Linux the first call
+**Windows and macOS: a dock is an eframe window.** On those hosts a dock is a
+property of an ordinary top-level window, so `src/gfx_egui/window_dock.rs`
+runs it through eframe like any window (same `Adapter`, `draw`, `FrameImp`)
+and the host's `gfx_dock.rs` makes the native calls after the window exists:
+
+- **Windows** registers the window as an AppBar (`ABM_NEW`), negotiates its
+  band of the chosen monitor (`GetMonitorInfoW` rectangle, thickness scaled by
+  the monitor's effective DPI, since the AppBar protocol is in physical
+  pixels) with `ABM_QUERYPOS`, commits it with `ABM_SETPOS`, moves the window
+  there topmost without activating it, and releases the band with
+  `ABM_REMOVE` when the window closes. An AppBar reserves the whole edge, so a
+  `DockLength::Fixed` dock reserves the full band and shortens only the
+  window. Monitors are named by their device name (`\\.\DISPLAY1`); the
+  primary is the default. The shell's `ABN_*` notifications are not handled:
+  a taskbar moved while the dock runs is accounted for at the next
+  `set_monitor` / `set_dock_length`.
+- **macOS** raises the window to status-bar level, on every Space and outside
+  the window cycle, along the edge of the screen's `visibleFrame` (below the
+  menu bar, beside the system Dock). Nothing is reserved: other windows can
+  be placed or maximised under it. That is why it is `BestEffort`, not
+  `Supported`. The window is winit's `NSWindow`, not an `NSPanel`, so a click
+  may still activate the app. Monitors are named by `NSScreen.localizedName`;
+  the primary is the menu-bar screen.
+
+Neither has panels: those are extra layer surfaces of the Linux dock, and
+`show_panel` returns `Unsupported` there as `Capabilities::panels` says.
+
+`capabilities().dock` is fixed per host on Windows and macOS. On Linux it is
+decided per session: the first call
 connects to `WAYLAND_DISPLAY` once and looks for the layer-shell global.
 `run` returns `GfxErrorKind::Unsupported` with the exact reason, for example
 `Placement::Dock: not a Wayland session (no reachable WAYLAND_DISPLAY)`.
