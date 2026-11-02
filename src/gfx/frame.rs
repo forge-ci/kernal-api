@@ -3,7 +3,7 @@
 use std::ops::RangeInclusive;
 
 use super::backend::FrameImp;
-use super::{Event, GfxError, PanelOptions, Theme};
+use super::{DockLength, Event, GfxError, PanelOptions, PointerButton, Theme};
 
 /// One frame of UI. Widgets are laid out top to bottom unless nested in
 /// [`Frame::horizontal`]. Each widget returns whether the user acted on it
@@ -32,6 +32,14 @@ impl Frame<'_> {
     /// A push button; `true` when clicked this frame.
     pub fn button(&mut self, text: &str) -> bool {
         self.imp.button(text)
+    }
+
+    /// A push button that tells which pointer button clicked it this frame:
+    /// [`PointerButton::Primary`] for an ordinary click,
+    /// [`PointerButton::Secondary`] for a context (right) click, `None`
+    /// otherwise. [`Frame::button`] is this with only the primary click.
+    pub fn button_click(&mut self, text: &str) -> Option<PointerButton> {
+        self.imp.button_click(text)
     }
 
     /// A labelled on/off toggle bound to `value`; `true` when changed.
@@ -132,8 +140,10 @@ impl Frame<'_> {
     /// and delivers [`Event::PanelDismissed`] to the next
     /// [`App::frame`](super::App::frame); handle events before calling
     /// `show_panel` again. A panel receives named keys
-    /// ([`Key::Escape`](super::Key::Escape), arrows, Enter, ...) but no text
-    /// input. Calling this from [`App::panel`](super::App::panel) has no
+    /// ([`Key::Escape`](super::Key::Escape), arrows, Enter, ...) and typed
+    /// text through the desktop's keyboard layout, so a
+    /// [`Frame::text_field`] in it is editable (no key repeat: a held key
+    /// types once). Calling this from [`App::panel`](super::App::panel) has no
     /// effect.
     ///
     /// # Errors
@@ -147,6 +157,25 @@ impl Frame<'_> {
     pub fn show_panel(&mut self, panel: &PanelOptions) -> Result<(), GfxError> {
         panel.validate()?;
         self.imp.show_panel(*panel)
+    }
+
+    /// Resize a running [`Placement::Dock`](super::Placement::Dock) along
+    /// its edge after this frame (see [`DockLength`]); the desktop's
+    /// reserved space stays exactly the dock's thickness. Unlike
+    /// [`Frame::show_panel`] the length persists until changed again, so a
+    /// dock sized to its content calls it whenever that content's width
+    /// changes; calling it with the current length does nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`GfxErrorKind::InvalidOptions`](super::GfxErrorKind::InvalidOptions)
+    /// for a degenerate length, and
+    /// [`GfxErrorKind::Unsupported`](super::GfxErrorKind::Unsupported) when
+    /// the app is not running as a dock (including under
+    /// [`snapshot`](super::snapshot)) or from [`App::panel`](super::App::panel).
+    pub fn set_dock_length(&mut self, length: DockLength) -> Result<(), GfxError> {
+        length.validate()?;
+        self.imp.set_dock_length(length)
     }
 
     /// Replace the theme from the next frame on.

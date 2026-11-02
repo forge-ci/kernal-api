@@ -286,6 +286,7 @@ const OWNED_IMPLEMENTATION_CRATES: &[&str] = &[
     "winapi",
     "windows_sys",
     "winit",
+    "xkbcommon_dl",
 ];
 
 /// The owned-crate traits a facade type may implement, as `(crate, trait)`.

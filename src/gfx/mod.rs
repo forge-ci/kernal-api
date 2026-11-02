@@ -20,7 +20,7 @@ mod window;
 pub use frame::Frame;
 pub use input::{Event, Key, Modifiers, PointerButton};
 pub use theme::{Color, Theme, ThemeMode};
-pub use window::{Edge, Monitor, PanelOptions, Placement, WindowOptions};
+pub use window::{DockAlign, DockLength, Edge, Monitor, PanelOptions, Placement, WindowOptions};
 
 #[cfg(feature = "gfx-egui")]
 use crate::gfx_egui as backend;
@@ -34,7 +34,7 @@ mod backend {
     use std::marker::PhantomData;
     use std::ops::RangeInclusive;
 
-    use super::{Event, PanelOptions, Theme};
+    use super::{DockLength, Event, PanelOptions, PointerButton, Theme};
 
     /// Uninhabited: no frame is ever produced without a backend.
     pub(crate) struct FrameImp<'a>(Infallible, PhantomData<&'a mut ()>);
@@ -108,6 +108,12 @@ mod backend {
             match self.0 {}
         }
         pub(crate) fn show_panel(&mut self, _: PanelOptions) -> Result<(), GfxError> {
+            match self.0 {}
+        }
+        pub(crate) fn set_dock_length(&mut self, _: DockLength) -> Result<(), GfxError> {
+            match self.0 {}
+        }
+        pub(crate) fn button_click(&mut self, _: &str) -> Option<PointerButton> {
             match self.0 {}
         }
     }

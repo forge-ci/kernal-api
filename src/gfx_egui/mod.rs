@@ -10,8 +10,8 @@ use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::gfx::{
-    App, BackendKind, Capabilities, Color, Event, GfxError, GfxErrorKind, PanelOptions, Placement,
-    Support, Theme, ThemeMode, WindowOptions,
+    App, BackendKind, Capabilities, Color, DockLength, Event, GfxError, GfxErrorKind, PanelOptions, Placement,
+    PointerButton, Support, Theme, ThemeMode, WindowOptions,
 };
 
 pub(crate) fn capabilities() -> Capabilities {
@@ -271,6 +271,8 @@ pub(crate) struct Shared {
     pub(crate) panels: bool,
     /// The panel asked for this frame, if any.
     pub(crate) panel: Option<PanelOptions>,
+    /// A new dock length asked for this frame, if any.
+    pub(crate) dock_length: Option<DockLength>,
 }
 
 impl Shared {
@@ -282,6 +284,7 @@ impl Shared {
             screenshot: false,
             panels: false,
             panel: None,
+            dock_length: None,
         }
     }
 }
@@ -321,6 +324,19 @@ impl FrameImp<'_> {
 
     pub(crate) fn button(&mut self, text: &str) -> bool {
         self.ui.button(text).clicked()
+    }
+
+    pub(crate) fn button_click(&mut self, text: &str) -> Option<PointerButton> {
+        let response = self.ui.button(text);
+        if response.clicked() {
+            Some(PointerButton::Primary)
+        } else if response.secondary_clicked() {
+            Some(PointerButton::Secondary)
+        } else if response.middle_clicked() {
+            Some(PointerButton::Middle)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn toggle(&mut self, value: &mut bool, text: &str) -> bool {
@@ -456,6 +472,18 @@ impl FrameImp<'_> {
         self.shared.panel = Some(panel);
         Ok(())
     }
+
+    pub(crate) fn set_dock_length(&mut self, length: DockLength) -> Result<(), GfxError> {
+        // Only a dock's own frame may open panels, so the flag says "dock".
+        if !self.shared.panels {
+            return Err(GfxError::new(
+                GfxErrorKind::Unsupported,
+                "set_dock_length needs an app run with Placement::Dock on a host that supports docks",
+            ));
+        }
+        self.shared.dock_length = Some(length);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -571,6 +599,72 @@ mod tests {
         });
         output.textures_delta.clear();
         assert_eq!(asked, Some(panel));
+    }
+
+    #[test]
+    fn set_dock_length_is_unsupported_off_a_dock_and_recorded_on_one() {
+        use crate::gfx::DockLength;
+        let ctx = egui::Context::default();
+        let mut kind = None;
+        frame(&ctx, Vec::new(), |frame| {
+            kind = frame.set_dock_length(DockLength::Fixed(900.0)).err().map(|err| err.kind());
+        });
+        assert_eq!(kind, Some(GfxErrorKind::Unsupported));
+
+        let mut asked = None;
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut shared = Shared::new(Vec::new());
+            shared.panels = true;
+            let mut frame = crate::gfx::Frame {
+                imp: FrameImp {
+                    ui,
+                    shared: &mut shared,
+                },
+            };
+            assert!(frame.set_dock_length(DockLength::Fixed(900.0)).is_ok());
+            assert_eq!(
+                frame.set_dock_length(DockLength::Fixed(0.0)).err().map(|err| err.kind()),
+                Some(GfxErrorKind::InvalidOptions)
+            );
+            asked = shared.dock_length;
+        });
+        output.textures_delta.clear();
+        assert_eq!(asked, Some(DockLength::Fixed(900.0)));
+    }
+
+    #[test]
+    fn button_click_tells_primary_from_secondary() {
+        let ctx = egui::Context::default();
+        let at = egui::pos2(12.0, 8.0);
+        let press = |button, pressed| egui::Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+        let mut clicks = Vec::new();
+        for button in [egui::PointerButton::Secondary, egui::PointerButton::Primary] {
+            frame(&ctx, vec![egui::Event::PointerMoved(at)], |frame| {
+                clicks.push(frame.button_click("Menu"));
+            });
+            frame(&ctx, vec![press(button, true)], |frame| {
+                clicks.push(frame.button_click("Menu"));
+            });
+            frame(&ctx, vec![press(button, false)], |frame| {
+                clicks.push(frame.button_click("Menu"));
+            });
+        }
+        assert_eq!(
+            clicks,
+            [
+                None,
+                None,
+                Some(PointerButton::Secondary),
+                None,
+                None,
+                Some(PointerButton::Primary)
+            ]
+        );
     }
 
     #[test]

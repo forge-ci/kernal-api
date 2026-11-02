@@ -69,8 +69,12 @@ impl PanelOptions {
         self
     }
 
-    /// Distance along the edge from its start (left for a top or bottom
-    /// edge, top for a left or right edge), in logical pixels.
+    /// Distance along the edge from the start of the dock (its left end on
+    /// a top or bottom edge, its top end on a left or right edge), in
+    /// logical pixels. For a dock spanning the edge
+    /// ([`DockLength::Full`]) that is the start of the edge; for a shorter
+    /// one the backend adds where the dock begins, so an app positions a
+    /// panel under one of its widgets without knowing the screen size.
     pub fn offset(mut self, offset: f32) -> Self {
         self.offset = offset;
         self
@@ -124,6 +128,53 @@ pub enum Monitor {
     Named(String),
 }
 
+/// How much of its edge a [`Placement::Dock`] spans. Set with
+/// [`WindowOptions::dock_length`] and changed while running with
+/// [`Frame::set_dock_length`](super::Frame::set_dock_length).
+///
+/// Either way the desktop reserves exactly the dock's thickness along the
+/// whole edge: a shorter dock does not let maximised windows slide under
+/// the free part of the edge, and does not reserve the space twice.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[non_exhaustive]
+pub enum DockLength {
+    /// The whole edge.
+    #[default]
+    Full,
+    /// This many logical pixels along the edge (an app sizing itself to its
+    /// content measures it with [`Frame::text_width`](super::Frame::text_width)).
+    /// Clamped to the edge's length once the backend knows the monitor.
+    Fixed(f32),
+}
+
+impl DockLength {
+    pub(crate) fn validate(self) -> Result<(), GfxError> {
+        match self {
+            Self::Full => Ok(()),
+            Self::Fixed(length) if length.is_finite() && length > 0.0 => Ok(()),
+            Self::Fixed(length) => Err(GfxError::new(
+                GfxErrorKind::InvalidOptions,
+                format!("dock length must be positive and finite, got {length}"),
+            )),
+        }
+    }
+}
+
+/// Where a [`DockLength::Fixed`] dock sits along its edge. Set with
+/// [`WindowOptions::dock_align`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum DockAlign {
+    /// At the start of the edge (left of a top or bottom edge, top of a
+    /// side edge).
+    Start,
+    /// Centred on the edge.
+    #[default]
+    Center,
+    /// At the end of the edge.
+    End,
+}
+
 /// A screen edge, for [`Placement::Dock`] and [`PanelOptions`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -151,6 +202,8 @@ pub struct WindowOptions {
     pub(crate) click_through: bool,
     pub(crate) placement: Placement,
     pub(crate) monitor: Monitor,
+    pub(crate) dock_length: DockLength,
+    pub(crate) dock_align: DockAlign,
     pub(crate) theme: Theme,
 }
 
@@ -167,6 +220,8 @@ impl WindowOptions {
             click_through: false,
             placement: Placement::Default,
             monitor: Monitor::Primary,
+            dock_length: DockLength::Full,
+            dock_align: DockAlign::Center,
             theme: Theme::default(),
         }
     }
@@ -227,6 +282,20 @@ impl WindowOptions {
         self
     }
 
+    /// How much of its edge a [`Placement::Dock`] spans at start-up
+    /// (default [`DockLength::Full`]). Ignored for other placements.
+    pub fn dock_length(mut self, length: DockLength) -> Self {
+        self.dock_length = length;
+        self
+    }
+
+    /// Where a [`DockLength::Fixed`] dock sits along its edge (default
+    /// [`DockAlign::Center`]). Ignored for other placements.
+    pub fn dock_align(mut self, align: DockAlign) -> Self {
+        self.dock_align = align;
+        self
+    }
+
     /// Initial theme; [`Frame::set_theme`](super::Frame::set_theme) changes it later.
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
@@ -248,6 +317,7 @@ impl WindowOptions {
                     format!("dock thickness must be positive and finite, got {thickness}"),
                 ));
             }
+            self.dock_length.validate()?;
         }
         let requested = [
             (self.transparent, caps.transparent, "transparent"),
@@ -333,6 +403,31 @@ mod tests {
         assert!(named(dock).validate(&caps).is_ok());
         assert!(named(Placement::Default).validate(&all_best_effort()).is_ok(), "ignored off a dock");
         assert_eq!(WindowOptions::new("t").monitor, Monitor::Primary);
+    }
+
+    #[test]
+    fn a_fixed_dock_length_must_be_positive() {
+        let caps = Capabilities {
+            dock: Support::Supported,
+            ..all_best_effort()
+        };
+        let dock = |length| {
+            WindowOptions::new("bar")
+                .placement(Placement::Dock {
+                    edge: Edge::Top,
+                    thickness: 36.0,
+                })
+                .dock_length(length)
+                .dock_align(DockAlign::End)
+        };
+        assert!(dock(DockLength::Full).validate(&caps).is_ok());
+        assert!(dock(DockLength::Fixed(900.0)).validate(&caps).is_ok());
+        for bad in [0.0, -3.0, f32::NAN, f32::INFINITY] {
+            let err = dock(DockLength::Fixed(bad)).validate(&caps).expect_err("rejected");
+            assert_eq!(err.kind(), GfxErrorKind::InvalidOptions);
+        }
+        let plain = WindowOptions::new("t");
+        assert_eq!((plain.dock_length, plain.dock_align), (DockLength::Full, DockAlign::Center));
     }
 
     #[test]

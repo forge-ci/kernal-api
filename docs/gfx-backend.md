@@ -23,9 +23,10 @@ a public type position or `pub use`s one.
 | App / event loop ownership | `gfx::run(WindowOptions, impl App) -> Result<(), GfxError>` | `run` owns the event loop on the calling thread (the main thread on macOS) until the window closes. One window per `run`; `run` may be called again on the same thread after it returns (a resident app opens a fresh window per show). No async: a GUI loop is not a Tokio task. |
 | Window description | `WindowOptions` (builder): title, size, resizable, decorations, always-on-top, transparent, click-through, `Placement` (`Default`, `Centered`, `At`, `Monitor`, `Dock { edge: Edge, thickness }`), initial `Theme` | Fields are private; the builder is the contract, so fields can be added without breaking callers. |
 | Drop-down panels | `Frame::show_panel(&PanelOptions) -> Result<(), GfxError>`, `App::panel(&mut Frame)`, `Event::PanelDismissed`, `PanelOptions::new(w, h).edge(Edge).offset(f32)`, `Capabilities::panels` | One panel at a time, beside a running dock. See "Panels". |
+| Dock length | `WindowOptions::dock_length(DockLength::{Full, Fixed(f32)})`, `WindowOptions::dock_align(DockAlign::{Start, Center, End})`, `Frame::set_dock_length(DockLength) -> Result<(), GfxError>` | Default `Full` (today's behaviour). A shorter dock still reserves exactly its thickness; panel offsets are measured from the dock's start. See "Docks". |
 | Frame lifecycle | `App::frame(&mut Frame)` once per frame; `App::close_requested() -> bool` | Immediate mode: the app owns all state; a frame is a pure function of state plus events. `Frame::close`, `Frame::request_repaint`, `Frame::request_repaint_after(Duration)` drive the loop. |
 | Layout metrics | `Frame::text_width(&str, size) -> f32`, `Frame::line_height(size) -> f32`, `Frame::available_width() -> f32`, `Frame::available_height() -> f32` | Plain logical-pixel `f32`s, read per frame. See "Layout metrics". |
-| Widget subset | `label`, `heading`, `button`, `toggle`, `text_field`, `slider`, `separator`, `space`, `horizontal`, `scroll`, `list`, `selectable_row` | The intersection every candidate backend can render. Each interactive widget returns "acted on this frame" as `bool`; no widget handles or response objects. See "Provisional widget set". |
+| Widget subset | `label`, `heading`, `button`, `button_click` (which pointer button: `Some(PointerButton::Secondary)` for a context click), `toggle`, `text_field`, `slider`, `separator`, `space`, `horizontal`, `scroll`, `list`, `selectable_row` | The intersection every candidate backend can render. Each interactive widget returns "acted on this frame" as `bool`; no widget handles or response objects. See "Provisional widget set". |
 | Input | `Frame::events() -> &[Event]`: `Key`, `Text`, `PointerMoved`, `PointerButton`, `PointerLeft`, `Scroll` (pixels), `Focused`, `Screenshot`, `PanelDismissed` | Logical pixels, delivery order. `Frame::request_screenshot()` reads back the window's own rendered framebuffer (not the compositor's) and delivers it in a later frame as `Event::Screenshot { width, height, rgba }` (physical pixels, straight-alpha sRGB); it works wherever the renderer does, including llvmpipe, so CI can prove what was drawn. Backend-specific events (IME, touch, accessibility, clipboard) are dropped, not passed through. |
 | Theme tokens | `Theme { mode, accent, background, foreground, panel, text_size, spacing, corner_radius }`, `Color`; builders `with_mode/with_accent/with_background/with_foreground/with_panel`, `for_panel()` | Tokens, not a style tree. A backend maps them onto its own style system. `foreground` overrides body text; `panel` fills drop-down panels (`for_panel()` is the theme a panel surface draws with: `background` replaced by `panel`). Added for talos-bar's `[theme]` config: `#[non_exhaustive]`, so callers outside the crate build a `Theme` from `default()`/`with_mode()` and the builders. |
 | Windowless render | `gfx::snapshot(&WindowOptions, &mut impl App) -> Result<Snapshot, GfxError>`; `Snapshot::{width, height, rgba}` | Lays the UI out at `options.size` (one pixel per point) over three input-less settling frames and paints it offscreen. No window, no compositor, so it works on a locked or display-less session where `request_screenshot` cannot. Same pixel layout as `Event::Screenshot`; fields are private. It draws what a **focused** window shows (see "Snapshot parity"). Placement is ignored, so a `Dock` renders on any host. |
@@ -169,6 +170,25 @@ KWin's scripting API reports `MaximizeArea x=0 y=36 w=1280 h=764` and the
 dock at `0,0 1280x36`, and a maximised window placed at `0,36 1280x764`.
 KWin's own screenshot shows the bar above that window's title bar.
 
+**Shorter than the edge.** `WindowOptions::dock_length(DockLength::Fixed(px))`
+(or `Frame::set_dock_length` while running, for a dock sized to its content
+with `text_width`) makes the dock `px` long, placed by `dock_align`. The
+desktop must still reserve exactly the thickness, never more and never a
+gap-free screen. `zwlr_layer_shell_v1` only honours an exclusive zone on a
+surface anchored to one edge, or to an edge and both edges perpendicular to
+it; a corner anchor reserves nothing. So `Center` anchors to its edge alone
+(the compositor centres it) and `Start`/`End` stay anchored across the edge
+and are shortened by a margin computed from the output's logical size
+(learned from `wl_surface.enter`; until then the dock is full length). The
+length is clamped to the edge. `PanelOptions::offset` is measured from the
+dock's start, so a panel still opens under the widget the app measured.
+
+Proven under `kwin_wayland --virtual` with `examples/gfx-dock.rs --fit
+start|center|end` (237 px of content) on a 1280x800 output: the dock is at
+`0,0 1280x36` full, `0,0 237x36` start, `521.5,0 237x36` centre and
+`1043,0 237x36` end, and KWin's `MaximizeArea` is `x=0 y=36 w=1280 h=764` in
+all four cases: 36 px reserved, once.
+
 ## Layout metrics
 
 For layouts that must decide what fits (a dock dropping zones that do not):
@@ -249,8 +269,12 @@ impl App for Bar {
   space: a top panel opens directly under a top dock.
 - **Focus and dismissal.** The panel asks for keyboard focus on demand. It
   receives named keys (`Escape`, arrows, Enter, Tab, Home/End, Page keys,
-  Backspace/Delete, Space) but no text: the backend maps evdev codes itself
-  and links no keymap library. When focus moves to another window (a click
+  Backspace/Delete, Space), mapped from evdev codes, and typed text: the
+  compositor's XKB keymap is compiled with libxkbcommon, loaded at run time
+  as winit loads it (`src/platform_linux/gfx_keymap.rs`), so a `text_field`
+  in a panel types in the user's layout. Shortcuts (Ctrl/Alt/Super held)
+  type nothing, and there is no key repeat yet: a held key types once. A
+  host without libxkbcommon gets named keys only. When focus moves to another window (a click
   away), the backend closes the panel and the next `App::frame` sees
   `Event::PanelDismissed`. Input to the panel also schedules a dock frame, so
   state the panel changed (Esc) reaches `frame` at once.

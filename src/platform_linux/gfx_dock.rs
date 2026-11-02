@@ -17,6 +17,13 @@
 //! swapchain, egui context and frame clock, anchored to an edge with a zero
 //! exclusive zone so it opens beside the dock. It takes keyboard focus on
 //! demand; losing it dismisses the panel.
+//!
+//! A dock shorter than its edge (`DockLength::Fixed`) keeps reserving its
+//! thickness: the protocol only honours an exclusive zone for a surface
+//! anchored to one edge, or to an edge and both edges perpendicular to it
+//! (never to a corner). So a centred dock anchors to its edge alone, and a
+//! start- or end-aligned one stays anchored across the edge and is shortened
+//! with a margin computed from the output's logical size.
 
 use std::ptr::NonNull;
 use std::sync::OnceLock;
@@ -52,9 +59,10 @@ use smithay_client_toolkit::{
 use smithay_client_toolkit::reexports::client::EventQueue;
 
 use crate::gfx::{
-    App, Edge, Event, GfxError, GfxErrorKind, Monitor, PanelOptions, Support, Theme,
+    App, DockAlign, DockLength, Edge, Event, GfxError, GfxErrorKind, Monitor, PanelOptions, Support, Theme,
     WindowOptions,
 };
+use super::gfx_keymap::Keymap;
 use crate::gfx_egui::{
     apply_theme, block_on, clear_color, draw, input, read_back, screenshot_event, Shared,
 };
@@ -158,16 +166,17 @@ pub(crate) fn run(
         Some(options.title.clone()),
         output.as_ref(),
     );
-    let depth = logical_px(thickness);
-    let (anchor, size) = match edge {
-        Edge::Top => (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, depth)),
-        Edge::Bottom => (Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT, (0, depth)),
-        Edge::Left => (Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM, (depth, 0)),
-        Edge::Right => (Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM, (depth, 0)),
+    let shape = Shape {
+        edge,
+        depth: logical_px(thickness),
+        length: options.dock_length,
+        align: options.dock_align,
+        edge_len: output
+            .as_ref()
+            .and_then(|output| chooser.state.outputs.info(output))
+            .and_then(|info| edge_length(edge, info.logical_size)),
     };
-    layer.set_anchor(anchor);
-    layer.set_size(size.0, size.1);
-    layer.set_exclusive_zone(i32::try_from(depth).unwrap_or(i32::MAX));
+    shape.apply(&layer);
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);
     // The first commit carries no buffer: the compositor answers with the
     // configure that gives the edge length.
@@ -182,6 +191,7 @@ pub(crate) fn run(
 
     let mut dock = Dock {
         main,
+        shape,
         panel: None,
         gpu,
         output,
@@ -196,6 +206,7 @@ pub(crate) fn run(
         closed: false,
         pointer: None,
         keyboard: None,
+        keymap: None,
         app,
         title: options.title.clone(),
         theme: options.theme,
@@ -335,6 +346,102 @@ fn margin_px(value: f32) -> i32 {
     #[allow(clippy::cast_possible_truncation, reason = "clamped")]
     let px = value.round().clamp(0.0, 16384.0) as i32;
     px
+}
+
+/// The along-edge length of an output of `logical_size` (width, height).
+fn edge_length(edge: Edge, logical_size: Option<(i32, i32)>) -> Option<u32> {
+    let (width, height) = logical_size?;
+    let length = match edge {
+        Edge::Top | Edge::Bottom => width,
+        Edge::Left | Edge::Right => height,
+    };
+    u32::try_from(length).ok().filter(|length| *length > 0)
+}
+
+/// What the main layer surface asks of the compositor.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Shape {
+    edge: Edge,
+    /// Thickness in logical pixels; always the exclusive zone.
+    depth: u32,
+    length: DockLength,
+    align: DockAlign,
+    /// The output's along-edge length, once known.
+    edge_len: Option<u32>,
+}
+
+/// Anchor, size and margins (top, right, bottom, left) for a layer surface.
+type Geometry = (Anchor, (u32, u32), (i32, i32, i32, i32));
+
+impl Shape {
+    fn geometry(&self) -> Geometry {
+        let (edge_anchor, across) = match self.edge {
+            Edge::Top => (Anchor::TOP, Anchor::LEFT | Anchor::RIGHT),
+            Edge::Bottom => (Anchor::BOTTOM, Anchor::LEFT | Anchor::RIGHT),
+            Edge::Left => (Anchor::LEFT, Anchor::TOP | Anchor::BOTTOM),
+            Edge::Right => (Anchor::RIGHT, Anchor::TOP | Anchor::BOTTOM),
+        };
+        let horizontal = matches!(self.edge, Edge::Top | Edge::Bottom);
+        // (along, depth) to the protocol's (width, height).
+        let size = |along: u32| {
+            if horizontal {
+                (along, self.depth)
+            } else {
+                (self.depth, along)
+            }
+        };
+        let full = (edge_anchor | across, size(0), (0, 0, 0, 0));
+        let DockLength::Fixed(length) = self.length else {
+            return full;
+        };
+        // Never longer than the edge: a compositor may not clamp it itself.
+        let length = self
+            .edge_len
+            .map_or(logical_px(length), |edge_len| logical_px(length).min(edge_len));
+        let shrink = |edge_len: u32| i32::try_from(edge_len.saturating_sub(length)).unwrap_or(0);
+        // The margin on the far side shortens a surface stretched across the
+        // edge: (top, right, bottom, left).
+        let margins = |far: i32| match (horizontal, self.align) {
+            (true, DockAlign::End) => (0, 0, 0, far),
+            (true, _) => (0, far, 0, 0),
+            (false, DockAlign::End) => (far, 0, 0, 0),
+            (false, _) => (0, 0, far, 0),
+        };
+        match (self.align, self.edge_len) {
+            // Anchored to its edge alone, the compositor centres it.
+            (DockAlign::Center, _) => (edge_anchor, size(length), (0, 0, 0, 0)),
+            (_, Some(edge_len)) => (edge_anchor | across, size(0), margins(shrink(edge_len))),
+            // Until the output's size is known, the whole edge.
+            (_, None) => full,
+        }
+    }
+
+    /// Where the dock begins along its edge, in logical pixels: what a
+    /// panel's offset (measured from the dock's start) is added to.
+    fn start(&self) -> f32 {
+        let DockLength::Fixed(length) = self.length else {
+            return 0.0;
+        };
+        let Some(edge_len) = self.edge_len else {
+            return 0.0;
+        };
+        #[allow(clippy::cast_precision_loss, reason = "output sizes are far below 2^24")]
+        let free = edge_len.saturating_sub(logical_px(length)) as f32;
+        match self.align {
+            DockAlign::Start => 0.0,
+            // The compositor centres on whole pixels.
+            DockAlign::Center => (free / 2.0).floor(),
+            DockAlign::End => free,
+        }
+    }
+
+    fn apply(&self, layer: &LayerSurface) {
+        let (anchor, (width, height), (top, right, bottom, left)) = self.geometry();
+        layer.set_anchor(anchor);
+        layer.set_size(width, height);
+        layer.set_margin(top, right, bottom, left);
+        layer.set_exclusive_zone(i32::try_from(self.depth).unwrap_or(i32::MAX));
+    }
 }
 
 /// Anchor and margins (top, right, bottom, left) that hang a panel from
@@ -709,6 +816,8 @@ impl View {
 struct Panel {
     view: View,
     options: PanelOptions,
+    /// The dock start its offset was placed against.
+    start: f32,
 }
 
 /// Which surface of the dock an event belongs to.
@@ -722,6 +831,8 @@ enum Which {
 /// surfaces and the connection, so they go first and `_conn` last.
 struct Dock {
     main: View,
+    /// The main surface's anchor, size and reserved space.
+    shape: Shape,
     panel: Option<Panel>,
     gpu: Gpu,
     /// The output asked for, which panels open on too; `None` is the
@@ -740,6 +851,8 @@ struct Dock {
     closed: bool,
     pointer: Option<wl_pointer::WlPointer>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
+    /// The compositor's keymap, for panels' text input.
+    keymap: Option<Keymap>,
     app: Box<dyn App>,
     title: String,
     theme: Theme,
@@ -779,6 +892,12 @@ impl Dock {
                 }
                 if shared.close {
                     self.closed = true;
+                }
+                if let Some(length) = shared.dock_length {
+                    self.reshape(Shape {
+                        length,
+                        ..self.shape
+                    });
                 }
                 self.sync_panel(shared.panel)?;
             }
@@ -820,11 +939,13 @@ impl Dock {
             self.panel = None;
             return Ok(());
         };
+        let start = self.shape.start();
         if let Some(panel) = &mut self.panel {
-            if panel.options != options {
-                configure_panel(&panel.view.layer, &options);
+            if panel.options != options || panel.start != start {
+                configure_panel(&panel.view.layer, &options, start);
                 panel.view.layer.commit();
                 panel.options = options;
+                panel.start = start;
             }
             return Ok(());
         }
@@ -836,15 +957,32 @@ impl Dock {
             Some(format!("{} panel", self.title)),
             self.output.as_ref(),
         );
-        configure_panel(&layer, &options);
+        configure_panel(&layer, &options, start);
         // Focus when the user clicks it or it maps; losing it closes it.
         layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
         layer.commit();
         let target = self.gpu.open(&self._conn, &surface, self.transparent)?;
         let mut view = View::new(target, layer, surface, self.theme.for_panel());
         view.scale = self.main.scale;
-        self.panel = Some(Panel { view, options });
+        self.panel = Some(Panel {
+            view,
+            options,
+            start,
+        });
         Ok(())
+    }
+
+    /// Ask the compositor for a new main-surface shape, if it changed. The
+    /// configure that answers resizes the surface and schedules a frame.
+    fn reshape(&mut self, shape: Shape) {
+        if shape != self.shape {
+            let before = self.shape.geometry();
+            self.shape = shape;
+            if shape.geometry() != before {
+                shape.apply(&self.main.layer);
+                self.main.layer.commit();
+            }
+        }
     }
 
     /// Close the panel on the backend's own initiative and tell the app.
@@ -868,8 +1006,9 @@ impl Dock {
     }
 }
 
-fn configure_panel(layer: &LayerSurface, options: &PanelOptions) {
-    let (anchor, (top, right, bottom, left)) = panel_anchor(options.edge, options.offset);
+fn configure_panel(layer: &LayerSurface, options: &PanelOptions, dock_start: f32) {
+    let (anchor, (top, right, bottom, left)) =
+        panel_anchor(options.edge, dock_start + options.offset);
     layer.set_anchor(anchor);
     layer.set_margin(top, right, bottom, left);
     layer.set_size(logical_px(options.size.0), logical_px(options.size.1));
@@ -943,12 +1082,20 @@ impl CompositorHandler for Dock {
         }
         // The compositor sends one enter per binding of the output, and the
         // chooser bound them too: name it from either, report it once.
-        let name = self
+        let info = self
             .outputs
             .info(output)
-            .or_else(|| self.chooser.state.outputs.info(output))
-            .and_then(|info| info.name)
-            .unwrap_or_default();
+            .or_else(|| self.chooser.state.outputs.info(output));
+        let edge_len = info
+            .as_ref()
+            .and_then(|info| edge_length(self.shape.edge, info.logical_size));
+        if edge_len.is_some() {
+            self.reshape(Shape {
+                edge_len,
+                ..self.shape
+            });
+        }
+        let name = info.and_then(|info| info.name).unwrap_or_default();
         if self.monitor.as_ref() == Some(&name) {
             return;
         }
@@ -1034,8 +1181,9 @@ impl SeatHandler for Dock {
             self.pointer = self.seats.get_pointer(qh, &seat).ok();
         }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
-            // Raw wl_keyboard: panels only need named keys, so evdev codes
-            // are mapped directly and no keymap library is linked.
+            // Raw wl_keyboard: named keys are mapped from evdev codes
+            // directly; text goes through the compositor's keymap
+            // (`gfx_keymap`), loaded at run time.
             self.keyboard = Some(seat.get_keyboard(qh, ()));
         }
     }
@@ -1168,28 +1316,58 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Dock {
                     }
                 }
             }
-            wl_keyboard::Event::Key { key, state, .. } => {
+            wl_keyboard::Event::Keymap { format, fd, size } => {
+                // Anything but an XKB text keymap leaves named keys only.
+                dock.keymap = matches!(
+                    format,
+                    smithay_client_toolkit::reexports::client::WEnum::Value(wl_keyboard::KeymapFormat::XkbV1)
+                )
+                .then(|| Keymap::from_fd(fd, size))
+                .flatten();
+            }
+            wl_keyboard::Event::Modifiers {
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                group,
+                ..
+            } => {
+                if let Some(keymap) = &mut dock.keymap {
+                    keymap.set_modifiers(mods_depressed, mods_latched, mods_locked, group);
+                }
+            }
+            wl_keyboard::Event::Key { key: code, state, .. } => {
                 let Some(panel) = dock.panel.as_mut().filter(|panel| panel.view.focused) else {
-                    return;
-                };
-                let Some(key) = named_key(key) else {
                     return;
                 };
                 let pressed = matches!(
                     state,
                     smithay_client_toolkit::reexports::client::WEnum::Value(wl_keyboard::KeyState::Pressed)
                 );
-                panel.view.egui_events.push(egui::Event::Key {
-                    key,
-                    physical_key: None,
-                    pressed,
-                    repeat: false,
-                    modifiers: egui::Modifiers::NONE,
-                });
+                let mods = dock.keymap.as_ref().map(Keymap::mods).unwrap_or_default();
+                let modifiers = egui::Modifiers {
+                    alt: mods.alt,
+                    ctrl: mods.ctrl,
+                    shift: mods.shift,
+                    mac_cmd: false,
+                    command: mods.ctrl,
+                };
+                if let Some(key) = named_key(code) {
+                    panel.view.egui_events.push(egui::Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed,
+                        repeat: false,
+                        modifiers,
+                    });
+                }
+                // Text is typed on press, after the key event, as winit orders them.
+                if let Some(text) = dock.keymap.as_ref().filter(|_| pressed).and_then(|keymap| keymap.text(code)) {
+                    panel.view.egui_events.push(egui::Event::Text(text));
+                }
                 panel.view.request_frame(Duration::ZERO);
             }
-            // The keymap fd is closed on drop; modifiers and repeat are not
-            // needed for named keys.
+            // No key repeat: a held key types once.
             _ => {}
         }
     }
@@ -1211,7 +1389,7 @@ delegate_registry!(Dock);
 
 #[cfg(test)]
 mod tests {
-    use super::{choose, logical_px, named_key, panel_anchor, to_rgba, Anchor, Choice};
+    use super::{choose, logical_px, DockAlign, DockLength, Shape, named_key, panel_anchor, to_rgba, Anchor, Choice};
     use crate::gfx::{Edge, Monitor};
 
     #[test]
@@ -1221,6 +1399,42 @@ mod tests {
         assert_eq!(choose(&names, &Monitor::Named("Virtual-2".into())), Choice::Output(2));
         assert_eq!(choose(&names, &Monitor::Named("HDMI-A-1".into())), Choice::Fallback);
         assert_eq!(choose(&[], &Monitor::Named("Virtual-1".into())), Choice::Fallback);
+    }
+
+    #[test]
+    fn a_short_dock_reserves_its_thickness_and_never_anchors_to_a_corner() {
+        let shape = |edge, length, align, edge_len| Shape {
+            edge,
+            depth: 36,
+            length,
+            align,
+            edge_len,
+        };
+        let full = shape(Edge::Top, DockLength::Full, DockAlign::Center, None).geometry();
+        assert_eq!(full, (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, 36), (0, 0, 0, 0)));
+        let fit = DockLength::Fixed(900.4);
+        let centred = shape(Edge::Top, fit, DockAlign::Center, Some(1920)).geometry();
+        assert_eq!(centred, (Anchor::TOP, (900, 36), (0, 0, 0, 0)));
+        let start = shape(Edge::Top, fit, DockAlign::Start, Some(1920)).geometry();
+        assert_eq!(start, (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, 36), (0, 1020, 0, 0)));
+        let end = shape(Edge::Bottom, fit, DockAlign::End, Some(1920)).geometry();
+        assert_eq!(end, (Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT, (0, 36), (0, 0, 0, 1020)));
+        let side = shape(Edge::Left, fit, DockAlign::Start, Some(1080)).geometry();
+        assert_eq!(side, (Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM, (36, 0), (0, 0, 180, 0)));
+        let start = |align, edge_len| shape(Edge::Top, fit, align, edge_len).start();
+        assert!((start(DockAlign::Center, Some(1920)) - 510.0).abs() < f32::EPSILON);
+        assert!((start(DockAlign::End, Some(1920)) - 1020.0).abs() < f32::EPSILON);
+        assert!(start(DockAlign::Start, Some(1920)).abs() < f32::EPSILON);
+        assert!(start(DockAlign::Center, None).abs() < f32::EPSILON);
+        let unknown = shape(Edge::Top, fit, DockAlign::End, None).geometry();
+        assert_eq!(unknown, full, "the whole edge until the output's size is known");
+        let wider = shape(Edge::Top, DockLength::Fixed(4000.0), DockAlign::Start, Some(1920));
+        assert_eq!(wider.geometry().2, (0, 0, 0, 0), "never a negative margin");
+        let wider = shape(Edge::Top, DockLength::Fixed(1286.0), DockAlign::Center, Some(1280));
+        assert_eq!(wider.geometry().1, (1280, 36), "clamped to the edge");
+        assert!(wider.start().abs() < f32::EPSILON);
+        assert_eq!(super::edge_length(Edge::Right, Some((1920, 1080))), Some(1080));
+        assert_eq!(super::edge_length(Edge::Top, Some((0, 1080))), None);
     }
 
     #[test]
@@ -1240,10 +1454,10 @@ mod tests {
     }
 
     #[test]
-    fn panels_get_named_keys_only() {
+    fn named_keys_map_from_evdev_codes() {
         assert_eq!(named_key(1), Some(egui::Key::Escape));
         assert_eq!(named_key(108), Some(egui::Key::ArrowDown));
-        assert_eq!(named_key(30), None, "letters need a keymap; panels take no text");
+        assert_eq!(named_key(30), None, "letters are text, from the keymap");
     }
 
     #[test]
