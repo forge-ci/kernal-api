@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import native_proof as proof
+import native_proof as proof  # pylint: disable=wrong-import-position
 
 PATTERN = ("kernal", "WebKit", "rustc", "cc1", "collect2", "ld", "bwrap", "xdg-", "dbus", "Xvfb", "wasm_tauri", "cc ")
 
@@ -20,7 +20,9 @@ PATTERN = ("kernal", "WebKit", "rustc", "cc1", "collect2", "ld", "bwrap", "xdg-"
 def sh(command: str, timeout: int = 90) -> None:
     print(f"$ {command}", flush=True)
     try:
-        result = subprocess.run(command, shell=True, text=True, capture_output=True, timeout=timeout, errors="replace")
+        result = subprocess.run(
+            command, shell=True, text=True, capture_output=True, check=False, timeout=timeout, errors="replace"
+        )
         print(result.stdout + result.stderr, flush=True)
     except subprocess.TimeoutExpired:
         print(f"(timed out after {timeout}s)", flush=True)
@@ -29,7 +31,7 @@ def sh(command: str, timeout: int = 90) -> None:
 def dump(label: str) -> None:
     print(f"::group::STALL DUMP {label}", flush=True)
     sh("ps -eo pid,ppid,pgid,sid,stat,etimes,wchan:32,args --forest | grep -v ' \\[' | tail -120")
-    listing = subprocess.run(["ps", "-eo", "pid=,args="], text=True, capture_output=True).stdout
+    listing = subprocess.run(["ps", "-eo", "pid=,args="], text=True, capture_output=True, check=False).stdout
     for line in listing.splitlines():
         pid, _, args = line.strip().partition(" ")
         if pid == str(os.getpid()) or "ps -eo" in args or "gdb" in args or "diag_aarch64" in args:
@@ -49,7 +51,7 @@ def dump(label: str) -> None:
 
 def watched(arguments: list, env: dict, label: str, stall_after: float, hard: float) -> tuple[int, float, str]:
     start = time.monotonic()
-    process = subprocess.Popen(
+    process = subprocess.Popen(  # pylint: disable=consider-using-with
         [str(a) for a in arguments],
         env=env,
         text=True,
@@ -90,7 +92,7 @@ def rustc_loop(iterations: int) -> None:
         threads = []
         results: list[tuple[str, int, float]] = []
 
-        def one(tag: str, arg: str) -> None:
+        def one(tag: str, arg: str, index: int = index, results: list | None = results) -> None:  # pylint: disable=dangerous-default-value
             out = source.with_name(f"{tag}-{index}")
             code, elapsed, text = watched(
                 ["rustc", "-g", "-Cdebuginfo=2", f"-Clink-arg=-Wl,{arg}", "-o", out, source],
