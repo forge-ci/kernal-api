@@ -5,6 +5,10 @@ use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
+#[path = "fs_walk_link_tests.rs"]
+mod walk_link_tests;
+
+#[cfg(test)]
 #[path = "fs_private_acl_tests.rs"]
 mod private_acl_tests;
 
