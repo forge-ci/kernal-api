@@ -10,6 +10,7 @@ mod blake3_facade;
 mod bounded_file_lock;
 mod context_file_observation;
 mod directory_cursor;
+mod directory_walk_options;
 mod directory_walk_parallelism;
 mod fs_watch_facade;
 #[path = "../support/readiness_marker.rs"]

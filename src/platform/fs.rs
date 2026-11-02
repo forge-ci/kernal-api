@@ -1010,6 +1010,7 @@ pub struct DirectoryEntry {
     is_directory: bool,
     is_file: bool,
     is_symbolic_link: bool,
+    followed_symbolic_links: bool,
 }
 
 #[cfg(feature = "fs")]
@@ -1017,6 +1018,21 @@ impl DirectoryEntry {
     /// The absolute path of this entry.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Consume the entry, keeping only its path.
+    pub fn into_path(self) -> PathBuf {
+        self.path
+    }
+
+    /// The final component of this entry's path.
+    ///
+    /// For a root that has no final component (`/`, `C:\`), this is the
+    /// whole root path, so it is never empty.
+    pub fn file_name(&self) -> &OsStr {
+        self.path
+            .file_name()
+            .unwrap_or_else(|| self.path.as_os_str())
     }
 
     /// Depth of this entry relative to the walk's root, which is depth `0`.
@@ -1042,18 +1058,27 @@ impl DirectoryEntry {
         self.is_symbolic_link
     }
 
-    /// Re-read this entry's metadata from disk.
+    /// Re-read this entry's metadata from disk, describing the same thing
+    /// the entry does: the link itself when the walk did not follow
+    /// symbolic links, its target when it did.
     ///
     /// # Errors
     ///
     /// Returns an error if the entry no longer exists or cannot be read.
     pub fn metadata(&self) -> io::Result<std::fs::Metadata> {
-        std::fs::metadata(&self.path)
+        if self.followed_symbolic_links {
+            std::fs::metadata(&self.path)
+        } else {
+            std::fs::symlink_metadata(&self.path)
+        }
     }
 }
 
 #[cfg(feature = "fs")]
-fn directory_entry_from_jwalk(entry: jwalk::DirEntry<((), ())>) -> DirectoryEntry {
+fn directory_entry_from_jwalk(
+    entry: &jwalk::DirEntry<WalkState>,
+    followed_symbolic_links: bool,
+) -> DirectoryEntry {
     let file_type = entry.file_type();
     DirectoryEntry {
         path: entry.path(),
@@ -1061,7 +1086,45 @@ fn directory_entry_from_jwalk(entry: jwalk::DirEntry<((), ())>) -> DirectoryEntr
         is_directory: file_type.is_dir(),
         is_file: file_type.is_file(),
         is_symbolic_link: file_type.is_symlink(),
+        followed_symbolic_links,
     }
+}
+
+/// Translate a walker error into the facade's error contract: a saturated
+/// shared pool is [`io::ErrorKind::ResourceBusy`], a symbolic-link cycle is
+/// [`io::ErrorKind::InvalidData`], and an I/O failure keeps its own kind. The
+/// walker's error type is not carried along as the source.
+#[cfg(feature = "fs")]
+fn directory_walk_error(error: jwalk::Error) -> io::Error {
+    if error.is_busy() {
+        return io::Error::new(
+            io::ErrorKind::ResourceBusy,
+            "directory walk incomplete: the shared worker pool stayed busy, \
+             so the walk ended before reading the whole tree",
+        );
+    }
+    if let Some(ancestor) = error.loop_ancestor() {
+        return symbolic_link_cycle(error.path().unwrap_or(ancestor), ancestor);
+    }
+    let message = error.to_string();
+    match error.into_io_error() {
+        Some(io_error) => io::Error::new(io_error.kind(), message),
+        None => io::Error::other(message),
+    }
+}
+
+/// The error item a followed walk yields in place of a directory link that
+/// leads back to one of its own ancestors.
+#[cfg(feature = "fs")]
+fn symbolic_link_cycle(link: &Path, ancestor: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!(
+            "symbolic link cycle: {} leads back to its ancestor {}",
+            link.display(),
+            ancestor.display()
+        ),
+    )
 }
 
 /// How long a shared-pool walk waits for a worker before giving up; the
@@ -1077,18 +1140,41 @@ const SHARED_POOL_BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_
 #[cfg(feature = "fs")]
 type PruneDirectories = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
 
-/// Where a [`DirectoryWalk`] runs its parallel directory reads.
+/// The predicate a [`DirectoryWalk`] consults for every entry below the root.
+#[cfg(feature = "fs")]
+type FilterEntries = Arc<dyn Fn(&DirectoryEntry) -> bool + Send + Sync>;
+
+/// Where a [`DirectoryWalk`] runs its directory reads.
+///
+/// Whatever the choice, a walk never ends short without saying so: an
+/// incomplete walk always yields an error item before it ends. Only
+/// [`DirectoryWalkParallelism::SharedPool`] can end a walk early for a reason
+/// other than the tree itself, and it reports that as an
+/// [`io::ErrorKind::ResourceBusy`] item.
 #[cfg(feature = "fs")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum DirectoryWalkParallelism {
+    /// Read every directory on the thread that iterates the walk. No pool,
+    /// no worker threads, nothing shared -- so nothing else on the machine
+    /// can make the walk fail. The choice for a caller that skips error
+    /// items or must not fail under load.
+    ///
+    /// Slower than a pool on a large tree on fast storage; the right choice
+    /// whenever a walk's result feeds a fingerprint or an inventory that
+    /// must be complete.
+    Sequential,
     /// Share the process-wide worker pool with every other walk and parallel
-    /// computation. Cheapest, and the default.
+    /// computation. Cheapest parallel option, and the default.
     ///
     /// Because that pool is shared, the walk cannot rely on getting a worker:
     /// when none picks it up within about one second -- the pool saturated by
     /// other work, or this walk started from inside that same pool -- the
-    /// walk yields an error item and ends rather than risk a deadlock. On a
-    /// busy machine that is a failure caused by load alone.
+    /// walk yields an [`io::ErrorKind::ResourceBusy`] error item and ends
+    /// rather than risk a deadlock. On a busy machine that is a failure
+    /// caused by load alone, so a caller that skips error items
+    /// (`.flatten()`, `filter_map(Result::ok)`) must not use this mode.
+    /// [`DirectoryWalkParallelism::Sequential`] is the drop-in for
+    /// `walkdir`-style use.
     #[default]
     SharedPool,
     /// Give this walk its own worker pool, created when the walk starts and
@@ -1097,27 +1183,49 @@ pub enum DirectoryWalkParallelism {
     /// `threads` is the pool size; zero means one thread per available CPU.
     /// The walk never waits on other work for a worker, so it never ends
     /// early because the machine is busy. That costs one pool creation per
-    /// walk -- worth it wherever a spurious walk failure is not acceptable.
+    /// walk.
     DedicatedPool {
         /// Worker threads; zero selects one per available CPU.
         threads: usize,
     },
 }
 
-/// A parallel directory-tree walk, configured before it runs.
+/// A directory-tree walk, configured before it runs.
 ///
 /// Every option here defaults to what [`std::fs::read_dir`] itself would do
 /// for a single directory: hidden entries included, symbolic links not
-/// followed, no ordering guarantee, and nothing pruned. Reads run on the
-/// shared worker pool unless [`DirectoryWalk::parallelism`] says otherwise.
+/// followed, no ordering guarantee, no depth limit, and nothing filtered.
+/// Reads run on the shared worker pool unless
+/// [`DirectoryWalk::parallelism`] says otherwise.
+///
+/// # Errors and completeness
+///
+/// An entry the walk could not read (a permissions failure, a race with
+/// something deleting the tree) is an error item, and the walk goes on. A
+/// walk that ends before covering the tree always yields an error item
+/// first; the only such case is a busy
+/// [`DirectoryWalkParallelism::SharedPool`]. A stream with no error items is
+/// therefore the whole tree, as filtered.
+///
+/// # Symbolic-link cycles
+///
+/// When [`DirectoryWalk::follow_symbolic_links`] is on and a directory link
+/// points at one of its own ancestors, the link is yielded as an
+/// [`io::ErrorKind::InvalidData`] error item naming the link and the
+/// ancestor, in place of an entry; it is not descended into, and the rest of
+/// the walk continues. Without following, a link is an ordinary entry with
+/// [`DirectoryEntry::is_symbolic_link`] set and is never descended into, so
+/// there is no cycle to report.
 #[cfg(feature = "fs")]
 pub struct DirectoryWalk {
     root: PathBuf,
     follow_symbolic_links: bool,
     include_hidden_entries: bool,
     sorted: bool,
+    max_depth: Option<usize>,
     parallelism: DirectoryWalkParallelism,
     prune_directories: Option<PruneDirectories>,
+    filter_entries: Option<FilterEntries>,
 }
 
 #[cfg(feature = "fs")]
@@ -1129,8 +1237,10 @@ impl DirectoryWalk {
             follow_symbolic_links: false,
             include_hidden_entries: true,
             sorted: false,
+            max_depth: None,
             parallelism: DirectoryWalkParallelism::SharedPool,
             prune_directories: None,
+            filter_entries: None,
         }
     }
 
@@ -1154,11 +1264,20 @@ impl DirectoryWalk {
         self
     }
 
+    /// Yield nothing deeper than `depth`, and never read a directory whose
+    /// children would be deeper. The root is depth `0`, so `max_depth(0)`
+    /// yields only the root and `max_depth(1)` its direct children.
+    /// Default: unlimited.
+    pub fn max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = Some(depth);
+        self
+    }
+
     /// Where the walk's directory reads run. Default:
     /// [`DirectoryWalkParallelism::SharedPool`].
     ///
-    /// Choose [`DirectoryWalkParallelism::DedicatedPool`] when the walk must
-    /// not fail merely because the shared pool is busy.
+    /// Choose [`DirectoryWalkParallelism::Sequential`] (or a dedicated pool)
+    /// when the walk must not fail merely because the shared pool is busy.
     pub fn parallelism(mut self, parallelism: DirectoryWalkParallelism) -> Self {
         self.parallelism = parallelism;
         self
@@ -1181,18 +1300,35 @@ impl DirectoryWalk {
         self
     }
 
+    /// Skip any entry below the root for which `keep` returns `false`:
+    /// files, links and directories alike. A rejected directory is neither
+    /// yielded nor descended into.
+    ///
+    /// Unlike [`DirectoryWalk::prune_directories`] the predicate sees the
+    /// whole [`DirectoryEntry`], so it can match on kind, name or depth. The
+    /// root itself is always yielded. When both are set, an entry is kept
+    /// only if both keep it.
+    pub fn filter_entries<F>(mut self, keep: F) -> Self
+    where
+        F: Fn(&DirectoryEntry) -> bool + Send + Sync + 'static,
+    {
+        let keep: FilterEntries = Arc::new(keep);
+        self.filter_entries = Some(keep);
+        self
+    }
+
     /// Run the walk, yielding entries as they are discovered.
     ///
-    /// Each item is an error only for an individual entry this walk could not
-    /// read (a permissions failure, a race with something deleting the
-    /// tree); it does not end the walk.
+    /// See the type's documentation for which items are errors and the
+    /// guarantee that an incomplete walk always says so.
     pub fn walk(self) -> impl Iterator<Item = io::Result<DirectoryEntry>> {
-        let prune_directories = self.prune_directories;
-        let walker = jwalk::WalkDir::new(&self.root)
-            .follow_links(self.follow_symbolic_links)
+        let follow = self.follow_symbolic_links;
+        let mut walker = WalkDirWithState::new(&self.root)
+            .follow_links(follow)
             .skip_hidden(!self.include_hidden_entries)
             .sort(self.sorted)
             .parallelism(match self.parallelism {
+                DirectoryWalkParallelism::Sequential => jwalk::Parallelism::Serial,
                 DirectoryWalkParallelism::SharedPool => jwalk::Parallelism::RayonDefaultPool {
                     busy_timeout: SHARED_POOL_BUSY_TIMEOUT,
                 },
@@ -1201,21 +1337,117 @@ impl DirectoryWalk {
                 DirectoryWalkParallelism::DedicatedPool { threads } => {
                     jwalk::Parallelism::RayonNewPool(threads)
                 }
-            })
-            .process_read_dir(move |_depth, _parent, _state, children| {
-                let Some(keep) = &prune_directories else {
-                    return;
-                };
-                children.retain(|entry| match entry {
-                    Ok(entry) if entry.file_type().is_dir() => keep(&entry.path()),
-                    _ => true,
-                });
             });
-        walker.into_iter().map(|entry| {
-            entry
-                .map(directory_entry_from_jwalk)
-                .map_err(io::Error::from)
+        if let Some(depth) = self.max_depth {
+            // Applied after the parallelism: the walker drops to a serial
+            // read on its own for a depth below two, which only removes the
+            // shared-pool failure mode.
+            walker = walker.max_depth(depth);
+        }
+        let select = SelectChildren {
+            follow,
+            prune_directories: self.prune_directories,
+            filter_entries: self.filter_entries,
+        };
+        walker = walker.process_read_dir(move |_depth, directory, ancestors, children| {
+            select.apply(directory, ancestors, children);
+        });
+        walker.into_iter().map(move |entry| match entry {
+            Ok(mut entry) => match entry.client_state.take() {
+                Some(ancestor) => Err(symbolic_link_cycle(&entry.path(), &ancestor)),
+                None => Ok(directory_entry_from_jwalk(&entry, follow)),
+            },
+            Err(error) => Err(directory_walk_error(error)),
         })
+    }
+}
+
+/// The real directories a followed walk has entered on the way to the one
+/// being read, nearest first. Each read hands its children a copy, so a
+/// directory sees exactly its own chain of ancestors.
+#[cfg(feature = "fs")]
+#[derive(Clone, Debug, Default)]
+struct WalkAncestors(Option<Arc<WalkAncestor>>);
+
+#[cfg(feature = "fs")]
+#[derive(Debug)]
+struct WalkAncestor {
+    canonical: PathBuf,
+    parent: WalkAncestors,
+}
+
+#[cfg(feature = "fs")]
+impl WalkAncestors {
+    fn find(&self, canonical: &Path) -> Option<&Path> {
+        let mut next = self.0.as_deref();
+        while let Some(ancestor) = next {
+            if ancestor.canonical == canonical {
+                return Some(&ancestor.canonical);
+            }
+            next = ancestor.parent.0.as_deref();
+        }
+        None
+    }
+}
+
+/// Per-walk state: the ancestor chain of each read, and on an entry the
+/// ancestor it loops back to, when it is a symbolic-link cycle.
+#[cfg(feature = "fs")]
+type WalkState = (WalkAncestors, Option<PathBuf>);
+
+#[cfg(feature = "fs")]
+type WalkDirWithState = jwalk::WalkDirGeneric<WalkState>;
+
+/// What a walk decides about each directory's children, once per read.
+#[cfg(feature = "fs")]
+struct SelectChildren {
+    follow: bool,
+    prune_directories: Option<PruneDirectories>,
+    filter_entries: Option<FilterEntries>,
+}
+
+#[cfg(feature = "fs")]
+impl SelectChildren {
+    fn apply(
+        &self,
+        directory: &Path,
+        ancestors: &mut WalkAncestors,
+        children: &mut Vec<Result<jwalk::DirEntry<WalkState>, jwalk::Error>>,
+    ) {
+        if self.follow {
+            // Canonical, so a link is recognised by where it lands rather
+            // than how it is spelled: relative (`..`) and absolute links to
+            // an ancestor are the same cycle.
+            if let Ok(canonical) = std::fs::canonicalize(directory) {
+                *ancestors = WalkAncestors(Some(Arc::new(WalkAncestor {
+                    canonical,
+                    parent: std::mem::take(ancestors),
+                })));
+            }
+        }
+        children.retain_mut(|entry| {
+            let Ok(entry) = entry else {
+                return true;
+            };
+            if self.follow && entry.file_type().is_dir() && entry.path_is_symlink() {
+                let looped = std::fs::canonicalize(entry.path())
+                    .ok()
+                    .and_then(|canonical| ancestors.find(&canonical).map(Path::to_path_buf));
+                if let Some(ancestor) = looped {
+                    entry.read_children_path = None;
+                    entry.client_state = Some(ancestor);
+                    return true;
+                }
+            }
+            if let Some(keep) = &self.prune_directories {
+                if entry.file_type().is_dir() && !keep(&entry.path()) {
+                    return false;
+                }
+            }
+            self.filter_entries
+                .as_ref()
+                .is_none_or(|keep| keep(&directory_entry_from_jwalk(entry, self.follow)))
+        });
     }
 }
 
