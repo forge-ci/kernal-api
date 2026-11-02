@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -148,12 +147,22 @@ def screenshot_loop(native_target: str, bundle: Path, guests: Path, work: Path, 
             print(text[-6000:], flush=True)
 
 
+def nextest_split_tests(native_target: str) -> None:
+    """Run the real debug_symbol_split tests first on a fresh host, then show what rustup installed."""
+    sh("rustup toolchain list")
+    start = time.monotonic()
+    sh(
+        f"cargo-nextest nextest run --archive-file kernal-tests-{native_target}.tar.zst --workspace-remap . "
+        "--no-fail-fast -E 'test(debug_symbol_split)' --success-output immediate 2>&1 | tail -60",
+        600,
+    )
+    print(f"debug_symbol_split tests took {time.monotonic() - start:.1f}s", flush=True)
+    sh("rustup toolchain list")
+
+
 def main() -> None:
-    native_target, bundle, guests, work = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
-    if shutil.which("gdb") is None:
-        sh("sudo apt-get install -y --no-install-recommends gdb", 300)
-    rustc_loop(int(os.environ.get("DIAG_RUSTC", "40")))
-    screenshot_loop(native_target, bundle, guests, work, int(os.environ.get("DIAG_SHOTS", "25")))
+    native_target = sys.argv[1]
+    nextest_split_tests(native_target)
 
 
 if __name__ == "__main__":
