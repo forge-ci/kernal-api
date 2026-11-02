@@ -42,7 +42,12 @@ fn owner_death_helper_spawns_an_adapted_child() {
             std::time::Duration::from_secs(60),
         )
         .expect("test runtime budget");
-    std::fs::write(pid_file, pid.to_string()).expect("publish adapted child PID");
+    // Publish atomically: the owner polls for this path, so it must never see
+    // it exist before its contents are complete (kernal-api#569).
+    let pid_file = std::path::PathBuf::from(pid_file);
+    let staging = pid_file.with_extension("pid.tmp");
+    std::fs::write(&staging, pid.to_string()).expect("stage adapted child PID");
+    std::fs::rename(&staging, &pid_file).expect("publish adapted child PID");
 }
 
 #[test]
