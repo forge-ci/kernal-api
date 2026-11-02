@@ -4,6 +4,20 @@
 //! values own the selected host transport so callers never name Unix sockets,
 //! Windows named pipes, `interprocess` types, file descriptors, or handles.
 //!
+//! # Filesystem endpoints need an owner-private parent
+//!
+//! On Linux, `Listener::bind_owner_only` (and
+//! `Endpoint::ensure_owner_private_parent`) check the socket's *parent
+//! directory*:
+//! it is created `0700` if missing, and an existing one must be a real
+//! directory owned by the effective user with mode exactly `0700`. Otherwise
+//! the bind fails with `PermissionDenied` and one of `IPC endpoint parent is
+//! not owned by the current user` or `IPC endpoint parent is not
+//! owner-private`. So `/tmp/app.sock` (sticky `1777`, owned by root) and
+//! `~/.cache/app.sock` (usually `0755`) are refused; use
+//! `$XDG_RUNTIME_DIR/app.sock` (already `0700`) or a dedicated subdirectory
+//! such as `/tmp/app-$UID/app.sock` that this check creates `0700`.
+//!
 //! # Endpoint existence and staleness
 //!
 //! `Endpoint::target_exists` and `Endpoint::is_stale` ask two different

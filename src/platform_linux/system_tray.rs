@@ -37,7 +37,7 @@ impl ksni::Tray for Item {
     fn tool_tip(&self) -> ksni::ToolTip {
         ksni::ToolTip {
             title: self.options.title.clone(),
-            description: "Click to show CI activity".into(),
+            description: self.options.labels.description.clone(),
             ..Default::default()
         }
     }
@@ -50,19 +50,19 @@ impl ksni::Tray for Item {
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         vec![
             ksni::menu::StandardItem {
-                label: "Show activity".into(),
+                label: self.options.labels.activate.clone(),
                 activate: Box::new(|item: &mut Self| item.action(TrayEvent::Activate)),
                 ..Default::default()
             }
             .into(),
             ksni::menu::StandardItem {
-                label: "Open dashboard".into(),
+                label: self.options.labels.open_dashboard.clone(),
                 activate: Box::new(|item: &mut Self| item.action(TrayEvent::OpenDashboard)),
                 ..Default::default()
             }
             .into(),
             ksni::menu::StandardItem {
-                label: "Quit".into(),
+                label: self.options.labels.quit.clone(),
                 activate: Box::new(|item: &mut Self| item.action(TrayEvent::Quit)),
                 ..Default::default()
             }

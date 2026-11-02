@@ -9,6 +9,31 @@ pub struct TrayOptions {
     pub(crate) title: String,
     pub(crate) size: u16,
     pub(crate) argb: Vec<u8>,
+    pub(crate) labels: TrayLabels,
+}
+
+/// The words the desktop shows for the item: its menu entries and tooltip line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TrayLabels {
+    pub(crate) activate: String,
+    pub(crate) open_dashboard: String,
+    pub(crate) quit: String,
+    pub(crate) description: String,
+}
+
+impl Default for TrayLabels {
+    fn default() -> Self {
+        Self {
+            activate: "Show activity".into(),
+            open_dashboard: "Open dashboard".into(),
+            quit: "Quit".into(),
+            description: "Click to show CI activity".into(),
+        }
+    }
+}
+
+fn valid_label(text: &str) -> bool {
+    !text.is_empty() && text.len() <= 255 && !text.contains('\0')
 }
 
 impl TrayOptions {
@@ -32,7 +57,31 @@ impl TrayOptions {
             title: title.into(),
             size,
             argb,
+            labels: TrayLabels::default(),
         })
+    }
+
+    /// Name the three menu entries after what the caller does with
+    /// [`TrayEvent::Activate`], [`TrayEvent::OpenDashboard`] and
+    /// [`TrayEvent::Quit`], and set the tooltip's description line. The events
+    /// stay the same; only the words change. Each is 1-255 bytes without NUL.
+    pub fn with_labels(
+        mut self,
+        activate: &str,
+        open_dashboard: &str,
+        quit: &str,
+        description: &str,
+    ) -> Result<Self, TrayError> {
+        if ![activate, open_dashboard, quit, description].into_iter().all(valid_label) {
+            return Err(TrayError::InvalidOptions);
+        }
+        self.labels = TrayLabels {
+            activate: activate.into(),
+            open_dashboard: open_dashboard.into(),
+            quit: quit.into(),
+            description: description.into(),
+        };
+        Ok(self)
     }
 }
 
@@ -74,9 +123,27 @@ impl TrayHandle {
     }
     /// Update the displayed status; icon dimensions and identity stay unchanged.
     pub async fn set_title(&self, title: &str) -> Result<(), TrayError> {
-        if title.is_empty() || title.len() > 255 || title.contains('\0') {
+        if !valid_label(title) {
             return Err(TrayError::InvalidOptions);
         }
         self.native.set_title(title).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn labels_default_to_the_original_words_and_are_validated() {
+        let options = TrayOptions::new("a.b", "T", 1, vec![0; 4]).unwrap();
+        assert_eq!(options.labels, TrayLabels::default());
+        let named = options.clone().with_labels("Search", "Tasks", "Quit bar", "Talos").unwrap();
+        assert_eq!(named.labels.activate, "Search");
+        assert_eq!(named.labels.open_dashboard, "Tasks");
+        assert_eq!(named.labels.quit, "Quit bar");
+        assert_eq!(named.labels.description, "Talos");
+        assert_eq!(options.clone().with_labels("", "b", "c", "d").err(), Some(TrayError::InvalidOptions));
+        assert_eq!(options.with_labels("a", "b\0", "c", "d").err(), Some(TrayError::InvalidOptions));
     }
 }

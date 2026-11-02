@@ -23,6 +23,9 @@ pub(crate) mod control_signal;
 #[cfg(feature = "system-tray")]
 #[path = "platform_macos/system_tray.rs"]
 pub(crate) mod system_tray;
+#[cfg(feature = "gfx-egui")]
+#[path = "platform_macos/gfx_dock.rs"]
+pub(crate) mod gfx_dock;
 
 
 #[cfg(feature = "wasm-sketch-worker")]
