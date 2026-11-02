@@ -6,6 +6,7 @@
 //! See AGENTS.md for the rule.
 
 mod archive_facade;
+mod archive_writers;
 mod async_biased_race;
 mod async_blocking_channel;
 mod async_bounded_channel;
