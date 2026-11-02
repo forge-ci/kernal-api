@@ -22,10 +22,11 @@ a public type position or `pub use`s one.
 | --- | --- | --- |
 | App / event loop ownership | `gfx::run(WindowOptions, impl App) -> Result<(), GfxError>` | `run` owns the event loop on the calling thread (the main thread on macOS) until the window closes. One window per `run`; `run` may be called again on the same thread after it returns (a resident app opens a fresh window per show). No async: a GUI loop is not a Tokio task. |
 | Window description | `WindowOptions` (builder): title, size, resizable, decorations, always-on-top, transparent, click-through, `Placement` (`Default`, `Centered`, `At`, `Monitor`, `Dock { edge: Edge, thickness }`), initial `Theme` | Fields are private; the builder is the contract, so fields can be added without breaking callers. |
+| Drop-down panels | `Frame::show_panel(&PanelOptions) -> Result<(), GfxError>`, `App::panel(&mut Frame)`, `Event::PanelDismissed`, `PanelOptions::new(w, h).edge(Edge).offset(f32)`, `Capabilities::panels` | One panel at a time, beside a running dock. See "Panels". |
 | Frame lifecycle | `App::frame(&mut Frame)` once per frame; `App::close_requested() -> bool` | Immediate mode: the app owns all state; a frame is a pure function of state plus events. `Frame::close`, `Frame::request_repaint`, `Frame::request_repaint_after(Duration)` drive the loop. |
 | Layout metrics | `Frame::text_width(&str, size) -> f32`, `Frame::line_height(size) -> f32`, `Frame::available_width() -> f32`, `Frame::available_height() -> f32` | Plain logical-pixel `f32`s, read per frame. See "Layout metrics". |
 | Widget subset | `label`, `heading`, `button`, `toggle`, `text_field`, `slider`, `separator`, `space`, `horizontal`, `scroll`, `list`, `selectable_row` | The intersection every candidate backend can render. Each interactive widget returns "acted on this frame" as `bool`; no widget handles or response objects. See "Provisional widget set". |
-| Input | `Frame::events() -> &[Event]`: `Key`, `Text`, `PointerMoved`, `PointerButton`, `PointerLeft`, `Scroll` (pixels), `Focused`, `Screenshot` | Logical pixels, delivery order. `Frame::request_screenshot()` reads back the window's own rendered framebuffer (not the compositor's) and delivers it in a later frame as `Event::Screenshot { width, height, rgba }` (physical pixels, straight-alpha sRGB); it works wherever the renderer does, including llvmpipe, so CI can prove what was drawn. Backend-specific events (IME, touch, accessibility, clipboard) are dropped, not passed through. |
+| Input | `Frame::events() -> &[Event]`: `Key`, `Text`, `PointerMoved`, `PointerButton`, `PointerLeft`, `Scroll` (pixels), `Focused`, `Screenshot`, `PanelDismissed` | Logical pixels, delivery order. `Frame::request_screenshot()` reads back the window's own rendered framebuffer (not the compositor's) and delivers it in a later frame as `Event::Screenshot { width, height, rgba }` (physical pixels, straight-alpha sRGB); it works wherever the renderer does, including llvmpipe, so CI can prove what was drawn. Backend-specific events (IME, touch, accessibility, clipboard) are dropped, not passed through. |
 | Theme tokens | `Theme { mode, accent, background, text_size, spacing, corner_radius }`, `Color` | Tokens, not a style tree. A backend maps them onto its own style system. |
 | Windowless render | `gfx::snapshot(&WindowOptions, &mut impl App) -> Result<Snapshot, GfxError>`; `Snapshot::{width, height, rgba}` | Lays the UI out at `options.size` (one pixel per point) over three input-less settling frames and paints it offscreen. No window, no compositor, so it works on a locked or display-less session where `request_screenshot` cannot. Same pixel layout as `Event::Screenshot`; fields are private. It draws what a **focused** window shows (see "Snapshot parity"). Placement is ignored, so a `Dock` renders on any host. |
 | Capability query | `gfx::capabilities() -> Capabilities` of `Support::{Supported, BestEffort, Unsupported}` | `run` validates options against it first and fails with `GfxErrorKind::Unsupported`; it never silently degrades. |
@@ -131,7 +132,8 @@ backend's `draw` and `FrameImp`, so an `App` cannot tell which path it runs
 on: widgets, theme, `Event::Pointer*`, `Scroll`, `request_repaint`,
 `request_screenshot` and `close` all behave the same. Frames are paced by
 `wl_surface.frame` like the eframe path. The dock never takes keyboard focus
-(`KeyboardInteractivity::None`), so it gets no key or text events. This is
+(`KeyboardInteractivity::None`), so it gets no key or text events; its
+panels do (see "Panels"). This is
 the same structure as voxtype's `voxtype-osd-native`. Both crates were
 already in the tree under winit, and they are pinned to winit's versions.
 
@@ -184,6 +186,62 @@ Keyboard navigation is the app's: read `Key::ArrowUp`/`ArrowDown`/`Enter`
 from `Frame::events` and move `selected`. Rows identify themselves by layout
 position, which is enough for a list rebuilt each frame.
 
+## Panels
+
+A bar needs drop-downs under its own cells (a task list under the tasks
+cell, an agenda under the clock): borderless, above ordinary windows,
+anchored to the screen edge the bar is on, opened and closed by the bar.
+`Placement::At` cannot express that on Wayland (the compositor ignores client
+positions for toplevels), and `run` drives exactly one window, so panels are
+their own capability:
+
+```rust
+impl App for Bar {
+    fn frame(&mut self, frame: &mut Frame<'_>) {
+        if frame.events().iter().any(|e| matches!(e, Event::PanelDismissed)) {
+            self.open = false;
+        }
+        if frame.button("Tasks") { self.open = !self.open; }
+        if self.open {
+            let panel = PanelOptions::new(420.0, 300.0).edge(Edge::Top).offset(112.0);
+            // Every frame it stays up; Err(Unsupported) off a dock.
+            let _ = frame.show_panel(&panel);
+        }
+    }
+    fn panel(&mut self, frame: &mut Frame<'_>) {
+        // the panel's own frame: its events, its size
+    }
+}
+```
+
+- **Immediate mode.** The dock frame calls `show_panel` on every frame the
+  panel should be visible; a frame that does not call it closes it. Changing
+  the options resizes or moves it. `App::panel` draws it, with its own events
+  (positions relative to the panel). One panel at a time.
+- **Placement.** Anchored to `edge` at `offset` along it, with a zero
+  exclusive zone, so the compositor keeps it clear of the dock's reserved
+  space: a top panel opens directly under a top dock.
+- **Focus and dismissal.** The panel asks for keyboard focus on demand. It
+  receives named keys (`Escape`, arrows, Enter, Tab, Home/End, Page keys,
+  Backspace/Delete, Space) but no text: the backend maps evdev codes itself
+  and links no keymap library. When focus moves to another window (a click
+  away), the backend closes the panel and the next `App::frame` sees
+  `Event::PanelDismissed`. Input to the panel also schedules a dock frame, so
+  state the panel changed (Esc) reaches `frame` at once.
+- **Where.** `Capabilities::panels` equals `Capabilities::dock`: on Linux it
+  is a second `zwlr_layer_shell_v1` surface (layer `top`) of the same
+  connection, rendered on the dock's wgpu device with its own swapchain,
+  egui context and frame clock. `show_panel` returns `Unsupported` from an
+  app not run as a dock (an eframe window, `snapshot`) and on hosts without
+  docks. A panel's content can still be snapshotted by rendering the same
+  drawing code in `App::frame` of a `snapshot`.
+
+Proven under `kwin_wayland --virtual` (1280x800) with talos-bar-rs and real
+EIS input: a click on the bar's tasks cell mapped a panel KWin reports at
+`x=112 y=36 w=420 h=520` (`active=true`), Esc removed it, a click on the
+clock mapped one at `x=180 y=36 w=460 h=293`, and a click into a maximised
+window behind it dismissed it.
+
 ## Deliberately not portable
 
 - **Custom painting / raw GPU access.** No canvas, mesh, texture or
@@ -191,7 +249,8 @@ position, which is enough for a list rebuilt each frame.
 - **Backend widgets, layouts, IDs and response objects.** Anything outside the
   subset needs a facade widget first.
 - **Fine-grained styling.** Per-widget colours, fonts, strokes.
-- **Multiple windows / viewports, menus, tray, dialogs.** `system-tray` and
+- **Multiple windows / viewports, menus, tray, dialogs.** (A dock's one
+  drop-down panel is the exception; see "Panels".) `system-tray` and
   `webview` remain separate capabilities.
 - **Window-manager behaviour.** Docks are their own capability (see "Docks").
   Transparency, click-through, always-on-top and

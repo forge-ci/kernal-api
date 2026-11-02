@@ -37,7 +37,70 @@ pub enum Placement {
     },
 }
 
-/// A screen edge, for [`Placement::Dock`].
+/// A drop-down panel: a borderless, always-on-top surface that the running
+/// dock opens beside itself, anchored to a screen edge. Shown with
+/// [`Frame::show_panel`](super::Frame::show_panel) on every frame it should
+/// stay visible and drawn by [`App::panel`](super::App::panel). The desktop
+/// keeps it clear of the dock's reserved space, so a panel on the dock's own
+/// edge opens directly below (or beside) the dock. Requires
+/// [`Capabilities::panels`](super::Capabilities::panels).
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[must_use]
+pub struct PanelOptions {
+    pub(crate) edge: Edge,
+    pub(crate) offset: f32,
+    pub(crate) size: (f32, f32),
+}
+
+impl PanelOptions {
+    /// A `width` x `height` panel (logical pixels) on the top edge, at the
+    /// start of that edge.
+    pub fn new(width: f32, height: f32) -> Self {
+        Self {
+            edge: Edge::Top,
+            offset: 0.0,
+            size: (width, height),
+        }
+    }
+
+    /// The screen edge the panel hangs from.
+    pub fn edge(mut self, edge: Edge) -> Self {
+        self.edge = edge;
+        self
+    }
+
+    /// Distance along the edge from its start (left for a top or bottom
+    /// edge, top for a left or right edge), in logical pixels.
+    pub fn offset(mut self, offset: f32) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    /// The requested size in logical pixels.
+    #[must_use]
+    pub fn size(&self) -> (f32, f32) {
+        self.size
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), GfxError> {
+        let (width, height) = self.size;
+        if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
+            return Err(GfxError::new(
+                GfxErrorKind::InvalidOptions,
+                format!("panel size must be positive and finite, got {width}x{height}"),
+            ));
+        }
+        if !(self.offset.is_finite() && self.offset >= 0.0) {
+            return Err(GfxError::new(
+                GfxErrorKind::InvalidOptions,
+                format!("panel offset must be finite and not negative, got {}", self.offset),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// A screen edge, for [`Placement::Dock`] and [`PanelOptions`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Edge {
@@ -194,7 +257,25 @@ mod tests {
             absolute_placement: Support::BestEffort,
             monitor_placement: Support::Unsupported,
             dock: Support::Unsupported,
+            panels: Support::Unsupported,
         }
+    }
+
+    #[test]
+    fn a_panel_needs_a_positive_size_and_offset() {
+        assert!(PanelOptions::new(320.0, 200.0).offset(40.0).validate().is_ok());
+        for bad in [
+            PanelOptions::new(0.0, 10.0),
+            PanelOptions::new(10.0, f32::INFINITY),
+            PanelOptions::new(10.0, 10.0).offset(-1.0),
+            PanelOptions::new(10.0, 10.0).offset(f32::NAN),
+        ] {
+            let err = bad.validate().expect_err("must be rejected");
+            assert_eq!(err.kind(), GfxErrorKind::InvalidOptions);
+        }
+        let panel = PanelOptions::new(5.0, 6.0).edge(Edge::Bottom);
+        assert_eq!(panel.size(), (5.0, 6.0));
+        assert_eq!(panel.edge, Edge::Bottom);
     }
 
     #[test]

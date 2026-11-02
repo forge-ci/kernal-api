@@ -10,8 +10,8 @@ use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::gfx::{
-    App, BackendKind, Capabilities, Color, Event, GfxError, GfxErrorKind, Placement, Support,
-    Theme, ThemeMode, WindowOptions,
+    App, BackendKind, Capabilities, Color, Event, GfxError, GfxErrorKind, PanelOptions, Placement,
+    Support, Theme, ThemeMode, WindowOptions,
 };
 
 pub(crate) fn capabilities() -> Capabilities {
@@ -29,6 +29,8 @@ pub(crate) fn capabilities() -> Capabilities {
         // A layer-shell surface on Linux Wayland, probed once per process;
         // see docs/gfx-backend.md, "Docks".
         dock: crate::native_gfx_dock::support(),
+        // Panels are extra layer surfaces of a running dock.
+        panels: crate::native_gfx_dock::support(),
     }
 }
 
@@ -183,13 +185,9 @@ impl eframe::App for Adapter {
         if ctx.input(|input| input.viewport().close_requested()) && !self.app.close_requested() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
-        let mut shared = Shared {
-            events: std::mem::take(&mut self.events),
-            theme: None,
-            close: false,
-            screenshot: false,
-        };
-        draw(ui, self.transparent, &mut *self.app, &mut shared);
+        let mut shared = Shared::new(std::mem::take(&mut self.events));
+        let app = &mut *self.app;
+        draw(ui, self.transparent, &mut shared, &mut |frame| app.frame(frame));
         self.events = shared.events;
         self.pending_theme = shared.theme;
         if self.pending_theme.is_some() {
@@ -220,8 +218,13 @@ impl eframe::App for Adapter {
     }
 }
 
-/// Lay out one frame of `app` in a central panel.
-pub(crate) fn draw(ui: &mut egui::Ui, transparent: bool, app: &mut dyn App, shared: &mut Shared) {
+/// Lay out one frame of `body` (an app's `frame` or `panel`) in a central panel.
+pub(crate) fn draw(
+    ui: &mut egui::Ui,
+    transparent: bool,
+    shared: &mut Shared,
+    body: &mut dyn FnMut(&mut crate::gfx::Frame<'_>),
+) {
     let panel = egui::CentralPanel::default();
     let panel = if transparent {
         panel.frame(egui::Frame::NONE)
@@ -232,7 +235,7 @@ pub(crate) fn draw(ui: &mut egui::Ui, transparent: bool, app: &mut dyn App, shar
         let mut frame = crate::gfx::Frame {
             imp: FrameImp { ui, shared },
         };
-        app.frame(&mut frame);
+        body(&mut frame);
     });
 }
 
@@ -242,6 +245,10 @@ pub(crate) struct Shared {
     pub(crate) theme: Option<Theme>,
     pub(crate) close: bool,
     pub(crate) screenshot: bool,
+    /// Whether this surface may open a panel (a dock's own frame).
+    pub(crate) panels: bool,
+    /// The panel asked for this frame, if any.
+    pub(crate) panel: Option<PanelOptions>,
 }
 
 impl Shared {
@@ -251,6 +258,8 @@ impl Shared {
             theme: None,
             close: false,
             screenshot: false,
+            panels: false,
+            panel: None,
         }
     }
 }
@@ -414,6 +423,17 @@ impl FrameImp<'_> {
     pub(crate) fn available_height(&self) -> f32 {
         self.ui.available_height()
     }
+
+    pub(crate) fn show_panel(&mut self, panel: PanelOptions) -> Result<(), GfxError> {
+        if !self.shared.panels {
+            return Err(GfxError::new(
+                GfxErrorKind::Unsupported,
+                "show_panel needs an app run with Placement::Dock on a host that supports docks",
+            ));
+        }
+        self.shared.panel = Some(panel);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -435,12 +455,7 @@ mod tests {
             ..egui::RawInput::default()
         };
         let mut output = ctx.run_ui(input, |ui| {
-            let mut shared = Shared {
-                events: Vec::new(),
-                theme: None,
-                close: false,
-                screenshot: false,
-            };
+            let mut shared = Shared::new(Vec::new());
             let mut frame = crate::gfx::Frame {
                 imp: FrameImp {
                     ui,
@@ -484,6 +499,39 @@ mod tests {
         assert_eq!(&rgba[..4], &[255, 0, 0, 255]);
         assert_eq!(rgba[7], 128);
         assert!(rgba[6] > 240, "blue un-premultiplied: {rgba:?}");
+    }
+
+    #[test]
+    fn show_panel_is_unsupported_off_a_dock_and_recorded_on_one() {
+        let ctx = egui::Context::default();
+        let panel = crate::gfx::PanelOptions::new(200.0, 100.0).offset(10.0);
+        let mut kind = None;
+        frame(&ctx, Vec::new(), |frame| {
+            kind = frame.show_panel(&panel).err().map(|err| err.kind());
+        });
+        assert_eq!(kind, Some(GfxErrorKind::Unsupported));
+
+        let mut asked = None;
+        let input = egui::RawInput::default();
+        let mut output = ctx.run_ui(input, |ui| {
+            let mut shared = Shared::new(Vec::new());
+            shared.panels = true;
+            let mut frame = crate::gfx::Frame {
+                imp: FrameImp {
+                    ui,
+                    shared: &mut shared,
+                },
+            };
+            assert!(frame.show_panel(&panel).is_ok());
+            let bad = crate::gfx::PanelOptions::new(0.0, 1.0);
+            assert_eq!(
+                frame.show_panel(&bad).err().map(|err| err.kind()),
+                Some(GfxErrorKind::InvalidOptions)
+            );
+            asked = shared.panel;
+        });
+        output.textures_delta.clear();
+        assert_eq!(asked, Some(panel));
     }
 
     #[test]
@@ -574,7 +622,7 @@ mod tests {
         };
         let mut app = Body(&mut body);
         let mut output = ctx.run_ui(input, |ui| {
-            draw(ui, false, &mut app, &mut Shared::new(Vec::new()));
+            draw(ui, false, &mut Shared::new(Vec::new()), &mut |frame| app.frame(frame));
         });
         output.textures_delta.clear();
     }

@@ -117,6 +117,12 @@ pub enum Event {
     },
     /// The window gained (`true`) or lost focus.
     Focused(bool),
+    /// The backend closed the panel shown with
+    /// [`Frame::show_panel`](super::Frame::show_panel) because it lost
+    /// keyboard focus (the user clicked elsewhere). Delivered to
+    /// [`App::frame`](super::App::frame); stop calling `show_panel` until
+    /// the user opens it again.
+    PanelDismissed,
     /// The pixels of a frame asked for with
     /// [`Frame::request_screenshot`](super::Frame::request_screenshot), read
     /// back from the window's own framebuffer (not the compositor), in

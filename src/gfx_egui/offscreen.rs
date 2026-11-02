@@ -33,13 +33,10 @@ pub(crate) fn snapshot(options: &WindowOptions, app: &mut dyn App) -> Result<Sna
             )),
             ..egui::RawInput::default()
         };
-        let mut shared = Shared {
-            events: Vec::new(),
-            theme: None,
-            close: false,
-            screenshot: false,
-        };
-        let mut full = ctx.run_ui(input, |ui| draw(ui, options.transparent, app, &mut shared));
+        let mut shared = Shared::new(Vec::new());
+        let mut full = ctx.run_ui(input, |ui| {
+            draw(ui, options.transparent, &mut shared, &mut |frame| app.frame(frame));
+        });
         for (id, deltas) in &full.textures_delta.set {
             textures.extend(deltas.iter().map(|delta| (*id, delta.clone())));
         }

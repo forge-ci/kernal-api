@@ -20,7 +20,7 @@ mod window;
 pub use frame::Frame;
 pub use input::{Event, Key, Modifiers, PointerButton};
 pub use theme::{Color, Theme, ThemeMode};
-pub use window::{Edge, Placement, WindowOptions};
+pub use window::{Edge, PanelOptions, Placement, WindowOptions};
 
 #[cfg(feature = "gfx-egui")]
 use crate::gfx_egui as backend;
@@ -34,7 +34,7 @@ mod backend {
     use std::marker::PhantomData;
     use std::ops::RangeInclusive;
 
-    use super::{Event, Theme};
+    use super::{Event, PanelOptions, Theme};
 
     /// Uninhabited: no frame is ever produced without a backend.
     pub(crate) struct FrameImp<'a>(Infallible, PhantomData<&'a mut ()>);
@@ -107,6 +107,9 @@ mod backend {
         pub(crate) fn available_height(&self) -> f32 {
             match self.0 {}
         }
+        pub(crate) fn show_panel(&mut self, _: PanelOptions) -> Result<(), GfxError> {
+            match self.0 {}
+        }
     }
 
     pub(crate) fn capabilities() -> Capabilities {
@@ -119,6 +122,7 @@ mod backend {
             absolute_placement: Support::Unsupported,
             monitor_placement: Support::Unsupported,
             dock: Support::Unsupported,
+            panels: Support::Unsupported,
         }
     }
 
@@ -141,6 +145,14 @@ mod backend {
 pub trait App {
     /// Build this frame's UI and react to [`Frame::events`].
     fn frame(&mut self, frame: &mut Frame<'_>);
+
+    /// Build this frame's UI for the panel requested with
+    /// [`Frame::show_panel`]. Called only while a panel is shown, with the
+    /// panel's own events (pointer positions relative to the panel). The
+    /// default draws nothing.
+    fn panel(&mut self, frame: &mut Frame<'_>) {
+        let _ = frame;
+    }
 
     /// The window was asked to close. Return `false` to keep it open.
     fn close_requested(&mut self) -> bool {
@@ -196,6 +208,11 @@ pub struct Capabilities {
     /// offer the layer-shell protocol); [`run`] reports the exact reason
     /// when it is unavailable.
     pub dock: Support,
+    /// [`Frame::show_panel`]: drop-down panels beside a dock. Available
+    /// exactly where [`Capabilities::dock`] is, and only to an app run with
+    /// [`Placement::Dock`]; elsewhere `show_panel` returns
+    /// [`GfxErrorKind::Unsupported`].
+    pub panels: Support,
 }
 
 /// The capabilities of the backend compiled into this build.

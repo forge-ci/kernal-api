@@ -3,7 +3,7 @@
 use std::ops::RangeInclusive;
 
 use super::backend::FrameImp;
-use super::{Event, Theme};
+use super::{Event, GfxError, PanelOptions, Theme};
 
 /// One frame of UI. Widgets are laid out top to bottom unless nested in
 /// [`Frame::horizontal`]. Each widget returns whether the user acted on it
@@ -119,6 +119,34 @@ impl Frame<'_> {
             Some(result) => result,
             None => unreachable!("the backend runs the horizontal body exactly once"),
         }
+    }
+
+    /// Show the drop-down panel described by `panel` after this frame, or
+    /// keep it shown (and resize or move it to match). Call it on every
+    /// frame of [`App::frame`](super::App::frame) the panel should stay up:
+    /// a frame that does not call it closes the panel. Its contents come
+    /// from [`App::panel`](super::App::panel).
+    ///
+    /// The panel takes keyboard focus when the desktop allows it. When it
+    /// loses focus to another window (a click away), the backend closes it
+    /// and delivers [`Event::PanelDismissed`] to the next
+    /// [`App::frame`](super::App::frame); handle events before calling
+    /// `show_panel` again. A panel receives named keys
+    /// ([`Key::Escape`](super::Key::Escape), arrows, Enter, ...) but no text
+    /// input. Calling this from [`App::panel`](super::App::panel) has no
+    /// effect.
+    ///
+    /// # Errors
+    ///
+    /// [`GfxErrorKind::InvalidOptions`](super::GfxErrorKind::InvalidOptions)
+    /// for a degenerate size or offset, and
+    /// [`GfxErrorKind::Unsupported`](super::GfxErrorKind::Unsupported) when
+    /// the app is not running as a dock (see
+    /// [`Capabilities::panels`](super::Capabilities::panels)), including
+    /// under [`snapshot`](super::snapshot).
+    pub fn show_panel(&mut self, panel: &PanelOptions) -> Result<(), GfxError> {
+        panel.validate()?;
+        self.imp.show_panel(*panel)
     }
 
     /// Replace the theme from the next frame on.
