@@ -3049,7 +3049,7 @@ dependencies = [
  "sha2 0.10.9",
  "shell-words",
  "strsim",
- "sysinfo 0.39.6",
+ "sysinfo",
  "tar",
  "tauri",
  "tauri-runtime",
@@ -4975,9 +4975,9 @@ dependencies = [
 
 [[package]]
 name = "running-process"
-version = "4.10.20"
+version = "4.10.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bd593727c580946bd825f06916220d6ece7d9f055d2b056afa195ccc44a9f88"
+checksum = "1daedfdee77229e257f498b786a1e1734d26d82fbb283d6af0dd3af08357a53f"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4993,19 +4993,19 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "sysinfo 0.30.13",
+ "sysinfo",
  "thiserror 2.0.20",
  "tokio",
- "toml 0.8.23",
+ "toml 1.1.8+spec-1.1.0",
  "winapi",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "running-process-platform-internal"
-version = "4.10.20"
+version = "4.10.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23731ed2a4ece92c24d7f3cbd8bfb83496107a5e1006540a6cbc4b02020fd0b9"
+checksum = "85698b355d15e56fc9a7f072902c008207e4ce2d060f1708639b9dcc48d2f9d6"
 dependencies = [
  "blake3",
  "dirs 6.0.0",
@@ -5017,7 +5017,7 @@ dependencies = [
  "running-process-protocol",
  "serde",
  "serde_json",
- "sysinfo 0.30.13",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -5028,9 +5028,9 @@ dependencies = [
 
 [[package]]
 name = "running-process-protocol"
-version = "4.10.20"
+version = "4.10.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05353a80bfda60cd02b2ca49678d6b3e4d690a3f9824384479d75264e0301e5b"
+checksum = "79437cf615e5f2012b818eadddd9b95ff4a23aa43ff64a74379d76e7b1a5f564"
 dependencies = [
  "prost",
  "prost-build",
@@ -5792,21 +5792,6 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.30.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a5b4ddaee55fb2bea2bf0e5000747e5f5c0de765e5a5ff87f4cd106439f4bb3"
-dependencies = [
- "cfg-if",
- "core-foundation-sys",
- "libc",
- "ntapi",
- "once_cell",
- "rayon",
- "windows 0.52.0",
-]
-
-[[package]]
-name = "sysinfo"
 version = "0.39.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2071df9448915b71c4fe6d25deaf1c22f12bd234f01540b77312bb8e41361e6"
@@ -6092,7 +6077,7 @@ dependencies = [
  "serde_with",
  "swift-rs",
  "thiserror 2.0.20",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.1.8+spec-1.1.0",
  "url",
  "urlpattern",
  "uuid",
@@ -6433,7 +6418,6 @@ dependencies = [
  "serde",
  "serde_spanned 0.6.9",
  "toml_datetime 0.6.11",
- "toml_write",
  "winnow 0.7.15",
 ]
 
@@ -6457,12 +6441,6 @@ checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow 1.0.4",
 ]
-
-[[package]]
-name = "toml_write"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "toml_writer"
@@ -7519,16 +7497,6 @@ dependencies = [
 
 [[package]]
 name = "windows"
-version = "0.52.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e48a53791691ab099e5e2ad123536d0fff50652600abaf43bbf952894110d0be"
-dependencies = [
- "windows-core 0.52.0",
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows"
 version = "0.61.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
@@ -7568,15 +7536,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b2d95af1a8a14a3c7367e1ed4fc9c20e0a26e79551b1454d72583c97cc6610"
 dependencies = [
  "windows-core 0.62.2",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.52.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9"
-dependencies = [
- "windows-targets 0.52.6",
 ]
 
 [[package]]
