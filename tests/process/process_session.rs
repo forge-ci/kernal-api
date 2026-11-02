@@ -88,6 +88,8 @@ async fn direct_exit_is_observable_while_output_waits_on_a_descendant_pipe() {
     ));
 }
 
+// Contract test of `WaitForEof`, deprecated by #433.
+#[allow(deprecated)]
 #[tokio::test]
 #[cfg(target_os = "linux")]
 async fn wait_for_eof_preserves_the_explicit_unbounded_post_exit_contract() {

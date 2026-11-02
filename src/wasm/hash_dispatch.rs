@@ -115,11 +115,11 @@ mod tests {
             .build()
             .unwrap();
         assert_eq!(
-            runtime.run(sketch.execute_threaded_root_with_grant(
+            runtime.run_within(sketch.execute_threaded_root_with_grant(
                 runtime.handle(),
                 crate::async_engine::CancellationSource::new().token(),
                 RootGrants::default(),
-            )),
+            ), std::time::Duration::from_secs(60)).expect("test runtime budget"),
             Ok(ThreadedRootOutcome::Started)
         );
         let snapshot = sketch

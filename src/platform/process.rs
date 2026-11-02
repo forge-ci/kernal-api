@@ -821,7 +821,7 @@ mod worker_child_tests {
             if self
                 .counts
                 .failed_forces_remaining
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
                     remaining.checked_sub(1)
                 })
                 .is_ok()
@@ -1025,6 +1025,7 @@ impl DaemonChild {
     }
 
     /// Wait for the child and return its numeric exit code.
+    #[deprecated(note = "waits forever for a live child; use `wait_within` (#433)")]
     pub fn wait(&mut self) -> std::io::Result<i32> {
         self.inner.wait()
     }
@@ -1101,6 +1102,7 @@ impl SpawnedChild {
     }
 
     /// Wait for the child and return its numeric exit code.
+    #[deprecated(note = "waits forever for a live child; use `wait_within` (#433)")]
     pub fn wait(&mut self) -> std::io::Result<i32> {
         self.inner.wait()
     }
@@ -1637,3 +1639,19 @@ pub const MAX_TREE_RSS_PROCESSES: usize = crate::PROCESS_MAX_TREE_RSS_PROCESSES;
 /// handle keeps the process object readable; false on Unix, where a zombie's
 /// memory accounting is gone.
 pub const PEAK_RSS_READABLE_AFTER_EXIT: bool = crate::PROCESS_PEAK_RSS_READABLE_AFTER_EXIT;
+
+/// Whether a process with this PID is running right now (#545).
+///
+/// A one-shot probe for a PID read from somewhere else, such as a daemon's
+/// pid file: it opens a [`ProcessLiveness`] reference, asks it, and drops
+/// it, with no process-table snapshot. A process this one may not inspect
+/// still exists, so a refusal from the host reports `true`; an out-of-range
+/// or unused PID reports `false`. The answer can be stale the moment it
+/// returns, and a recycled PID reads as alive: keep the [`ProcessLiveness`]
+/// itself when the same process must be observed more than once.
+pub fn is_alive(pid: u32) -> bool {
+    match ProcessLiveness::open(pid) {
+        Ok(process) => process.is_alive(),
+        Err(error) => matches!(error.kind, ProcessInspectErrorKind::Host),
+    }
+}

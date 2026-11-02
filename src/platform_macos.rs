@@ -1,5 +1,25 @@
 //! macOS implementation root for the process capability.
 
+#[cfg(feature = "global-hotkey")]
+#[path = "platform_macos/global_hotkey.rs"]
+pub(crate) mod global_hotkey;
+#[cfg(feature = "app-catalog")]
+#[path = "platform_macos/app_catalog.rs"]
+pub(crate) mod app_catalog;
+#[cfg(feature = "desktop-input")]
+#[path = "platform_macos/desktop_input.rs"]
+pub(crate) mod desktop_input;
+
+#[cfg(feature = "desktop-input-daemon")]
+#[path = "platform_macos/input_daemon.rs"]
+pub(crate) mod input_daemon;
+
+#[path = "platform_macos/dylib.rs"]
+pub(crate) mod dylib;
+#[cfg(feature = "control-signal")]
+#[path = "platform_macos/control_signal.rs"]
+pub(crate) mod control_signal;
+
 #[cfg(feature = "system-tray")]
 #[path = "platform_macos/system_tray.rs"]
 pub(crate) mod system_tray;

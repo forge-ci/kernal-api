@@ -565,6 +565,9 @@ impl OperationHub {
     pub(crate) async fn join_process_jobs(&self) -> Result<(), HubError> {
         // A Task has one join waker. Serialize observers without taking its
         // handle out of State; cancellation releases this permit, not the job.
+        // Service lifetime (#433): this join ends when the hub's jobs do and
+        // is cancellable by dropping it, so it carries no time budget.
+        #[allow(deprecated)]
         let _join = self.process_join.acquire().await;
         std::future::poll_fn(|context| {
             let mut state = match self.state.lock() {

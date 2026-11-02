@@ -247,6 +247,20 @@ fn image_path_is_read_through_a_live_reference() {
 }
 
 #[test]
+fn bare_pid_liveness_probe_tracks_a_child_through_exit() {
+    assert!(kernal_api::platform::process::is_alive(std::process::id()));
+    assert!(!kernal_api::platform::process::is_alive(u32::MAX));
+
+    let mut child = probe("sleeper", false);
+    wait_ready(&mut child);
+    let pid = child.id();
+    assert!(kernal_api::platform::process::is_alive(pid));
+    drop(child.stdin.take());
+    child.wait().expect("reap");
+    assert!(!kernal_api::platform::process::is_alive(pid));
+}
+
+#[test]
 fn standard_streams_redirect_to_an_append_log() {
     let directory = tempfile::tempdir().expect("tempdir");
     let log = directory.path().join("daemon.log");

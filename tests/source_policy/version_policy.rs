@@ -29,6 +29,11 @@ fn rust_and_python_versions_match_and_are_usable() {
     );
 }
 
+/// Utility crates that are commonly already in a consumer's graph take caret
+/// requirements: an exact pin forces the consumer's lockfile onto this one
+/// release or fails resolution outright (#548). Additions need the same case.
+const CARET_REQUIREMENTS: &[&str] = &["dirs", "globset", "jwalk", "tempfile"];
+
 #[test]
 fn every_direct_dependency_requirement_is_exact() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -57,6 +62,14 @@ fn every_direct_dependency_requirement_is_exact() {
             continue;
         };
         let declaration = declaration.trim();
+        if CARET_REQUIREMENTS.contains(&name.trim()) && declaration.starts_with('{') {
+            assert!(
+                !declaration.contains("version = \"="),
+                "dependency {} is listed as caret but pinned exactly: {line}",
+                name.trim()
+            );
+            continue;
+        }
         if declaration.starts_with('"') {
             assert!(
                 declaration.starts_with("\"="),

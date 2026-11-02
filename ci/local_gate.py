@@ -237,10 +237,35 @@ def run_fast_guards() -> None:
     )
 
 
+LINT_COMMAND = (
+    "uv",
+    "run",
+    "--no-project",
+    "--with",
+    "running-process==4.10.20",
+    "--python",
+    "3.12",
+    "python",
+    "ci/lint_lane.py",
+)
+
+
+def run_lint() -> None:
+    """RUST-033: the remote lint phase for every target it covers (ci/lint_lane.py).
+
+    The process is replaced rather than spawned, so the lane script owns the
+    terminal and its exit status is the lane's verdict.
+    """
+    os.chdir(ROOT)
+    os.execvp(LINT_COMMAND[0], list(LINT_COMMAND))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--job", choices=("linux", "dylints"), default="linux")
+    parser.add_argument("--job", choices=("linux", "dylints", "lint"), default="linux")
     args = parser.parse_args()
+    if args.job == "lint":
+        run_lint()
     verify_pr_base(output(["git", "symbolic-ref", "refs/remotes/origin/HEAD"]).strip())
     if output(["git", "status", "--porcelain", "--untracked-files=normal"]).strip():
         raise ValueError("commit the worktree before running its local gate")

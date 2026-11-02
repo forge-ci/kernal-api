@@ -1,5 +1,25 @@
 //! Linux implementation root for the process capability.
 
+#[cfg(feature = "global-hotkey")]
+#[path = "platform_linux/global_hotkey.rs"]
+pub(crate) mod global_hotkey;
+#[cfg(feature = "app-catalog")]
+#[path = "platform_linux/app_catalog.rs"]
+pub(crate) mod app_catalog;
+#[cfg(feature = "desktop-input")]
+#[path = "platform_linux/desktop_input.rs"]
+pub(crate) mod desktop_input;
+
+#[cfg(feature = "desktop-input-daemon")]
+#[path = "platform_linux/input_daemon.rs"]
+pub(crate) mod input_daemon;
+
+#[path = "platform_linux/dylib.rs"]
+pub(crate) mod dylib;
+#[cfg(feature = "control-signal")]
+#[path = "platform_linux/control_signal.rs"]
+pub(crate) mod control_signal;
+
 #[cfg(feature = "system-tray")]
 #[path = "platform_linux/system_tray.rs"]
 pub(crate) mod system_tray;

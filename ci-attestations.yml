@@ -3,13 +3,24 @@
 # Jobs are mapped only for minimal mode: the base's trust policy forces remote
 # execution for ci-test/ci-full, changed gate surfaces and the audit sample.
 # Pushes always execute; only eligible attested minimal PRs reuse these gates.
+# RUST-033: the `lint` lane (ci/lint_lane.py) attests only what it lints:
+# host Clippy + Dylint, and Clippy for each Linux-hosted cross target with
+# ci.yml:build's flags. aarch64-unknown-linux-gnu is linted natively in CI
+# only (known gap, forge-ci/kernal-api#516), so it has no gate here. The cross
+# gates map to no job: ci.yml:build also archives and tests, so it never skips.
 version: 1
 gates:
   general/all/ci-guards: {lane: linux-minimal, fidelity: native}
+  rust/aarch64-apple-darwin/clippy: {lane: lint, fidelity: native}
+  rust/aarch64-pc-windows-msvc/clippy: {lane: lint, fidelity: native}
+  rust/x86_64-apple-darwin/clippy: {lane: lint, fidelity: native}
+  rust/x86_64-pc-windows-msvc/clippy: {lane: lint, fidelity: native}
+  rust/x86_64-unknown-linux-gnu/clippy: {lane: lint, fidelity: native}
+  rust/x86_64-unknown-linux-gnu/dylint: {lane: lint, fidelity: native}
   rust/x86_64-unknown-linux-gnu/default-facade-clippy: {lane: linux-minimal, fidelity: native}
   rust/x86_64-unknown-linux-gnu/default-facade-test: {lane: linux-minimal, fidelity: native}
   rust/x86_64-unknown-linux-gnu/desktop-status-test: {lane: linux-minimal, fidelity: native}
   rust/x86_64-unknown-linux-gnu/dylint-all-features-all-targets: {lane: dylint-minimal, fidelity: native}
 jobs:
-  ci.yml:linux: [general/all/ci-guards, rust/x86_64-unknown-linux-gnu/default-facade-clippy, rust/x86_64-unknown-linux-gnu/default-facade-test, rust/x86_64-unknown-linux-gnu/desktop-status-test]
-  ci.yml:dylints: [rust/x86_64-unknown-linux-gnu/dylint-all-features-all-targets]
+  ci.yml:linux: [general/all/ci-guards, rust/x86_64-unknown-linux-gnu/default-facade-clippy, rust/x86_64-unknown-linux-gnu/default-facade-test, rust/x86_64-unknown-linux-gnu/desktop-status-test, rust/x86_64-unknown-linux-gnu/clippy]
+  ci.yml:dylints: [rust/x86_64-unknown-linux-gnu/dylint-all-features-all-targets, rust/x86_64-unknown-linux-gnu/dylint]

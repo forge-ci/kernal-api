@@ -1,5 +1,8 @@
 use kernal_api::async_engine::RuntimeBuilder;
 
+// The runtime is deliberately built without drivers, and `run_within` needs
+// the timer driver, so this keeps the deprecated unbounded bridge (#433).
+#[allow(deprecated)]
 #[test]
 fn interrupt_registration_requires_enabled_drivers() {
     let runtime = RuntimeBuilder::current_thread().build().unwrap();
@@ -23,50 +26,60 @@ fn native_interrupt_delivery_is_owned_and_cancellation_safe() {
         let mut second = runtime.interrupt_signal().unwrap();
         // Registration must precede the first wait and even the first run.
         send_interrupt_to_this_child();
-        runtime.run(async {
-            kernal_api::async_engine::timeout(Duration::from_secs(2), first.wait())
-                .await
-                .unwrap()
-                .unwrap();
-            kernal_api::async_engine::timeout(Duration::from_secs(2), second.wait())
-                .await
-                .unwrap()
-                .unwrap();
-            // Poll and discard a pending wait: cancellation must not consume
-            // an interrupt that arrives only after that wait was dropped.
-            {
-                use std::future::Future;
-                let mut pending = std::pin::pin!(first.wait());
-                std::future::poll_fn(|context| {
-                    assert!(pending.as_mut().poll(context).is_pending());
-                    std::task::Poll::Ready(())
-                })
-                .await;
-            }
-            send_interrupt_to_this_child();
-            kernal_api::async_engine::timeout(Duration::from_secs(2), first.wait())
-                .await
-                .unwrap()
-                .unwrap();
-            kernal_api::async_engine::timeout(Duration::from_secs(2), second.wait())
-                .await
-                .unwrap()
-                .unwrap();
-        });
-        runtime.run(async {
-            use std::future::Future;
-            let mut lazy = std::pin::pin!(runtime.wait_for_interrupt());
-            std::future::poll_fn(|context| {
-                assert!(lazy.as_mut().poll(context).is_pending());
-                std::task::Poll::Ready(())
-            })
-            .await;
-            send_interrupt_to_this_child();
-            kernal_api::async_engine::timeout(Duration::from_secs(2), lazy)
-                .await
-                .unwrap()
-                .unwrap();
-        });
+        runtime
+            .run_within(
+                async {
+                    kernal_api::async_engine::timeout(Duration::from_secs(2), first.wait())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    kernal_api::async_engine::timeout(Duration::from_secs(2), second.wait())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    // Poll and discard a pending wait: cancellation must not consume
+                    // an interrupt that arrives only after that wait was dropped.
+                    {
+                        use std::future::Future;
+                        let mut pending = std::pin::pin!(first.wait());
+                        std::future::poll_fn(|context| {
+                            assert!(pending.as_mut().poll(context).is_pending());
+                            std::task::Poll::Ready(())
+                        })
+                        .await;
+                    }
+                    send_interrupt_to_this_child();
+                    kernal_api::async_engine::timeout(Duration::from_secs(2), first.wait())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    kernal_api::async_engine::timeout(Duration::from_secs(2), second.wait())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    use std::future::Future;
+                    let mut lazy = std::pin::pin!(runtime.wait_for_interrupt());
+                    std::future::poll_fn(|context| {
+                        assert!(lazy.as_mut().poll(context).is_pending());
+                        std::task::Poll::Ready(())
+                    })
+                    .await;
+                    send_interrupt_to_this_child();
+                    kernal_api::async_engine::timeout(Duration::from_secs(2), lazy)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         return;
     }
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())

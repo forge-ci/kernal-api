@@ -531,6 +531,8 @@ const fn binds_to_spawner(owner: Option<LifetimeOwner>) -> bool {
     matches!(owner, Some(LifetimeOwner::Spawner))
 }
 
+// Maps the deprecated `WaitForEof` until it is removed (#433).
+#[allow(deprecated)]
 fn session_options(options: ProcessSessionOptions) -> AsyncProcessSessionOptions {
     AsyncProcessSessionOptions {
         max_queued_chunks: options.max_queued_chunks,
@@ -731,7 +733,7 @@ mod tests {
             .build()
             .expect("facade runtime");
 
-        runtime.run(async {
+        runtime.run_within(async {
             let binding = watching_binding();
             assert!(binding.is_watching());
 
@@ -739,7 +741,7 @@ mod tests {
             assert!(!binding.is_watching());
             binding.release();
             assert!(!binding.is_watching());
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     /// Two callers releasing at once is the shape a session makes reachable:
@@ -751,7 +753,7 @@ mod tests {
             .build()
             .expect("facade runtime");
 
-        runtime.run(async {
+        runtime.run_within(async {
             let binding = watching_binding();
             std::thread::scope(|scope| {
                 for _ in 0..2 {
@@ -759,7 +761,7 @@ mod tests {
                 }
             });
             assert!(!binding.is_watching());
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     /// The documented mapping is part of the facade contract: clients that

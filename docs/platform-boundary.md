@@ -135,7 +135,7 @@ repository test, which walks every Cargo target of every enforced manifest
 (from `cargo metadata`) and fails on any violation:
 
 ```console
-soldr rustup run nightly-2026-05-28 cargo test \
+soldr rustup run nightly-2026-08-15 cargo test \
   --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib
 ```
 

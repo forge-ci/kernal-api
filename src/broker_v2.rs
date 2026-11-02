@@ -13,7 +13,7 @@
 //! - **Client side.** [`connect`] negotiates through a running v2 broker and
 //!   dials the backend it names; when no broker is bound, or it has not yet
 //!   resolved a backend, it dials the published identity directly
-//!   ([`connect_published`]). Both routes return the same [`Connection`], an
+//!   ([`connect_published_within`]). Both routes return the same [`Connection`], an
 //!   ordinary blocking byte stream.
 //!
 //! Service registration stays in [`crate::daemon_registration_v2`]; the
@@ -332,6 +332,9 @@ impl Write for Connection {
     }
 }
 
+// `timeout: None` is reached only from the deprecated `connect_published`;
+// drop that arm with it (#433).
+#[allow(deprecated)]
 fn dial(endpoint: &str, route: Route, timeout: Option<Duration>) -> Result<Connection, BrokerV2Error> {
     let address = ipc::Endpoint::new(endpoint.to_owned()).map_err(BrokerV2Error::BackendConnect)?;
     let stream = match timeout {
@@ -372,6 +375,7 @@ pub fn negotiate(
 }
 
 /// Dial the endpoint `service`'s daemon published, skipping any broker.
+#[deprecated(note = "can wait forever on the dial; use `connect_published_within` (#433)")]
 pub fn connect_published(service: &str) -> Result<Connection, BrokerV2Error> {
     let identity = published(service)?.ok_or(BrokerV2Error::NotPublished)?;
     dial(identity.endpoint().address(), Route::Published, None)

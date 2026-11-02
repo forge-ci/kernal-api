@@ -154,6 +154,9 @@ impl<'runtime> BlockingClient<'runtime> {
     }
 
     /// Execute on the supplied runtime; all async request limits also apply.
+    // The request future is bounded by the client's `Limits` (connect, total
+    // and read timeouts), so the deprecated unbounded bridge cannot hang (#433).
+    #[allow(deprecated)]
     pub fn execute(&self, request: Request<'_>) -> io::Result<BlockingResponse<'runtime>> {
         require_blocking_context()?;
         Ok(BlockingResponse {
@@ -183,6 +186,9 @@ impl BlockingResponse<'_> {
     }
 
     /// Collect only unread bytes, under the same cumulative body limit.
+    // The request future is bounded by the client's `Limits` (connect, total
+    // and read timeouts), so the deprecated unbounded bridge cannot hang (#433).
+    #[allow(deprecated)]
     pub fn into_bytes(self) -> io::Result<Vec<u8>> {
         require_blocking_context()?;
         self.runtime.run(self.response.into_bytes())
@@ -190,6 +196,9 @@ impl BlockingResponse<'_> {
 }
 
 impl io::Read for BlockingResponse<'_> {
+    // The request future is bounded by the client's `Limits` (connect, total
+    // and read timeouts), so the deprecated unbounded bridge cannot hang (#433).
+    #[allow(deprecated)]
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         require_blocking_context()?;
         self.runtime.run(self.response.read(buffer))

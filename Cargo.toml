@@ -43,8 +43,26 @@ name = "kernal_api"
 path = "src/lib.rs"
 
 [[example]]
+name = "app-catalog"
+required-features = ["app-catalog"]
+
+[[example]]
+name = "audio-capture"
+required-features = ["audio-capture"]
+
+[[example]]
 name = "wasm-admission"
 required-features = ["wasm-sketch-host"]
+
+[[example]]
+name = "global-hotkey"
+required-features = ["global-hotkey"]
+
+[[bin]]
+name = "kernal-inputd"
+path = "src/bin/kernal-inputd.rs"
+test = false
+required-features = ["desktop-input-daemon"]
 
 [[bin]]
 name = "kernal-symbolize"
@@ -198,6 +216,19 @@ tauri-webview = [
 # Private acceptance-only observation for the process-main-thread smoke
 # executable. It exposes semantic counts only, never a Tauri/Wry/native type.
 system-tray = ["dep:ksni"]
+# Desktop-wide key chords: XDG GlobalShortcuts portal, Win32 RegisterHotKey, Carbon RegisterEventHotKey.
+global-hotkey = ["dep:zbus", "dep:futures-util", "dep:serde"]
+# Installed applications, launch, and default-handler URI opening.
+app-catalog = []
+# Keyboard/pointer synthesis: SendInput, CGEventPost, Linux via the privileged kernal-inputd.
+desktop-input = []
+# The Linux kernal-inputd daemon that owns /dev/uinput.
+desktop-input-daemon = ["desktop-input"]
+# Microphone capture: ALSA, WASAPI, CoreAudio through a private cpal backend.
+audio-capture = ["dep:cpal"]
+# Daemon control signals (start/stop/terminate): POSIX signals on Unix,
+# per-PID named events plus console close/shutdown on Windows.
+control-signal = []
 
 tauri-webview-test-support = ["tauri-webview", "dep:png"]
 hash-sha256 = ["dep:sha2"]
@@ -292,6 +323,7 @@ full = [
 ]
 
 [dependencies]
+cpal = { version = "=0.18.2", optional = true }
 # Portable decoding is opt-in for native screenshot proofs and window icons.
 png = { version = "=0.17.16", optional = true }
 reqwest = { version = "=0.12.28", default-features = false, optional = true }
@@ -308,7 +340,13 @@ crash-handler = { version = "=0.7.0", optional = true }
 # Resource-compiler driver for `build-resources`; runs in the application's
 # build script and picks rc.exe/llvm-rc from that script's environment.
 embed-resource = { version = "=3.0.11", optional = true }
-dirs = { version = "=6.0.0", optional = true }
+# Caret, not exact: these utility crates are commonly already in a
+# consumer's graph, and an exact pin here forces the consumer's lockfile onto
+# this one version or fails resolution (#548). Their APIs used here are
+# semver-stable, and tempfile's floor sits below current so an older
+# consumer lock (3.23 in talos-vox) resolves unchanged; reflink-copy stays
+# exact for the reason given below.
+dirs = { version = "6.0.0", optional = true }
 flate2 = { version = "=1.1.9", optional = true }
 framehop = { version = "=0.13.3", optional = true }
 futures-core = { version = "=0.3.34", optional = true }
@@ -320,9 +358,9 @@ shell-words = { version = "=1.1.1", optional = true }
 clap = { version = "=4.6.0", features = ["std", "string"], optional = true }
 tree-sitter = { version = "=0.26.11", optional = true }
 tree-sitter-cpp = { version = "=0.23.4", optional = true }
-globset = { version = "=0.4.18", optional = true }
+globset = { version = "0.4.18", optional = true }
 interprocess = { version = "=2.4.3", optional = true }
-jwalk = { version = "=0.8.1", optional = true }
+jwalk = { version = "0.8.1", optional = true }
 mimalloc-pprof = { version = "=1.1.0", default-features = false, features = ["pprof"], optional = true }
 portable-pty = { version = "=0.9.0", optional = true }
 prost = { version = "=0.14.4", optional = true }
@@ -337,7 +375,7 @@ sha2 = { version = "=0.10.9", optional = true }
 tar = { version = "=0.4.46", default-features = false, optional = true }
 zip = { version = "=9.0.3", optional = true }
 openssl = { version = "=0.10.81", features = ["vendored"], optional = true }
-tempfile = { version = "=3.27.0", optional = true }
+tempfile = { version = "3.20.0", optional = true }
 cap-std = { version = "=4.0.3", optional = true }
 thiserror = "=2.0.20"
 tokio-stream = { version = "=0.1.19", optional = true }
@@ -408,6 +446,7 @@ wry = { version = "=0.57.0", default-features = false, features = ["os-webview"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "=0.3.6", optional = true }
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"], optional = true }
 gio = { version = "=0.18.4", optional = true }
 cairo-rs = { version = "=0.18.5", features = ["png"], optional = true }
 addr2line = { version = "=0.24.2", default-features = false, features = ["std", "loader"], optional = true }
@@ -484,6 +523,9 @@ windows-sys = { version = "=0.61.2", features = [
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]

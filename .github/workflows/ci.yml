@@ -204,7 +204,7 @@ jobs:
       # image's libssl-dev, which this step never installed.
       - name: Install native webview packages and a virtual display
         if: steps.mode.outputs.mode == 'full'
-        run: python3 ci/runner_setup.py apt-install dbus-x11 jq libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xdotool
+        run: python3 ci/runner_setup.py apt-install dbus-x11 jq libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xdotool
       # No restored crate registry here. This job compiles dozens of different
       # feature graphs, and a registry cache seeded by a job that needed only
       # part of the graph restores trimmed crate directories cargo trusts as
@@ -466,7 +466,7 @@ jobs:
         run: python3 ci/verify_source_sha.py "${{ needs.linux.outputs.sha }}"
       - name: Install native webview development packages
         if: matrix.cross == ''
-        run: python3 ci/runner_setup.py apt-install libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: python3 ci/runner_setup.py apt-install libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
       - uses: ./.github/actions/soldr # the one setup-soldr call site
         with:
           # The plan saves only on main pushes; PRs and manually selected
@@ -620,7 +620,7 @@ jobs:
         # The binaries link webkit2gtk at run time, and the screenshot proofs
         # need a display. Windows and macOS carry their webviews with the OS.
         if: runner.os == 'Linux'
-        run: uv run --no-project --python 3.12 ci/runner_setup.py apt-install dbus-x11 libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
+        run: uv run --no-project --python 3.12 ci/runner_setup.py apt-install dbus-x11 libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: kernal-tests-${{ matrix.target }}
@@ -726,7 +726,7 @@ jobs:
     if: needs.verify.outputs.skip_dylints != 'true' && github.event_name != 'push'
     name: Dylint workspace
     env:
-      DYLINT_TOOLCHAIN: nightly-2026-05-28
+      DYLINT_TOOLCHAIN: nightly-2026-08-15
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -744,7 +744,7 @@ jobs:
       # ~40 s instead of adding its own 22-46 s to the critical path. Bounded
       # mirror retries/timeouts: a stalled connection otherwise hangs apt.
       - name: Start installing native webview development packages
-        run: python3 ci/runner_setup.py apt-start libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: python3 ci/runner_setup.py apt-start libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Set up uv
         uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
@@ -790,8 +790,8 @@ jobs:
           # restore (~41 s) and set this step's wall time.
           cargo-registry-cache: false
           dylint-toolchain: ${{ env.DYLINT_TOOLCHAIN }}
-          cargo-dylint-version: 6.0.3
-          dylint-link-version: 6.0.3
+          cargo-dylint-version: 6.2.0
+          dylint-link-version: 6.2.0
       - name: Restore native pkg-config search path
         run: echo "PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
       - name: Select the pinned Dylint compiler
@@ -919,7 +919,7 @@ jobs:
     needs: verify
     if: github.event_name == 'push'
     env:
-      DYLINT_TOOLCHAIN: nightly-2026-05-28
+      DYLINT_TOOLCHAIN: nightly-2026-08-15
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -929,7 +929,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Start installing native webview development packages
-        run: python3 ci/runner_setup.py apt-start libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: python3 ci/runner_setup.py apt-start libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Set up uv
         uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
@@ -965,8 +965,8 @@ jobs:
           dylint: true
           cargo-registry-cache: false
           dylint-toolchain: ${{ env.DYLINT_TOOLCHAIN }}
-          cargo-dylint-version: 6.0.3
-          dylint-link-version: 6.0.3
+          cargo-dylint-version: 6.2.0
+          dylint-link-version: 6.2.0
       - name: Restore native pkg-config search path
         run: python3 ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
       - name: Select the pinned Dylint compiler
@@ -1007,6 +1007,32 @@ jobs:
           CI_NEEDS_JSON: ${{ toJSON(needs) }}
           GITHUB_TOKEN: ${{ github.token }}
         run: uv run --no-project --python 3.12 ci/full_coverage.py
+
+  # The single required context (the `main merge queue` ruleset requires only
+  # this). It lists every job of this run attempt and fails on any that did not
+  # succeed, so adding or renaming a job never needs a ruleset edit. It needs
+  # cache-retention so it sees that maintenance job's final conclusion: skipped
+  # (pull_request, merge_group) passes, failed (push to main) turns the gate
+  # red. The cache janitor is the one job it cannot wait on: GEN-022 requires
+  # the janitor to follow every job, this one included, so its own failure
+  # shows only as the run's conclusion.
+  ci-summary:
+    name: CI summary
+    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer, cache-retention]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Fail on any unsuccessful job of this run attempt
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ci/ci_summary.py
 
   # setup-soldr cook bases restore exact-only and include the runtime Soldr
   # version in the key. After every producer job has completed its post-step,
@@ -1061,7 +1087,7 @@ jobs:
   # sweep at a time across runs.
   cache-janitor:
     name: Cache janitor
-    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention]
+    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary]
     if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

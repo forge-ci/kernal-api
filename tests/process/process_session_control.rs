@@ -165,7 +165,14 @@ async fn spawn_admission_also_guards_a_plain_child_spawn() {
         .spawn()
         .await
         .expect("start admitted child");
-    assert_eq!(child.wait().await.expect("wait child").code(), Some(3));
+    assert_eq!(
+        child
+            .wait_within(std::time::Duration::from_secs(5))
+            .await
+            .expect("wait child")
+            .code(),
+        Some(3)
+    );
     assert_eq!(acquired.load(Ordering::SeqCst), 1);
     assert_eq!(held.load(Ordering::SeqCst), 0);
 }

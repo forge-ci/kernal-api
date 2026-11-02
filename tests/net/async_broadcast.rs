@@ -40,6 +40,8 @@ fn unsubscribed_send_returns_value_and_invalid_capacity_is_rejected() {
     assert_eq!(receiver.try_recv(), Err(BroadcastTryRecvError::Closed));
 }
 
+// Contract test of the unbounded receive deprecated by #433.
+#[allow(deprecated)]
 #[tokio::test(start_paused = true)]
 async fn cancelled_receive_does_not_consume_and_closed_queue_drains() {
     let (sender, mut receiver) = broadcast_channel(1).unwrap();

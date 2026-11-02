@@ -158,12 +158,25 @@ tools = ["bosn", "uv"]
 run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
 tools = ["bosn", "uv"]
 
+# RUST-033 (forge-ci/ci.yml#511, forge-ci/kernal-api#516): the remote lint
+# phase for every target it covers. The minimal replays cannot prove it: the
+# workflow guards "Lint every target" with mode == 'full', so a minimal replay
+# always skips it (main run 40994816155). ci/lint_lane.py mirrors CI's flags:
+# `soldr lint rust --host-only --all-features` (fmt, host Clippy --all-targets
+# -D warnings, host Dylint), then per Linux-hosted cross target of the `build`
+# matrix `soldr prepare --target <t>` + the "Lint this target" clippy. Known
+# gap: aarch64-unknown-linux-gnu lints only natively in CI (no cross pkg-config
+# sysroot for WebKitGTK on an x64 host), so this lane does not attest it.
+[local.gate.lanes.lint]
+run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py", "--job", "lint"]
+tools = ["soldr", "uv"]
+
 # Eligible attested minimal PRs reuse both source-bound workflow lanes.
 # Extended/full PRs, changed gate surfaces, pushes and audit samples run remotely.
 [local.gate.trust]
 mode = "enforce"
 skip = ["ci.yml:linux", "ci.yml:dylints"]
-covered-by = { "ci.yml:linux" = ["linux-minimal"], "ci.yml:dylints" = ["dylint-minimal"] }
+covered-by = { "ci.yml:linux" = ["linux-minimal", "lint"], "ci.yml:dylints" = ["dylint-minimal", "lint"] }
 full-labels = ["ci-full", "ci-test"]
 audit-rate = 10
 
@@ -252,14 +265,15 @@ expires = "2027-06-30"
 # -- GEN-021: validation skips main pushes under a live merge queue -----------
 # GEN-022 step 6 (forge-ci/ci.yml#432). `fast`, `linux` and `dylints` carry
 # `github.event_name != 'push'`: the `main merge queue` ruleset requires
-# verify/linux/Dylint workspace on the `merge_group` run, which validates the
+# the single `CI summary` context on the `merge_group` run (it fails on any
+# unsuccessful job of verify/linux/Dylint workspace and the rest), which validates the
 # exact merge commit that lands (policy-general.md: the queue is the one other
 # justification for a blanket push skip). Main's cache writes moved to the
 # push-only `linux-cache-writer`/`dylint-cache-writer` jobs first (step 5).
 [[exceptions]]
 rule    = "GEN-021"
 path    = ".github/workflows/ci.yml"
-reason  = "merge queue validates the exact merge commit (merge_group runs verify/linux/Dylint workspace); push runs only the cache writers"
+reason  = "merge queue validates the exact merge commit (merge_group runs verify/linux/Dylint workspace, aggregated by the required CI summary); push runs only the cache writers"
 issue   = "https://github.com/forge-ci/ci.yml/issues/432"
 expires = "2027-04-30"
 

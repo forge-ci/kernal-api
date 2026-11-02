@@ -42,6 +42,8 @@ EXPECTED_JOBS = {
     "cache-retention",
     # GEN-022: must follow every other job, failed ones included -- no step can.
     "cache-janitor",
+    # The single required context: fails on any unsuccessful job of the attempt.
+    "ci-summary",
 }
 # `cargo-nextest` is the replay driver, not a compiler: it runs binaries out of
 # a prebuilt archive. `.cargo/bin` is a path. Everything else named here would

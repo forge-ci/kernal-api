@@ -44,6 +44,12 @@
   are no exceptions. Renaming with `pub use ... as ...` changes only the
   spelling, not the backend type a client receives. `tests/facade_policy.rs`
   and the `kernal_api_boundary` Dylint enforce this.
+- A wait with a bounded `_within` / `_for` form ships with that form (#433).
+  When you add one, add the unbounded form to `UNBOUNDED_WAITS` in
+  `dylints/kernal_api_boundary/src/lib.rs` and update
+  `docs/wait-inventory.md` in the same PR. The deny-level
+  `kernal_api_unbounded_wait` lint then rejects client calls to the unbounded
+  form.
 - Do not add a second allocator, pprof schema, Tokio Console stack, crash
   handler, or OS HAL behind a runtime fallback. This crate is the canonical
   owner.
@@ -86,7 +92,7 @@
   examples, adding a capability). The `kernal_api_platform_boundary` Dylint
   enforces it on this crate itself, cfg-elided modules included, and must
   pass: run
-  `soldr rustup run nightly-2026-05-28 cargo test --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib`
+  `soldr rustup run nightly-2026-08-15 cargo test --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib`
   (a seconds-long source scan of every enforced package) and
   `soldr cargo dylint --all --workspace -- --all-features --all-targets`.
   The existing debt is an exact, shrink-only baseline
@@ -102,8 +108,11 @@
   `uvx --from git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60 ci-lint local-gate run`.
   Its `linux-minimal` lane uses `bosn ci run` (the pinned act2 engine), checks
   the completed run's source/tree, PR selection, executed checks and removed
-  engine. The separate Dylint lane proves its selected checks too. Both lanes
-  must pass before a stamp is cached. Local-gate enforcement rejects an
+  engine. The separate Dylint lane proves its selected checks too. The `lint`
+  lane (`ci/lint_lane.py`, RUST-033) mirrors CI's lint flags: host
+  `soldr lint rust --host-only --all-features` (Clippy and Dylint), then
+  Clippy for each Linux-hosted cross target after `soldr prepare`. It does
+  not cover aarch64 Linux, which CI lints natively. Every lane must pass before a stamp is cached. Local-gate enforcement rejects an
   unstamped PR head. Eligible attested minimal PRs skip the Linux and Dylint
   remote repeats, using the PR base's trust policy. Changed gate surfaces,
   ci-test/ci-full labels, forks, untrusted authors and the 1-in-10 audit run

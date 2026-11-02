@@ -1,4 +1,6 @@
+import contextlib
 import hashlib
+import io
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +14,8 @@ from ci.prune_obsolete_cook_caches import (
     lock_generation_shape,
     over_budget_orphaned_lock_caches,
     prune,
+    require_current_generation_present,
+    require_retained_native_cook_base,
     require_lock_generations_retired,
     require_single_current_generation,
     retired_cross_target_cook_bases,
@@ -504,7 +508,7 @@ class CookCacheRetentionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot safely classify"):
             stale_cook_bases([cache], "0.9.23")
 
-    def test_prune_refuses_to_delete_old_generation_without_current_replacement(self):
+    def test_just_bumped_version_is_a_no_op_that_deletes_nothing(self):
         class FakeGitHub:
             def __init__(self):
                 self.entries = [Cache(1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/heads/main", 900)]
@@ -519,10 +523,65 @@ class CookCacheRetentionTests(unittest.TestCase):
                 return True
 
         api = FakeGitHub()
-        with self.assertRaisesRegex(ValueError, "no main cook-base exists"):
-            prune(api, "0.9.23", apply=True)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(prune(api, "0.9.23", apply=True, current_lock_hash="0" * 16), (0, 0))
+        self.assertIn("nothing to prune yet: no main cook-base exists for Soldr 0.9.23", out.getvalue())
+        self.assertIn("0.9.22", out.getvalue())
         self.assertEqual(api.deletions, [])
         self.assertEqual(api.entries[0].cache_id, 1)
+
+    def test_v3_cook_base_key_counts_as_the_current_generation(self):
+        """setup-soldr for Soldr 0.9.47 writes `cook-base-v3-...-xlinux-soldrv0.9.47`."""
+        current = Cache(
+            2,
+            "cook-base-v3-linux-x64-glibc-rustc1.95.0-fnone-le7808e8696b12c03-xlinux-soldrv0.9.47",
+            "refs/heads/main",
+            9,
+        )
+        old = Cache(
+            1,
+            "cook-base-v2-linux-x64-glibc-rustc1.95.0-fnone-la363c36b87e0be6d-soldrv0.9.44-xlinux",
+            "refs/heads/main",
+            9,
+        )
+        self.assertTrue(require_current_generation_present([old, current], "0.9.47"))
+        self.assertEqual(stale_cook_bases([old, current], "0.9.47"), [old])
+        require_retained_native_cook_base([old, current], "0.9.47", [old])
+        require_single_current_generation([current], "0.9.47")
+        self.assertEqual(
+            lock_generation_shape(current),
+            ("cook-base", "cook-base-v3-linux-x64-glibc-rustc1.95.0-fnone-xlinux-soldrv0.9.47", "e7808e8696b12c03"),
+        )
+        cross = Cache(
+            3,
+            "cook-base-v3-linux-x64-fnone-l0123456789abcdef-xbuild-x86_64-apple-darwin-soldrv0.9.47",
+            "refs/heads/main",
+            1,
+        )
+        self.assertEqual(retired_cross_target_cook_bases([current, cross], "0.9.47"), [cross])
+
+    def test_prune_still_refuses_an_empty_main_cook_base_inventory(self):
+        class FakeGitHub:
+            deletions: list = []
+
+            def caches(self):
+                return [Cache(1, "cook-base-v2-linux-x64-soldrv0.9.22", "refs/pull/9/merge", 900)]
+
+            def delete_cache(self, cache_id):
+                self.deletions.append(cache_id)
+
+        api = FakeGitHub()
+        with self.assertRaisesRegex(ValueError, "no main cook-base exists for Soldr 0.9.23"):
+            prune(api, "0.9.23", apply=True, current_lock_hash="0" * 16)
+        self.assertEqual(api.deletions, [])
+
+    def test_prune_still_refuses_a_future_cook_base_generation(self):
+        class FakeGitHub:
+            def caches(self):
+                return [Cache(1, "cook-base-v2-linux-x64-soldrv0.9.24-xlinux", "refs/heads/main", 900)]
+
+        with self.assertRaisesRegex(ValueError, "future Soldr cook-base generation"):
+            prune(FakeGitHub(), "0.9.23", apply=True, current_lock_hash="0" * 16)
 
     def test_versions_and_budget_use_gib_units(self):
         self.assertEqual(version_tuple("v0.9.23"), (0, 9, 23))

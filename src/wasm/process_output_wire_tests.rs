@@ -31,7 +31,7 @@ async fn ready(hub: &OperationHub, operation: OpaqueToken) {
 #[test]
 fn compiler_wire_wait_publishes_exit_and_ready_revocation_preserves_reason() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(4, 2).unwrap();
         let process = process(&hub, &runtime, "exit").await;
         loop {
@@ -62,13 +62,13 @@ fn compiler_wire_wait_publishes_exit_and_ready_revocation_preserves_reason() {
         hub.close_all(Terminal::Closed);
         hub.join_process_jobs().await.unwrap();
         assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn compiler_wire_cancelled_wait_retains_producer_quota_without_revoking_process() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(1, 2).unwrap();
         let process = process(&hub, &runtime, "silent").await;
         let wait = hub
@@ -91,13 +91,13 @@ fn compiler_wire_cancelled_wait_retains_producer_quota_without_revoking_process(
         hub.join_process_jobs().await.unwrap();
         assert_eq!(hub.snapshot().retained_process_jobs, 0);
         assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn compiler_wire_close_waits_for_acknowledgement_without_closing_its_own_operation() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(4, 2).unwrap();
         let process = process(&hub, &runtime, "silent").await;
         let (started, entered) = crate::async_engine::oneshot_channel();
@@ -123,13 +123,13 @@ fn compiler_wire_close_waits_for_acknowledgement_without_closing_its_own_operati
         hub.close_all(Terminal::Closed);
         hub.join_process_jobs().await.unwrap();
         assert_eq!(hub.snapshot().retained_process_jobs, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn compiler_wire_output_moves_credit_and_invalid_collection_is_retryable() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(4, 2).unwrap();
         let process = process(&hub, &runtime, "exit").await;
         let read = hub
@@ -185,13 +185,13 @@ fn compiler_wire_output_moves_credit_and_invalid_collection_is_retryable() {
         hub.join_process_jobs().await.unwrap();
         assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
         assert_eq!(hub.snapshot().retained_process_jobs, 0);
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn compiler_wire_ready_output_is_revocable_with_each_terminal_reason() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         for terminal in [
             Terminal::Cancelled,
             Terminal::TimedOut,
@@ -225,13 +225,13 @@ fn compiler_wire_ready_output_is_revocable_with_each_terminal_reason() {
             assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
             assert_eq!(hub.snapshot().retained_process_jobs, 0);
         }
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn compiler_wire_pending_and_ready_teardown_join_their_producers() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         for wait_for_ready in [false, true] {
             let hub = OperationHub::new(4, 2).unwrap();
             let process = process(
@@ -260,13 +260,13 @@ fn compiler_wire_pending_and_ready_teardown_join_their_producers() {
             assert_eq!(hub.snapshot().pending_operations, 0);
             assert!(hub.state.lock().unwrap().operations.is_empty());
         }
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }
 
 #[test]
 fn compiler_wire_exhaustion_keeps_a_full_credit_until_abandonment() {
     let runtime = runtime();
-    runtime.run(async {
+    runtime.run_within(async {
         let hub = OperationHub::new(4, 2).unwrap();
         let process = process(&hub, &runtime, "exit").await;
         loop {
@@ -295,5 +295,5 @@ fn compiler_wire_exhaustion_keeps_a_full_credit_until_abandonment() {
         assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
         assert_eq!(hub.snapshot().retained_process_jobs, 0);
         assert!(hub.state.lock().unwrap().operations.is_empty());
-    });
+    }, std::time::Duration::from_secs(60)).expect("test runtime budget");
 }

@@ -309,11 +309,16 @@ fn run_contained_screenshot(scenario: ContainedScenario) {
     } else {
         None
     };
-    let terminal = runtime.run(sketch.execute_threaded_root_contained_cancellable(
-        runtime.handle(),
-        &config,
-        cancellation.token(),
-    ));
+    let terminal = runtime
+        .run_within(
+            sketch.execute_threaded_root_contained_cancellable(
+                runtime.handle(),
+                &config,
+                cancellation.token(),
+            ),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     let directory = if scenario == ContainedScenario::RenamedParent {
         assert!(!directory.exists());
         moved_directory
@@ -345,7 +350,10 @@ fn run_contained_screenshot(scenario: ContainedScenario) {
     ).unwrap();
     if let Some(task) = cancel_task {
         assert!(
-            runtime.run(task).unwrap(),
+            runtime
+                .run_within(task, std::time::Duration::from_secs(60))
+                .expect("test runtime budget")
+                .unwrap(),
             "cancellation never observed a native HTTP request"
         );
     }
@@ -1232,7 +1240,12 @@ fn actual_screenshot_guest_admits_but_cannot_execute_without_webview_grants() {
         .enable_all()
         .build()
         .expect("runtime");
-    let outcome = runtime.run(sketch.execute_threaded_root(runtime.handle()));
+    let outcome = runtime
+        .run_within(
+            sketch.execute_threaded_root(runtime.handle()),
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     assert_eq!(
         outcome,
         Err(SketchExecutionError::NonzeroExit { code: 17 }),

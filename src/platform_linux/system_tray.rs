@@ -146,7 +146,7 @@ mod tests {
         let options = TrayOptions::new("test.tray", "Test", 1, vec![255; 4]).unwrap();
         let started = std::time::Instant::now();
         assert!(matches!(
-            runtime.run(crate::system_tray::TrayHandle::register(options)),
+            runtime.run_within(crate::system_tray::TrayHandle::register(options), std::time::Duration::from_secs(60)).expect("test runtime budget"),
             Err(TrayError::Unavailable)
         ));
         assert!(started.elapsed() < std::time::Duration::from_secs(3));

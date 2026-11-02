@@ -127,24 +127,29 @@ fn execute_request(
         Err(error) => return protocol_terminal(output, request_id, error.to_string().as_str()),
     };
     let execute_plain = || {
-        runtime.run(async {
-            match metadata.staged_output {
-                Some(destination) => {
-                    sketch
-                        .execute_threaded_root_with_output(
-                            runtime.handle(),
-                            token.clone(),
-                            destination,
-                        )
-                        .await
-                }
-                None => {
-                    sketch
-                        .execute_threaded_root_cancellable(runtime.handle(), token.clone())
-                        .await
-                }
-            }
-        })
+        runtime
+            .run_within(
+                async {
+                    match metadata.staged_output {
+                        Some(destination) => {
+                            sketch
+                                .execute_threaded_root_with_output(
+                                    runtime.handle(),
+                                    token.clone(),
+                                    destination,
+                                )
+                                .await
+                        }
+                        None => {
+                            sketch
+                                .execute_threaded_root_cancellable(runtime.handle(), token.clone())
+                                .await
+                        }
+                    }
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget")
     };
     #[cfg(not(feature = "tauri-webview"))]
     let result = execute_plain();
@@ -255,7 +260,8 @@ fn execute_native(
     });
     host.run();
     let result = runtime
-        .run(task)
+        .run_within(task, std::time::Duration::from_secs(60))
+        .expect("test runtime budget")
         .map_err(|_| SketchExecutionError::BlockingTaskFailed)?;
     #[cfg(feature = "tauri-webview-test-support")]
     {

@@ -1,8 +1,33 @@
 # Client boundary lint
 
-The suite contains two lints:
+The suite contains five lints:
 
 - `kernal_api_boundary` rejects direct client use of implementation crates.
+- `kernal_api_unbounded_wait` rejects a client call to a kernal-api wait that
+  has no time budget when a bounded replacement exists (#433), for example
+  `Mutex::lock` instead of `Mutex::lock_within(timeout)` or
+  `platform::fs::lock_exclusive` instead of `lock_exclusive_for(file,
+  timeout)`. It matches the resolved definition, so alias imports, UFCS calls
+  and function items are caught too. It also rejects `.await` applied directly to a
+  kernal-api `Task`, `OneshotReceiver`, `Notified` or `OwnedNotified`, which
+  have `join_within` / `recv_within` / `wait_within` forms. The full list is `UNBOUNDED_WAITS` in
+  `dylints/kernal_api_boundary/src/lib.rs`, kept in step with
+  [docs/wait-inventory.md](docs/wait-inventory.md). Service-lifetime listeners
+  such as `accept` and interrupt waits are not on it. `kernal-api` itself is
+  not checked yet: its own callers still migrate under #433.
+- `kernal_api_guard_across_await` rejects a client `async` body that keeps a
+  kernal-api `Mutex` or `RwLock` guard alive across an `.await` (#433). It
+  reads the coroutine's saved state, so a guard inside an `Option`, a tuple,
+  a collection or a local struct is caught too. A guard dropped or scoped out
+  before the `.await` is fine. Semaphore permits carry no data and are not
+  checked.
+- `kernal_api_blocking_in_async` rejects a client call to a blocking
+  kernal-api operation made directly in an `async` body (#433): a runtime
+  bridge (`Runtime::run`, `run_within`), a blocking lock or send, a
+  synchronous child wait, a file lock, or a synchronous IPC / broker connect.
+  Bounded or not, it parks a runtime worker. A closure nested in the async
+  body, such as the one passed to `launch_blocking`, is its own body and is
+  not checked. The list is `BLOCKING_CALLS` in the same file.
 - `kernal_api_platform_boundary` rejects host `cfg` selection and native OS
   APIs outside the private platform trees of `kernal-api`, in clients and in
   `kernal-api` itself, including code elided on the CI host.
@@ -87,7 +112,7 @@ without compiling anything as the lint crate's repository test, over every
 target of every manifest the lint crate classifies as enforced:
 
 ```console
-soldr rustup run nightly-2026-05-28 cargo test \
+soldr rustup run nightly-2026-08-15 cargo test \
   --manifest-path dylints/kernal_api_platform_boundary/Cargo.toml --lib
 ```
 

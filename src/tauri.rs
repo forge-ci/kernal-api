@@ -1559,7 +1559,7 @@ impl WebviewService {
 
 fn next_store() -> Result<u64, WebviewError> {
     NEXT_WEBVIEW_STORE
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
             value.checked_add(1)
         })
         .map(|value| value + 1)

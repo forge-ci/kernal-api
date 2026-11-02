@@ -38,6 +38,31 @@ pub use independent_spawn::{
 
 #[cfg(feature = "command-arguments")]
 pub mod arguments;
+/// Desktop-wide key chords, with explicit unsupported-host fallback.
+#[cfg(feature = "global-hotkey")]
+pub mod global_hotkey;
+#[cfg(feature = "global-hotkey")]
+use platform_imp::global_hotkey as native_global_hotkey;
+/// Installed applications, launching them, and opening URIs.
+#[cfg(feature = "app-catalog")]
+pub mod app_catalog;
+#[cfg(feature = "app-catalog")]
+use platform_imp::app_catalog as native_app_catalog;
+/// Synthesized keyboard and pointer input (Linux through the `kernal-inputd` daemon).
+#[cfg(feature = "desktop-input")]
+pub mod desktop_input;
+#[cfg(feature = "desktop-input")]
+use platform_imp::desktop_input as native_desktop_input;
+#[cfg(feature = "desktop-input-daemon")]
+use platform_imp::input_daemon as native_input_daemon;
+/// Microphone capture as mono 16 kHz chunks.
+#[cfg(feature = "audio-capture")]
+pub mod audio_capture;
+/// Daemon control signals: SIGUSR1/SIGUSR2/SIGTERM and their Windows equivalents.
+#[cfg(feature = "control-signal")]
+pub mod control_signal;
+#[cfg(feature = "control-signal")]
+use platform_imp::control_signal as native_control_signal;
 /// Optional desktop status area, with explicit unsupported-host fallback.
 #[cfg(feature = "system-tray")]
 pub mod system_tray;
@@ -319,6 +344,8 @@ pub use platform_imp::{process_same_executable_path, ProcessLiveness};
 pub(crate) use platform_imp::process_inspect::process_executable_path;
 
 pub use platform_imp::NativeJobserver;
+
+pub(crate) use platform_imp::dylib as native_dylib;
 pub(crate) use platform_imp::{
     process_configure_session_leader_command, process_cpu_ticks_for_pid,
     process_detach_standard_streams, process_force_terminate_child_process_group,
@@ -922,7 +949,12 @@ impl PlatformChild {
     }
 
     /// Wait for completion without capturing output.
+    #[deprecated(note = "waits forever for a live child; use `wait_within` (#433)")]
     pub async fn wait(&mut self) -> io::Result<ExitStatus> {
+        self.wait_unbounded().await
+    }
+
+    async fn wait_unbounded(&mut self) -> io::Result<ExitStatus> {
         let exit = self.inner.wait().await;
         if exit.is_ok() {
             // Nothing left to protect: keeping the owner watch open past this
@@ -940,10 +972,10 @@ impl PlatformChild {
     /// # Errors
     ///
     /// Returns [`io::ErrorKind::TimedOut`] if the child is still running when
-    /// `timeout` elapses, or the error [`Self::wait`] would return. Requires
+    /// `timeout` elapses, or the error the child's wait reports. Requires
     /// a runtime with its timer enabled.
     pub async fn wait_within(&mut self, timeout: std::time::Duration) -> io::Result<ExitStatus> {
-        async_engine::timeout(timeout, self.wait())
+        async_engine::timeout(timeout, self.wait_unbounded())
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "child did not exit within its timeout"))?
     }
@@ -992,6 +1024,7 @@ impl PlatformChild {
     /// This operation waits for both streams to reach EOF and the child to
     /// exit naturally; it does not terminate a child merely because retained
     /// output reached the limit.
+    #[deprecated(note = "waits forever for a live child or a descendant-held pipe; use `wait_with_output_bounded_within` (#433)")]
     pub async fn wait_with_output_bounded(
         mut self,
         limit: usize,
@@ -1028,6 +1061,9 @@ impl PlatformChild {
 pub enum ProcessPostExitDrain {
     /// Preserve strict historical EOF behavior, even when a descendant holds
     /// an inherited output pipe after the direct child has exited.
+    #[deprecated(
+        note = "a descendant holding the pipe makes this wait forever; use `AbandonAfter` (#433)"
+    )]
     WaitForEof,
     /// Abandon a still-pending pipe read after this cumulative post-exit
     /// budget. Buffered bytes remain observable and bounded queue delivery
@@ -1564,7 +1600,7 @@ mod tests {
             .spawn()
             .await
             .expect("spawn")
-            .wait_with_output_bounded(1024)
+            .wait_with_output_bounded_within(1024, std::time::Duration::from_secs(5))
             .await
             .expect("wait with output");
 
@@ -1593,19 +1629,16 @@ mod tests {
         #[cfg(not(windows))]
         let spec = shell_spec("cat > /dev/null; printf done");
 
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            spec.stdin(StreamMode::Piped)
-                .stdout(StreamMode::Piped)
-                .stderr(StreamMode::Piped)
-                .spawn()
-                .await
-                .expect("spawn")
-                .wait_with_output_bounded(1024),
-        )
-        .await
-        .expect("stdin is closed for one-shot output")
-        .expect("output succeeds");
+        let output = spec
+            .stdin(StreamMode::Piped)
+            .stdout(StreamMode::Piped)
+            .stderr(StreamMode::Piped)
+            .spawn()
+            .await
+            .expect("spawn")
+            .wait_with_output_bounded_within(1024, std::time::Duration::from_secs(2))
+            .await
+            .expect("stdin is closed for one-shot output");
 
         let expected = if cfg!(windows) {
             b"done\r\n".as_slice()
@@ -1996,7 +2029,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("current-thread runtime");
-        runtime.run(async {
+        runtime.run_within(async {
             let mut child = slow_command().spawn().await.expect("spawn slow child");
             let started = Instant::now();
             let error = child
@@ -2009,7 +2042,7 @@ mod tests {
             assert!(child.id().is_some(), "a timed-out wait must not report the child gone");
             child.kill().await.expect("kill after an expired wait");
             assert!(child.id().is_none());
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2018,7 +2051,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("current-thread runtime");
-        runtime.run(async {
+        runtime.run_within(async {
             let child = slow_command().spawn().await.expect("spawn slow child");
             let started = Instant::now();
             let error = child
@@ -2032,7 +2065,7 @@ mod tests {
             );
             assert!(waited >= Duration::from_millis(200), "returned early after {waited:?}");
             assert!(waited < Duration::from_secs(20), "waited for natural exit: {waited:?}");
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2041,7 +2074,7 @@ mod tests {
             .enable_all()
             .build()
             .expect("current-thread runtime");
-        runtime.run(async {
+        runtime.run_within(async {
             let started = Instant::now();
             let ticker_at = Arc::new(Mutex::new(None));
             let ticker_at_for_task = Arc::clone(&ticker_at);
@@ -2066,7 +2099,7 @@ mod tests {
                 tick < Duration::from_millis(80),
                 "blocking command occupied the current-thread runtime for {tick:?}"
             );
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 }
     }

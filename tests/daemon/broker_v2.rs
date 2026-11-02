@@ -6,8 +6,8 @@ use std::io::{Read, Write};
 use std::time::Duration;
 
 use kernal_api::broker_v2::{
-    backend_endpoint, connect, connect_published, connect_published_within, daemon_identity_path,
-    publish, published, BrokerV2Error, Route,
+    backend_endpoint, connect, connect_published_within, daemon_identity_path, publish, published,
+    BrokerV2Error, Route,
 };
 use kernal_api::platform::ipc::{Endpoint, Listener};
 
@@ -18,7 +18,8 @@ fn unique_service(tag: &str) -> String {
 #[test]
 fn unpublished_service_reports_daemon_not_running() {
     let service = unique_service("absent");
-    let error = connect_published(&service).expect_err("nothing published");
+    let error =
+        connect_published_within(&service, Duration::from_secs(5)).expect_err("nothing published");
     assert!(matches!(error, BrokerV2Error::NotPublished));
     assert!(error.daemon_not_running());
 }

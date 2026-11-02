@@ -55,7 +55,7 @@ pub use broadcast::{
 };
 #[cfg(feature = "event-stream")]
 pub use broadcast::{BroadcastLagged, BroadcastStream};
-pub use mutex::{Mutex, MutexGuard, MutexTryLockError, OwnedMutexGuard};
+pub use mutex::{LockHolder, Mutex, MutexGuard, MutexTryLockError, OwnedMutexGuard};
 #[doc(hidden)]
 pub use race::fair_start as __fair_race_start;
 pub use race::{BiasedRace2, BiasedRace3, BiasedRace4, FairRace2, FairRace3, FairRace4, FairRace5};
@@ -248,6 +248,7 @@ impl Runtime {
     }
 
     /// Run one future to completion on this runtime.
+    #[deprecated(note = "blocks forever on a stuck future; use `run_within` (#433)")]
     pub fn run<F: Future>(&self, future: F) -> F::Output {
         self.inner.block_on(future)
     }
@@ -548,6 +549,7 @@ impl<T: 'static> TaskGroup<T> {
     /// Wait for the next task in the group to complete, in completion order.
     ///
     /// Returns `None` once the group is empty.
+    #[deprecated(note = "can wait forever; use `join_next_within` (#433)")]
     pub async fn join_next(&mut self) -> Option<Result<T, TaskError>> {
         self.inner
             .join_next()
@@ -566,7 +568,10 @@ impl<T: 'static> TaskGroup<T> {
         &mut self,
         timeout: Duration,
     ) -> Result<Option<Result<T, TaskError>>, JoinTimedOut> {
-        self::timeout(timeout, self.join_next())
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.join_next();
+        self::timeout(timeout, wait)
             .await
             .map_err(|_| JoinTimedOut)
     }
@@ -1260,6 +1265,7 @@ impl Semaphore {
     }
 
     /// Acquire one permit, waiting until one is available.
+    #[deprecated(note = "can wait forever; use `acquire_within` (#433)")]
     pub async fn acquire(&self) -> SemaphorePermit {
         SemaphorePermit {
             // This crate never exposes a way to close a `Semaphore`, so the
@@ -1274,6 +1280,7 @@ impl Semaphore {
 
     /// Acquire `permits` permits atomically, waiting until that many are
     /// available together.
+    #[deprecated(note = "can wait forever; use `acquire_many_within` (#433)")]
     pub async fn acquire_many(&self, permits: u32) -> SemaphorePermit {
         SemaphorePermit {
             // See `acquire`: closing is unreachable through this facade.
@@ -1295,7 +1302,10 @@ impl Semaphore {
         &self,
         timeout: Duration,
     ) -> Result<SemaphorePermit, SemaphoreAcquireTimedOut> {
-        self::timeout(timeout, self.acquire())
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.acquire();
+        self::timeout(timeout, wait)
             .await
             .map_err(|_| SemaphoreAcquireTimedOut)
     }
@@ -1311,7 +1321,10 @@ impl Semaphore {
         permits: u32,
         timeout: Duration,
     ) -> Result<SemaphorePermit, SemaphoreAcquireTimedOut> {
-        self::timeout(timeout, self.acquire_many(permits))
+        // Bounds the deprecated wait; inline it when that is removed (#433).
+        #[allow(deprecated)]
+        let wait = self.acquire_many(permits);
+        self::timeout(timeout, wait)
             .await
             .map_err(|_| SemaphoreAcquireTimedOut)
     }
@@ -1381,6 +1394,7 @@ impl<T> Sender<T> {
     ///
     /// Returns the value back to the caller if every [`Receiver`] has been
     /// dropped.
+    #[deprecated(note = "can wait forever; use `send_within` (#433)")]
     pub async fn send(&self, value: T) -> Result<(), SendError<T>> {
         self.inner
             .send(value)
@@ -1458,6 +1472,7 @@ pub struct Receiver<T> {
 impl<T> Receiver<T> {
     /// Wait for the next value, or `None` once every [`Sender`] has been
     /// dropped and no values remain buffered.
+    #[deprecated(note = "can wait forever; use `recv_within` (#433)")]
     pub async fn recv(&mut self) -> Option<T> {
         self.inner.recv().await
     }
@@ -1552,6 +1567,7 @@ pub struct UnboundedReceiver<T> {
 impl<T> UnboundedReceiver<T> {
     /// Wait for the next value, or `None` once every [`UnboundedSender`] has
     /// been dropped and no values remain buffered.
+    #[deprecated(note = "can wait forever; use `recv_within` (#433)")]
     pub async fn recv(&mut self) -> Option<T> {
         self.inner.recv().await
     }
@@ -1807,7 +1823,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let answer = runtime.run(async { launch(async { 42_u8 }).await.unwrap() });
+        let answer = runtime.run_within(async { launch(async { 42_u8 }).await.unwrap() }, std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(answer, 42);
     }
 
@@ -1817,7 +1833,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let result = runtime.run(timeout(Duration::ZERO, std::future::pending::<()>()));
+        let result = runtime.run_within(timeout(Duration::ZERO, std::future::pending::<()>()), std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert!(result.is_err());
     }
 
@@ -1827,7 +1843,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let source = CancellationSource::new();
             let token = source.token();
             let waiter = launch({
@@ -1837,7 +1853,7 @@ mod tests {
             yield_now().await;
             source.cancel();
             assert_eq!(waiter.await.unwrap(), Err(Cancelled));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1846,7 +1862,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let source = CancellationSource::new();
             let token = source.token();
             token
@@ -1856,7 +1872,7 @@ mod tests {
 
             token.cancelled().await;
             assert!(source.is_cancelled());
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1867,7 +1883,7 @@ mod tests {
             .unwrap();
         let deadline = Deadline::after(Duration::ZERO);
         assert!(deadline.is_elapsed());
-        let result = runtime.run(connection_until(deadline, std::future::pending::<()>()));
+        let result = runtime.run_within(connection_until(deadline, std::future::pending::<()>()), std::time::Duration::from_secs(60)).expect("test runtime budget");
         assert_eq!(result, Err(ConnectionDeadlineElapsed));
     }
 
@@ -1877,7 +1893,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let reporter = ProgressReporter::new();
             let watch = reporter.watch();
@@ -1898,7 +1914,7 @@ mod tests {
                 progress_timeout(Duration::from_millis(15), &watch, operation).await,
                 Ok(7)
             );
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1907,7 +1923,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let reporter = ProgressReporter::new();
             let watch = reporter.watch();
@@ -1944,7 +1960,7 @@ mod tests {
 
             release_progress.notify_one();
             progress_task.await.unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1953,7 +1969,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let reporter = ProgressReporter::new();
             let watch = reporter.watch();
@@ -1973,7 +1989,7 @@ mod tests {
             .await;
             tokio::time::advance(Duration::from_millis(10)).await;
             assert_eq!(result.await, Err(ProgressIdleElapsed));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -1982,7 +1998,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let completed = Arc::new(AtomicBool::new(false));
             let flag = Arc::clone(&completed);
@@ -2001,7 +2017,7 @@ mod tests {
                 !completed.load(Ordering::Acquire),
                 "a dropped task must not run to completion"
             );
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2010,7 +2026,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             tokio::time::pause();
             let completed = Arc::new(AtomicBool::new(false));
             let flag = Arc::clone(&completed);
@@ -2029,7 +2045,7 @@ mod tests {
                 completed.load(Ordering::Acquire),
                 "a detached task must keep running after its handle is dropped"
             );
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2038,13 +2054,15 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let (first, second) = join(async { 1_u8 }, async { 2_u8 }).await;
             assert_eq!((first, second), (1, 2));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
+    // Contract test of a form deprecated by #433.
+    #[allow(deprecated)]
     fn task_group_collects_results_as_tasks_complete() {
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()
@@ -2071,7 +2089,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let notify = Arc::new(Notify::new());
             let waiter_notify = Arc::clone(&notify);
             let waiter = launch(async move {
@@ -2080,10 +2098,12 @@ mod tests {
             yield_now().await;
             notify.notify_one();
             waiter.await.unwrap();
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
+    // Contract test of a form deprecated by #433.
+    #[allow(deprecated)]
     fn semaphore_serializes_access_to_a_single_permit() {
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()
@@ -2117,7 +2137,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let (sender, mut receiver) = channel::<u8>(1);
             sender.try_send(1).unwrap();
             assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
@@ -2125,10 +2145,12 @@ mod tests {
             assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
             drop(sender);
             assert_eq!(receiver.try_recv(), Err(TryRecvError::Disconnected));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
+    // Contract test of a form deprecated by #433.
+    #[allow(deprecated)]
     fn bounded_channel_delivers_values_in_order() {
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()
@@ -2146,6 +2168,8 @@ mod tests {
     }
 
     #[test]
+    // Contract test of a form deprecated by #433.
+    #[allow(deprecated)]
     fn unbounded_channel_delivers_values_without_waiting() {
         let runtime = RuntimeBuilder::current_thread()
             .enable_all()
@@ -2166,11 +2190,11 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let (sender, receiver) = oneshot_channel::<u8>();
             sender.send(9).unwrap();
             assert_eq!(receiver.await, Ok(9));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 
     #[test]
@@ -2179,10 +2203,10 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run(async {
+        runtime.run_within(async {
             let (sender, receiver) = oneshot_channel::<u8>();
             drop(sender);
             assert_eq!(receiver.await, Err(OneshotReceiverClosed));
-        });
+        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
 }

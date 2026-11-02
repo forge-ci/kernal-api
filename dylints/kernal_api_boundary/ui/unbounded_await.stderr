@@ -1,0 +1,16 @@
+error: awaiting a kernal-api `Task` can wait forever; call `Task::join_within` with a time budget instead
+  --> $DIR/unbounded_await.rs:14:17
+   |
+LL |     let value = task.await;
+   |                 ^^^^
+   |
+   = note: `#[deny(kernal_api_unbounded_wait)]` on by default
+
+error: awaiting a kernal-api `Task` can wait forever; call `Task::join_within` with a time budget instead
+  --> $DIR/unbounded_await.rs:15:17
+   |
+LL |     let other = (&mut other).await;
+   |                 ^^^^^^^^^^^^
+
+error: aborting due to 2 previous errors
+

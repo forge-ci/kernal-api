@@ -147,7 +147,7 @@ async fn a_spawn_spec_runs_a_refused_image_even_with_a_cleared_environment() {
     };
     let output = child
         .expect("refused APE image recovered")
-        .wait_with_output_bounded(1 << 16)
+        .wait_with_output_bounded_within(1 << 16, Duration::from_secs(5))
         .await
         .expect("output");
     assert!(output.status.success(), "{output:?}");
@@ -205,7 +205,12 @@ fn a_sync_spawn_recovers_a_refused_image() {
         io_busy,
     )
     .expect("refused APE image recovered");
-    assert_eq!(child.wait().unwrap(), 0);
+    assert_eq!(
+        child
+            .wait_within(std::time::Duration::from_secs(5))
+            .unwrap(),
+        0
+    );
     assert_eq!(std::fs::read(&out_path).unwrap(), b"ape-ok:y|");
 }
 
@@ -282,7 +287,7 @@ async fn a_real_image_runs_through_spawn_spec_in_a_hostile_environment() {
         .spawn()
         .await
         .expect("real APE image launched")
-        .wait_with_output_bounded(1 << 16)
+        .wait_with_output_bounded_within(1 << 16, Duration::from_secs(5))
         .await
         .expect("output");
     assert!(output.status.success(), "{output:?}");

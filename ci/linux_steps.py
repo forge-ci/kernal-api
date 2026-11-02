@@ -33,6 +33,7 @@ CI_GUARD_MODULES = (
     "ci.test_native_proof_jobs",
     "ci.test_macos_x64_guest",
     "ci.test_ci_modes",
+    "ci.test_ci_summary",
     "ci.test_release_ci_gate",
     "ci.test_nextest_config",
     "ci.test_deny_warnings",

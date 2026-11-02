@@ -1,0 +1,28 @@
+error: `Mutex::blocking_lock_within` blocks its thread inside an `async` body; use the async form or move it into `launch_blocking`
+  --> $DIR/blocking_in_async.rs:17:5
+   |
+LL |     mutex.blocking_lock_within(budget);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(kernal_api_blocking_in_async)]` on by default
+
+error: `lock_exclusive_for` blocks its thread inside an `async` body; use the async form or move it into `launch_blocking`
+  --> $DIR/blocking_in_async.rs:18:5
+   |
+LL |     lock_exclusive_for(budget);
+   |     ^^^^^^^^^^^^^^^^^^
+
+error: `Runtime::run_within` blocks its thread inside an `async` body; use the async form or move it into `launch_blocking`
+  --> $DIR/blocking_in_async.rs:19:5
+   |
+LL |     runtime.run_within(budget);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `Mutex::blocking_lock_within` blocks its thread inside an `async` body; use the async form or move it into `launch_blocking`
+  --> $DIR/blocking_in_async.rs:25:9
+   |
+LL |         Mutex::blocking_lock_within(mutex, Duration::from_secs(1));
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: aborting due to 4 previous errors
+

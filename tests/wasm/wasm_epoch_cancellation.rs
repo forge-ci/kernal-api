@@ -27,16 +27,23 @@ fn epoch_limits_are_bounded_and_cancellation_is_facade_owned() {
         .enable_all()
         .build()
         .expect("runtime");
-    runtime.run(async {
-        let first = kernal_api::async_engine::RuntimeHandle::current().expect("current runtime");
-        let second = kernal_api::async_engine::RuntimeHandle::current().expect("same runtime");
-        assert_eq!(
-            first, second,
-            "current handles retain live-runtime identity"
-        );
-        let task = first.launch_blocking(|| 7_u8);
-        assert_eq!(task.await.expect("blocking task"), 7);
-    });
+    runtime
+        .run_within(
+            async {
+                let first =
+                    kernal_api::async_engine::RuntimeHandle::current().expect("current runtime");
+                let second =
+                    kernal_api::async_engine::RuntimeHandle::current().expect("same runtime");
+                assert_eq!(
+                    first, second,
+                    "current handles retain live-runtime identity"
+                );
+                let task = first.launch_blocking(|| 7_u8);
+                assert_eq!(task.await.expect("blocking task"), 7);
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
 
     let cancellation = CancellationSource::new();
     assert!(!cancellation.token().is_cancelled());
@@ -72,25 +79,30 @@ fn public_controlled_execution_cancels_a_running_compute_loop_and_cleans_up() {
         .enable_all()
         .build()
         .expect("runtime");
-    runtime.run(async {
-        let source = CancellationSource::new();
-        let task = runtime.handle().launch({
-            let sketch = sketch.clone();
-            let token = source.token();
-            let handle = runtime.handle();
-            async move {
-                sketch
-                    .execute_threaded_root_cancellable(handle, token)
-                    .await
-            }
-        });
-        kernal_api::async_engine::sleep(Duration::from_millis(2)).await;
-        source.cancel();
-        assert_eq!(
-            task.await.expect("execution task"),
-            Err(SketchExecutionError::Cancelled)
-        );
-    });
+    runtime
+        .run_within(
+            async {
+                let source = CancellationSource::new();
+                let task = runtime.handle().launch({
+                    let sketch = sketch.clone();
+                    let token = source.token();
+                    let handle = runtime.handle();
+                    async move {
+                        sketch
+                            .execute_threaded_root_cancellable(handle, token)
+                            .await
+                    }
+                });
+                kernal_api::async_engine::sleep(Duration::from_millis(2)).await;
+                source.cancel();
+                assert_eq!(
+                    task.await.expect("execution task"),
+                    Err(SketchExecutionError::Cancelled)
+                );
+            },
+            std::time::Duration::from_secs(60),
+        )
+        .expect("test runtime budget");
     sketch
         .close_threaded_root()
         .expect("close cooperative sketch");

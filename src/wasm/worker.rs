@@ -1440,7 +1440,7 @@ fn zero(c: FinalCounters) -> bool {
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 fn next_request_id() -> Option<u64> {
     let value = REQUEST_ID
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |id| id.checked_add(1))
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |id| id.checked_add(1))
         .ok()?;
     (value != 0).then_some(value)
 }
