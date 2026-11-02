@@ -89,6 +89,9 @@ mod backend {
         pub(crate) fn request_repaint(&mut self) {
             match self.0 {}
         }
+        pub(crate) fn request_screenshot(&mut self) {
+            match self.0 {}
+        }
     }
 
     pub(crate) fn capabilities() -> Capabilities {

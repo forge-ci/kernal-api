@@ -4,6 +4,7 @@
 mod input;
 
 use std::ops::RangeInclusive;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::gfx::{
     App, BackendKind, Capabilities, Color, Event, GfxError, GfxErrorKind, Placement, Support,
@@ -41,6 +42,7 @@ pub(crate) fn run(options: WindowOptions, app: Box<dyn App>) -> Result<(), GfxEr
                 pending_theme: None,
                 transparent,
                 events: Vec::new(),
+                screenshots: Arc::default(),
             }))
         }),
     )
@@ -139,6 +141,8 @@ struct Adapter {
     pending_theme: Option<Theme>,
     transparent: bool,
     events: Vec<Event>,
+    /// Captures completed by the renderer, delivered as events next frame.
+    screenshots: Arc<Mutex<Vec<Event>>>,
 }
 
 impl eframe::App for Adapter {
@@ -150,6 +154,12 @@ impl eframe::App for Adapter {
         }
         self.events.clear();
         ctx.input(|input| input::translate(&input.events, &mut self.events));
+        self.events.append(
+            &mut self
+                .screenshots
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
         if ctx.input(|input| input.viewport().close_requested()) && !self.app.close_requested() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
@@ -157,6 +167,7 @@ impl eframe::App for Adapter {
             events: std::mem::take(&mut self.events),
             theme: None,
             close: false,
+            screenshot: false,
         };
         let panel = egui::CentralPanel::default();
         let panel = if self.transparent {
@@ -179,6 +190,17 @@ impl eframe::App for Adapter {
         if self.pending_theme.is_some() {
             ctx.request_repaint();
         }
+        if shared.screenshot {
+            let sink = Arc::clone(&self.screenshots);
+            let waker = ctx.clone();
+            ctx.request_screenshot(move |image| {
+                sink.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(screenshot_event(&image));
+                waker.request_repaint();
+            });
+            ctx.request_repaint();
+        }
         if shared.close {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
@@ -197,6 +219,22 @@ struct Shared {
     events: Vec<Event>,
     theme: Option<Theme>,
     close: bool,
+    screenshot: bool,
+}
+
+/// A captured frame as a neutral event: straight-alpha sRGB bytes.
+fn screenshot_event(image: &egui::ColorImage) -> Event {
+    let [width, height] = image.size;
+    let rgba: Vec<u8> = image
+        .pixels
+        .iter()
+        .flat_map(egui::Color32::to_srgba_unmultiplied)
+        .collect();
+    Event::Screenshot {
+        width: u32::try_from(width).unwrap_or(u32::MAX),
+        height: u32::try_from(height).unwrap_or(u32::MAX),
+        rgba: rgba.into(),
+    }
 }
 
 pub(crate) struct FrameImp<'a> {
@@ -300,6 +338,10 @@ impl FrameImp<'_> {
     pub(crate) fn request_repaint(&mut self) {
         self.ui.ctx().request_repaint();
     }
+
+    pub(crate) fn request_screenshot(&mut self) {
+        self.shared.screenshot = true;
+    }
 }
 
 #[cfg(test)]
@@ -325,6 +367,7 @@ mod tests {
                 events: Vec::new(),
                 theme: None,
                 close: false,
+                screenshot: false,
             };
             let mut frame = crate::gfx::Frame {
                 imp: FrameImp {
@@ -345,6 +388,30 @@ mod tests {
             pressed,
             modifiers: egui::Modifiers::NONE,
         }
+    }
+
+    #[test]
+    fn screenshot_is_straight_alpha_rgba() {
+        let image = egui::ColorImage::new(
+            [2, 1],
+            vec![
+                egui::Color32::from_rgba_unmultiplied(255, 0, 0, 255),
+                egui::Color32::from_rgba_unmultiplied(0, 0, 255, 128),
+            ],
+        );
+        let Event::Screenshot {
+            width,
+            height,
+            rgba,
+        } = screenshot_event(&image)
+        else {
+            panic!("not a screenshot event");
+        };
+        assert_eq!((width, height), (2, 1));
+        assert_eq!(rgba.len(), 8);
+        assert_eq!(&rgba[..4], &[255, 0, 0, 255]);
+        assert_eq!(rgba[7], 128);
+        assert!(rgba[6] > 240, "blue un-premultiplied: {rgba:?}");
     }
 
     #[test]

@@ -132,6 +132,13 @@ impl Frame<'_> {
         self.imp.close();
     }
 
+    /// Capture the window's framebuffer after the next frame is painted. The
+    /// pixels arrive as [`Event::Screenshot`] in a later frame's
+    /// [`Frame::events`]; a repaint is scheduled for it.
+    pub fn request_screenshot(&mut self) {
+        self.imp.request_screenshot();
+    }
+
     /// Schedule another frame even without input (for animation).
     pub fn request_repaint(&mut self) {
         self.imp.request_repaint();

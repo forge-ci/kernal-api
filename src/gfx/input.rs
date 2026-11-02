@@ -117,4 +117,17 @@ pub enum Event {
     },
     /// The window gained (`true`) or lost focus.
     Focused(bool),
+    /// The pixels of a frame asked for with
+    /// [`Frame::request_screenshot`](super::Frame::request_screenshot), read
+    /// back from the window's own framebuffer (not the compositor), in
+    /// physical pixels.
+    Screenshot {
+        /// Width in pixels.
+        width: u32,
+        /// Height in pixels.
+        height: u32,
+        /// Row-major, top-down, 8-bit sRGB RGBA with straight (not
+        /// premultiplied) alpha: `width * height * 4` bytes.
+        rgba: std::sync::Arc<[u8]>,
+    },
 }
