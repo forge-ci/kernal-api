@@ -208,6 +208,10 @@ fn run_contained_screenshot(scenario: ContainedScenario) {
     let stopping = Arc::clone(&stop);
     let requested = Arc::new(AtomicBool::new(false));
     let observed_request = Arc::clone(&requested);
+    // Readiness signal raised right after `requested` is stored. `notify_one`
+    // retains a permit, so a waiter that registers late still wakes.
+    let request_signal = Arc::new(kernal_api::async_engine::Notify::new());
+    let server_request_signal = Arc::clone(&request_signal);
     let original_directory = directory.clone();
     let moved_directory = proof.join("moved-output");
     let server_moved_directory = moved_directory.clone();
@@ -229,6 +233,7 @@ fn run_contained_screenshot(scenario: ContainedScenario) {
                             std::fs::rename(&original_directory, &server_moved_directory).unwrap();
                         }
                         observed_request.store(true, Ordering::Release);
+                        server_request_signal.notify_one();
                         if scenario == ContainedScenario::CancelLoad {
                             while !stopping.load(Ordering::Acquire) {
                                 std::thread::sleep(Duration::from_millis(5));
@@ -293,15 +298,22 @@ fn run_contained_screenshot(scenario: ContainedScenario) {
     let cancel_task = if scenario == ContainedScenario::CancelLoad {
         let source = cancellation.clone();
         Some(runtime.handle().launch(async move {
-            for _ in 0..1_000 {
-                if requested.load(Ordering::Acquire) {
-                    // The response stays unfinished. The returned trace below
-                    // must prove the guest actually submitted its load wait.
-                    kernal_api::async_engine::sleep(Duration::from_millis(500)).await;
-                    source.cancel();
-                    return true;
-                }
-                kernal_api::async_engine::sleep(Duration::from_millis(10)).await;
+            // Wait for the fixture's explicit readiness signal rather than
+            // polling against a fixed ceiling: webview startup on slow lanes
+            // (aarch64 measured ~9.7s) outran the old ~10s poll. The 30s
+            // deadline is a failure bound, well inside the 60s run_within.
+            if !requested.load(Ordering::Acquire) {
+                let _ = request_signal
+                    .notified()
+                    .wait_within(Duration::from_secs(30))
+                    .await;
+            }
+            if requested.load(Ordering::Acquire) {
+                // The response stays unfinished. The returned trace below
+                // must prove the guest actually submitted its load wait.
+                kernal_api::async_engine::sleep(Duration::from_millis(500)).await;
+                source.cancel();
+                return true;
             }
             source.cancel();
             false
