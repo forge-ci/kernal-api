@@ -637,6 +637,20 @@ jobs:
         # by "${{ runner.os }}-${{ runner.arch }}" and checks its SHA-256.
         # ci/build_steps.py asserts the archive producer uses the same release.
         run: uv run --no-project --python 3.12 ci/runner_setup.py nextest-install
+      - name: TEMP diagnose aarch64 stalls
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        timeout-minutes: 40
+        shell: bash
+        env:
+          GDK_BACKEND: x11
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          NO_AT_BRIDGE: "1"
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+        run: >-
+          uv run --no-project ci/diag_aarch64_stall.py ${{ matrix.target }}
+          "${{ runner.temp }}/native-proof-bundle/native-proof-${{ matrix.target }}.tar"
+          "${{ runner.temp }}/native-proof-guests"
+          "${{ runner.temp }}/diag-work"
       # The runner's volumes are NTFS, which cannot share blocks. Format a
       # ReFS volume so the Windows extent-sharing tests prove block-clone
       # reference counts rather than skip (KERNAL_REFS_TEST_DIR).
