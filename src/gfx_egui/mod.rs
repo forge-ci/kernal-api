@@ -2,6 +2,9 @@
 //! winit name stays inside this module tree.
 
 mod input;
+mod offscreen;
+
+pub(crate) use offscreen::snapshot;
 
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -169,22 +172,7 @@ impl eframe::App for Adapter {
             close: false,
             screenshot: false,
         };
-        let panel = egui::CentralPanel::default();
-        let panel = if self.transparent {
-            panel.frame(egui::Frame::NONE)
-        } else {
-            panel
-        };
-        let app = &mut self.app;
-        panel.show(ui, |ui| {
-            let mut frame = crate::gfx::Frame {
-                imp: FrameImp {
-                    ui,
-                    shared: &mut shared,
-                },
-            };
-            app.frame(&mut frame);
-        });
+        draw(ui, self.transparent, &mut *self.app, &mut shared);
         self.events = shared.events;
         self.pending_theme = shared.theme;
         if self.pending_theme.is_some() {
@@ -213,6 +201,22 @@ impl eframe::App for Adapter {
             visuals.panel_fill.to_normalized_gamma_f32()
         }
     }
+}
+
+/// Lay out one frame of `app` in a central panel.
+fn draw(ui: &mut egui::Ui, transparent: bool, app: &mut dyn App, shared: &mut Shared) {
+    let panel = egui::CentralPanel::default();
+    let panel = if transparent {
+        panel.frame(egui::Frame::NONE)
+    } else {
+        panel
+    };
+    panel.show(ui, |ui| {
+        let mut frame = crate::gfx::Frame {
+            imp: FrameImp { ui, shared },
+        };
+        app.frame(&mut frame);
+    });
 }
 
 struct Shared {

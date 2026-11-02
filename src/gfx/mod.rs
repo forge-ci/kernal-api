@@ -106,11 +106,18 @@ mod backend {
         }
     }
 
+    const NO_BACKEND: &str =
+        "kernal-api was built with `gfx` but no backend feature (enable `gfx-egui`)";
+
     pub(crate) fn run(_options: WindowOptions, _app: Box<dyn App>) -> Result<(), GfxError> {
-        Err(GfxError::new(
-            GfxErrorKind::NoBackend,
-            "kernal-api was built with `gfx` but no backend feature (enable `gfx-egui`)",
-        ))
+        Err(GfxError::new(GfxErrorKind::NoBackend, NO_BACKEND))
+    }
+
+    pub(crate) fn snapshot(
+        _options: &WindowOptions,
+        _app: &mut dyn App,
+    ) -> Result<super::Snapshot, GfxError> {
+        Err(GfxError::new(GfxErrorKind::NoBackend, NO_BACKEND))
     }
 }
 
@@ -229,4 +236,65 @@ impl GfxError {
 pub fn run(options: WindowOptions, app: impl App + 'static) -> Result<(), GfxError> {
     options.validate(&capabilities())?;
     backend::run(options, Box::new(app))
+}
+
+/// Pixels of a UI rendered by [`snapshot`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Snapshot {
+    width: u32,
+    height: u32,
+    rgba: std::sync::Arc<[u8]>,
+}
+
+impl Snapshot {
+    #[cfg_attr(not(feature = "gfx-egui"), allow(dead_code, reason = "built by a backend"))]
+    pub(crate) fn new(width: u32, height: u32, rgba: std::sync::Arc<[u8]>) -> Self {
+        Self {
+            width,
+            height,
+            rgba,
+        }
+    }
+
+    /// Width in pixels.
+    #[must_use]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Height in pixels.
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Row-major, top-down, 8-bit sRGB RGBA with straight alpha, in the same
+    /// layout as [`Event::Screenshot`]: `width * height * 4` bytes.
+    #[must_use]
+    pub fn rgba(&self) -> &[u8] {
+        &self.rgba
+    }
+}
+
+/// Render `app` without a window and return the pixels.
+///
+/// The UI is laid out as [`run`] would lay it out in a window of
+/// `options.size` (one pixel per logical pixel) with `options.theme`, over a
+/// few settling frames that carry no input events, then painted by the
+/// backend's renderer into an offscreen image. No window is created and no
+/// compositor is involved, so this works where [`Frame::request_screenshot`]
+/// cannot: on a locked or display-less session, where a window receives no
+/// frames (see `docs/gfx-backend.md`, "When frames happen"). Window-manager
+/// options (placement, decorations, always-on-top, click-through) do not
+/// apply; `Frame::close`, `request_repaint` and `request_screenshot` are
+/// ignored.
+///
+/// # Errors
+///
+/// The same option checks as [`run`], [`GfxErrorKind::NoBackend`] without a
+/// backend feature, and [`GfxErrorKind::Backend`] when no GPU adapter (or
+/// software rasteriser) can be created.
+pub fn snapshot(options: &WindowOptions, app: &mut impl App) -> Result<Snapshot, GfxError> {
+    options.validate(&capabilities())?;
+    backend::snapshot(options, app)
 }
