@@ -123,11 +123,11 @@ class NativeProofJobsTests(unittest.TestCase):
         self.assertIn("ci/dylint_steps.py lanes", self.job("dylint-cache-writer"))
 
     def test_main_push_runs_the_full_tier(self):
-        """A main push runs `linux` (full mode) and `dylints`; neither is push-gated."""
+        """A main push runs `linux` (full mode), `dylints` and Python lint; none is push-gated."""
         self.assertIn("if: needs.verify.outputs.skip_linux != 'true'\n", self.job("linux"))
         self.assertIn("if: needs.verify.outputs.skip_dylints != 'true'\n", self.job("dylints"))
         self.assertIn("needs: [linux, build, test, dylints]\n", self.job("full-coverage"))
-        self.assertIn("if: github.event_name != 'push'", self.job("fast").split("steps:", 1)[0])
+        self.assertNotIn("if:", self.job("fast").split("steps:", 1)[0])
         # No GEN-021 reuse decision is left to consume.
         self.assertNotIn("reuse-check", self.text())
         self.assertNotIn("needs.verify.outputs.reuse", self.text())

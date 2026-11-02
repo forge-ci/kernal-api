@@ -87,9 +87,7 @@ jobs:
   fast:
     name: Python lint
     needs: verify
-    # GEN-022 step 6 (forge-ci/ci.yml#432): the merge queue linted the tree
-    # that lands, so a main push does not lint it again.
-    if: github.event_name != 'push'
+    # Runs on every event, a main push included: post-merge main is linted too.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
