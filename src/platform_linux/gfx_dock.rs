@@ -49,10 +49,15 @@ use smithay_client_toolkit::{
     delegate_seat, registry_handlers,
 };
 
+use smithay_client_toolkit::reexports::client::EventQueue;
+
 use crate::gfx::{
-    App, Edge, Event, GfxError, GfxErrorKind, PanelOptions, Support, Theme, WindowOptions,
+    App, Edge, Event, GfxError, GfxErrorKind, Monitor, PanelOptions, Support, Theme,
+    WindowOptions,
 };
-use crate::gfx_egui::{apply_theme, block_on, draw, input, read_back, screenshot_event, Shared};
+use crate::gfx_egui::{
+    apply_theme, block_on, clear_color, draw, input, read_back, screenshot_event, Shared,
+};
 
 /// The layer-shell global a dock needs.
 const LAYER_SHELL: &str = "zwlr_layer_shell_v1";
@@ -137,13 +142,21 @@ pub(crate) fn run(
         GfxError::new(GfxErrorKind::Unsupported, format!("{LAYER_SHELL}: {error}"))
     })?;
 
+    let chooser = Chooser::new(&conn)?;
+    let names = chooser.names();
+    let (output, fallback) = match choose(&names, &options.monitor) {
+        Choice::Primary => (None, false),
+        Choice::Fallback => (None, true),
+        Choice::Output(index) => (chooser.output(index), false),
+    };
+
     let surface = compositor.create_surface(&qh);
     let layer = layer_shell.create_layer_surface(
         &qh,
         surface.clone(),
         Layer::Top,
         Some(options.title.clone()),
-        None,
+        output.as_ref(),
     );
     let depth = logical_px(thickness);
     let (anchor, size) = match edge {
@@ -162,11 +175,19 @@ pub(crate) fn run(
 
     let (gpu, target) = Gpu::new(&conn, &surface, options.transparent)?;
     let main = View::new(target, layer, surface, options.theme);
+    if fallback {
+        // Said once even if the compositor never reports an output.
+        main_fallback_note(&options.monitor, &names);
+    }
 
     let mut dock = Dock {
         main,
         panel: None,
         gpu,
+        output,
+        fallback,
+        monitor: None,
+        chooser,
         registry: RegistryState::new(&globals),
         outputs: OutputState::new(&globals, &qh),
         seats: SeatState::new(&globals, &qh),
@@ -205,6 +226,100 @@ pub(crate) fn run(
     }
     Ok(())
 }
+
+/// Where the dock goes, given the connected outputs' names.
+#[derive(Debug, PartialEq, Eq)]
+enum Choice {
+    /// The compositor's choice, as asked.
+    Primary,
+    /// The compositor's choice, because the named output is not connected.
+    Fallback,
+    /// The output at this index of the names.
+    Output(usize),
+}
+
+fn choose(names: &[Option<String>], wanted: &Monitor) -> Choice {
+    match wanted {
+        Monitor::Named(name) => names
+            .iter()
+            .position(|candidate| candidate.as_deref() == Some(name.as_str()))
+            .map_or(Choice::Fallback, Choice::Output),
+        _ => Choice::Primary,
+    }
+}
+
+/// The fallback is also reported as `Event::Monitor { fallback: true }`;
+/// this line explains it in the process log with what was there instead.
+fn main_fallback_note(wanted: &Monitor, names: &[Option<String>]) {
+    let present: Vec<&str> = names.iter().flatten().map(String::as_str).collect();
+    eprintln!(
+        "gfx dock: {wanted:?} is not connected (outputs: {present:?}); using the desktop's primary output"
+    );
+}
+
+/// The outputs as they are before the dock exists, read on a private queue
+/// of the dock's connection so a layer surface can be created on one. Kept
+/// alive with the dock: dropping it would release the output proxies.
+struct Chooser {
+    state: Outputs,
+    _queue: EventQueue<Outputs>,
+}
+
+struct Outputs {
+    registry: RegistryState,
+    outputs: OutputState,
+}
+
+impl Chooser {
+    fn new(conn: &Connection) -> Result<Self, GfxError> {
+        let (globals, mut queue) = registry_queue_init::<Outputs>(conn).map_err(backend_error)?;
+        let mut state = Outputs {
+            registry: RegistryState::new(&globals),
+            outputs: OutputState::new(&globals, &queue.handle()),
+        };
+        // The first round trip binds the outputs; the second delivers their
+        // names (wl_output v4 or xdg-output).
+        for _ in 0..2 {
+            queue.roundtrip(&mut state).map_err(backend_error)?;
+        }
+        Ok(Self {
+            state,
+            _queue: queue,
+        })
+    }
+
+    fn names(&self) -> Vec<Option<String>> {
+        self.state
+            .outputs
+            .outputs()
+            .map(|output| self.state.outputs.info(&output).and_then(|info| info.name))
+            .collect()
+    }
+
+    fn output(&self, index: usize) -> Option<wl_output::WlOutput> {
+        self.state.outputs.outputs().nth(index)
+    }
+}
+
+impl OutputHandler for Outputs {
+    fn output_state(&mut self) -> &mut OutputState {
+        &mut self.outputs
+    }
+    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
+    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
+    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+    }
+}
+
+impl ProvidesRegistryState for Outputs {
+    fn registry(&mut self) -> &mut RegistryState {
+        &mut self.registry
+    }
+    registry_handlers![OutputState];
+}
+
+delegate_output!(Outputs);
+delegate_registry!(Outputs);
 
 /// Logical pixels to a whole, non-zero protocol size.
 fn logical_px(value: f32) -> u32 {
@@ -446,6 +561,8 @@ struct View {
     layer: LayerSurface,
     surface: wl_surface::WlSurface,
     ctx: egui::Context,
+    /// The theme `ctx` was styled with; its background alpha is the clear.
+    theme: Theme,
     /// Logical size from the last configure.
     size: (u32, u32),
     /// Integer buffer scale of the output the surface is on.
@@ -472,6 +589,7 @@ impl View {
             layer,
             surface,
             ctx,
+            theme,
             size: (0, 0),
             scale: 1,
             configured: false,
@@ -560,15 +678,7 @@ impl View {
             size_in_pixels: [px_w, px_h],
             pixels_per_point,
         };
-        let clear = if transparent {
-            [0.0; 4]
-        } else {
-            self.ctx
-                .global_style()
-                .visuals
-                .panel_fill
-                .to_normalized_gamma_f32()
-        };
+        let clear = clear_color(&self.ctx, self.theme, transparent);
         // Ask for the next frame callback before the commit that present does.
         self.surface.frame(qh, self.surface.clone());
         self.frame_pending = true;
@@ -614,6 +724,14 @@ struct Dock {
     main: View,
     panel: Option<Panel>,
     gpu: Gpu,
+    /// The output asked for, which panels open on too; `None` is the
+    /// compositor's choice.
+    output: Option<wl_output::WlOutput>,
+    /// A named output was asked for and is not connected.
+    fallback: bool,
+    /// The output last reported as `Event::Monitor`.
+    monitor: Option<String>,
+    chooser: Chooser,
     registry: RegistryState,
     outputs: OutputState,
     seats: SeatState,
@@ -716,7 +834,7 @@ impl Dock {
             surface.clone(),
             Layer::Top,
             Some(format!("{} panel", self.title)),
-            None,
+            self.output.as_ref(),
         );
         configure_panel(&layer, &options);
         // Focus when the user clicks it or it maps; losing it closes it.
@@ -740,9 +858,11 @@ impl Dock {
     fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
         apply_theme(&self.main.ctx, theme);
+        self.main.theme = theme;
         self.main.request_frame(Duration::ZERO);
         if let Some(panel) = &mut self.panel {
             apply_theme(&panel.view.ctx, theme.for_panel());
+            panel.view.theme = theme.for_panel();
             panel.view.request_frame(Duration::ZERO);
         }
     }
@@ -815,9 +935,29 @@ impl CompositorHandler for Dock {
         &mut self,
         _: &Connection,
         _: &QueueHandle<Self>,
-        _: &wl_surface::WlSurface,
-        _: &wl_output::WlOutput,
+        surface: &wl_surface::WlSurface,
+        output: &wl_output::WlOutput,
     ) {
+        if *surface != self.main.surface {
+            return;
+        }
+        // The compositor sends one enter per binding of the output, and the
+        // chooser bound them too: name it from either, report it once.
+        let name = self
+            .outputs
+            .info(output)
+            .or_else(|| self.chooser.state.outputs.info(output))
+            .and_then(|info| info.name)
+            .unwrap_or_default();
+        if self.monitor.as_ref() == Some(&name) {
+            return;
+        }
+        self.monitor = Some(name.clone());
+        self.main.events.push(Event::Monitor {
+            name,
+            fallback: self.fallback,
+        });
+        self.main.request_frame(Duration::ZERO);
     }
 
     fn surface_leave(
@@ -1071,8 +1211,17 @@ delegate_registry!(Dock);
 
 #[cfg(test)]
 mod tests {
-    use super::{logical_px, named_key, panel_anchor, to_rgba, Anchor};
-    use crate::gfx::Edge;
+    use super::{choose, logical_px, named_key, panel_anchor, to_rgba, Anchor, Choice};
+    use crate::gfx::{Edge, Monitor};
+
+    #[test]
+    fn a_named_output_is_found_or_falls_back_to_primary() {
+        let names = [Some("Virtual-1".to_owned()), None, Some("Virtual-2".to_owned())];
+        assert_eq!(choose(&names, &Monitor::Primary), Choice::Primary);
+        assert_eq!(choose(&names, &Monitor::Named("Virtual-2".into())), Choice::Output(2));
+        assert_eq!(choose(&names, &Monitor::Named("HDMI-A-1".into())), Choice::Fallback);
+        assert_eq!(choose(&[], &Monitor::Named("Virtual-1".into())), Choice::Fallback);
+    }
 
     #[test]
     fn thickness_rounds_to_a_whole_nonzero_size() {

@@ -268,6 +268,44 @@ EIS input: a click on the bar's tasks cell mapped a panel KWin reports at
 clock mapped one at `x=180 y=36 w=460 h=293`, and a click into a maximised
 window behind it dismissed it.
 
+## Monitors and translucency
+
+**Which monitor.** `WindowOptions::monitor(Monitor)` says which output a
+`Placement::Dock` (and every panel it opens) appears on:
+`Monitor::Primary` (the default: the desktop's choice) or
+`Monitor::Named("HDMI-A-1")`, the connector name the desktop gives the
+output. `Capabilities::dock_monitor` reports it, exactly where `dock` is. On
+the layer-shell path the dock reads the outputs' names on a private queue of
+its own connection before creating its surface, and creates the layer surface
+(and panels) on the matching output.
+
+A named monitor that is not connected at start-up falls back to the
+desktop's choice instead of failing: a bar that will not start while its
+monitor sleeps or is unplugged is worse than a bar on the wrong monitor, and
+the Qt talos-bar made the same call. The fallback is not silent: the backend
+writes one line to stderr naming the outputs it did find, and the app gets
+`Event::Monitor { name, fallback: true }`. Every dock gets
+`Event::Monitor { name, fallback }` once it is shown, naming the output it
+landed on. Moving back when the named output reappears is not done (a
+restart does it).
+
+Proven under `kwin_wayland --virtual --output-count 2` (two 1280x800
+outputs, `Virtual-0` at 0,0 and `Virtual-1` at 1280,0): with
+`Monitor::Named("Virtual-1")` the dock is at `1280,0 1280x36` on
+`Virtual-1`, KWin's `MaximizeArea` is `x=1280 y=36 w=1280 h=764` there and
+unchanged on `Virtual-0` (`x=0 y=0 w=1280 h=800`), and a panel opens on
+`Virtual-1`. With `Named("HDMI-A-9")` the dock falls back to `Virtual-0`.
+
+**Translucency.** `WindowOptions::transparent(true)` composites the surface
+with premultiplied alpha and clears it to the theme's background colour
+*including its alpha* (the panel colour for panels); the central panel then
+draws no fill of its own, so the alpha is applied once. Widgets and text
+stay opaque. Without a theme background the surface is fully clear, as
+before. Under nested KWin a dock and a panel with background
+`rgba(32,35,38,179)` (70%) over a window whose pixels are `239,240,241`
+captured as `93,97,99`; solving `out = a*S + (1-a)*D` per channel gives
+`a = 0.705, 0.698, 0.700` against the requested `179/255 = 0.702`.
+
 ## Deliberately not portable
 
 - **Custom painting / raw GPU access.** No canvas, mesh, texture or

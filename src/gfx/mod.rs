@@ -20,7 +20,7 @@ mod window;
 pub use frame::Frame;
 pub use input::{Event, Key, Modifiers, PointerButton};
 pub use theme::{Color, Theme, ThemeMode};
-pub use window::{Edge, PanelOptions, Placement, WindowOptions};
+pub use window::{Edge, Monitor, PanelOptions, Placement, WindowOptions};
 
 #[cfg(feature = "gfx-egui")]
 use crate::gfx_egui as backend;
@@ -123,6 +123,7 @@ mod backend {
             monitor_placement: Support::Unsupported,
             dock: Support::Unsupported,
             panels: Support::Unsupported,
+            dock_monitor: Support::Unsupported,
         }
     }
 
@@ -213,6 +214,9 @@ pub struct Capabilities {
     /// [`Placement::Dock`]; elsewhere `show_panel` returns
     /// [`GfxErrorKind::Unsupported`].
     pub panels: Support,
+    /// [`WindowOptions::monitor`] with a [`Monitor::Named`] monitor for a
+    /// dock. Available exactly where [`Capabilities::dock`] is.
+    pub dock_monitor: Support,
 }
 
 /// The capabilities of the backend compiled into this build.
@@ -277,6 +281,7 @@ pub fn run(options: WindowOptions, app: impl App + 'static) -> Result<(), GfxErr
         // Whether a dock can be shown is decided per session; the backend
         // checks again and its `Unsupported` error says why.
         caps.dock = Support::Supported;
+        caps.dock_monitor = Support::Supported;
     }
     options.validate(&caps)?;
     backend::run(options, Box::new(app))
@@ -343,6 +348,7 @@ pub fn snapshot(options: &WindowOptions, app: &mut impl App) -> Result<Snapshot,
     // dock renders on a host that cannot show one.
     let caps = Capabilities {
         dock: Support::Supported,
+        dock_monitor: Support::Supported,
         ..capabilities()
     };
     options.validate(&caps)?;

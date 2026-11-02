@@ -31,6 +31,8 @@ pub(crate) fn capabilities() -> Capabilities {
         dock: crate::native_gfx_dock::support(),
         // Panels are extra layer surfaces of a running dock.
         panels: crate::native_gfx_dock::support(),
+        // A dock's output is chosen when its layer surface is created.
+        dock_monitor: crate::native_gfx_dock::support(),
     }
 }
 
@@ -214,11 +216,28 @@ impl eframe::App for Adapter {
 
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
         if self.transparent {
-            [0.0; 4]
+            self.theme
+                .background
+                .map_or([0.0; 4], |background| color32(background).to_normalized_gamma_f32())
         } else {
             visuals.panel_fill.to_normalized_gamma_f32()
         }
     }
+}
+
+/// The colour a surface is cleared to, premultiplied, in the components
+/// egui paints with. Opaque windows clear to the panel fill (alpha is
+/// ignored by an opaque swapchain). Transparent ones clear to the theme's
+/// background including its alpha, or fully clear without one; the central
+/// panel draws no fill of its own then (see `draw`), so the alpha is not
+/// applied twice.
+pub(crate) fn clear_color(ctx: &egui::Context, theme: Theme, transparent: bool) -> [f32; 4] {
+    if !transparent {
+        return ctx.global_style().visuals.panel_fill.to_normalized_gamma_f32();
+    }
+    theme
+        .background
+        .map_or([0.0; 4], |background| color32(background).to_normalized_gamma_f32())
 }
 
 /// Lay out one frame of `body` (an app's `frame` or `panel`) in a central panel.
@@ -442,6 +461,23 @@ impl FrameImp<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_transparent_surface_clears_to_the_theme_background_alpha() {
+        let ctx = egui::Context::default();
+        let theme = Theme::default().with_background(Color::rgba(200, 100, 0, 179));
+        apply_theme(&ctx, theme);
+        let [r, g, b, a] = clear_color(&ctx, theme, true);
+        // Premultiplied: each channel scaled by alpha 179/255.
+        let alpha = 179.0 / 255.0;
+        assert!((a - alpha).abs() < 1e-3, "{a}");
+        assert!((r - 200.0 / 255.0 * alpha).abs() < 2e-3, "{r}");
+        assert!((g - 100.0 / 255.0 * alpha).abs() < 2e-3, "{g}");
+        assert!(b.abs() < 1e-3);
+        assert_eq!(clear_color(&ctx, Theme::default(), true), [0.0; 4], "no background: clear");
+        let [.., opaque] = clear_color(&ctx, theme, false);
+        assert!(opaque < 1.0, "opaque swapchains ignore it, but it is the panel fill");
+    }
 
     /// Run one headless frame (no window, no GPU) over `events`.
     fn frame(

@@ -53,11 +53,7 @@ pub(crate) fn snapshot(options: &WindowOptions, app: &mut dyn App) -> Result<Sna
         unreachable!("SETTLE_FRAMES is non-zero");
     };
     let jobs = ctx.tessellate(output.shapes, output.pixels_per_point);
-    let clear = if options.transparent {
-        [0.0; 4]
-    } else {
-        ctx.global_style().visuals.panel_fill.to_normalized_gamma_f32()
-    };
+    let clear = super::clear_color(&ctx, theme, options.transparent);
     let image = paint(width, height, &textures, &jobs, clear)?;
     match screenshot_event(&image) {
         Event::Screenshot {

@@ -123,6 +123,17 @@ pub enum Event {
     /// [`App::frame`](super::App::frame); stop calling `show_panel` until
     /// the user opens it again.
     PanelDismissed,
+    /// A dock was shown on (or moved to) a monitor. Delivered to
+    /// [`App::frame`](super::App::frame).
+    Monitor {
+        /// The monitor's connector name (`HDMI-A-1`), or empty when the
+        /// desktop does not name its outputs.
+        name: String,
+        /// `true` when [`WindowOptions::monitor`](super::WindowOptions::monitor)
+        /// named a monitor that was not connected, so the dock went to the
+        /// desktop's primary monitor instead.
+        fallback: bool,
+    },
     /// The pixels of a frame asked for with
     /// [`Frame::request_screenshot`](super::Frame::request_screenshot), read
     /// back from the window's own framebuffer (not the compositor), in

@@ -100,6 +100,30 @@ impl PanelOptions {
     }
 }
 
+/// Which monitor (output) a [`Placement::Dock`] and its panels appear on.
+///
+/// Set with [`WindowOptions::monitor`]. Requires
+/// [`Capabilities::dock_monitor`](super::Capabilities::dock_monitor) for
+/// anything but [`Monitor::Primary`]. The monitor the dock actually landed
+/// on is reported to the app as [`Event::Monitor`](super::Event::Monitor).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum Monitor {
+    /// The desktop's choice: its primary monitor where it has that notion,
+    /// otherwise the one it considers active.
+    #[default]
+    Primary,
+    /// The monitor whose connector name is this (`HDMI-A-1`, `DP-2`,
+    /// `eDP-1`), as the desktop names outputs.
+    ///
+    /// When no such monitor is connected at start-up the dock falls back to
+    /// [`Monitor::Primary`] rather than failing, and the first
+    /// [`Event::Monitor`](super::Event::Monitor) says so with
+    /// `fallback: true`: a bar that refuses to start while its monitor
+    /// sleeps is worse than one on the wrong monitor.
+    Named(String),
+}
+
 /// A screen edge, for [`Placement::Dock`] and [`PanelOptions`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -126,6 +150,7 @@ pub struct WindowOptions {
     pub(crate) transparent: bool,
     pub(crate) click_through: bool,
     pub(crate) placement: Placement,
+    pub(crate) monitor: Monitor,
     pub(crate) theme: Theme,
 }
 
@@ -141,6 +166,7 @@ impl WindowOptions {
             transparent: false,
             click_through: false,
             placement: Placement::Default,
+            monitor: Monitor::Primary,
             theme: Theme::default(),
         }
     }
@@ -170,6 +196,13 @@ impl WindowOptions {
     }
 
     /// Composite the window with a transparent background.
+    ///
+    /// The surface is then cleared to the theme's background colour
+    /// ([`Theme::with_background`](super::Theme::with_background), and the
+    /// panel colour for panels) *including its alpha*, so a background of
+    /// `Color::rgba(r, g, b, 179)` shows the desktop through it at 70%
+    /// opacity while text and widgets stay opaque. Without a theme
+    /// background the window is fully clear behind its widgets.
     pub fn transparent(mut self, transparent: bool) -> Self {
         self.transparent = transparent;
         self
@@ -184,6 +217,13 @@ impl WindowOptions {
     /// Initial placement.
     pub fn placement(mut self, placement: Placement) -> Self {
         self.placement = placement;
+        self
+    }
+
+    /// The monitor a [`Placement::Dock`] (and its panels) appears on.
+    /// Ignored for other placements.
+    pub fn monitor(mut self, monitor: Monitor) -> Self {
+        self.monitor = monitor;
         self
     }
 
@@ -229,6 +269,12 @@ impl WindowOptions {
                 caps.dock,
                 "Placement::Dock",
             ),
+            (
+                matches!(self.placement, Placement::Dock { .. })
+                    && self.monitor != Monitor::Primary,
+                caps.dock_monitor,
+                "Monitor::Named",
+            ),
         ];
         for (wanted, support, name) in requested {
             if wanted && support == Support::Unsupported {
@@ -258,7 +304,35 @@ mod tests {
             monitor_placement: Support::Unsupported,
             dock: Support::Unsupported,
             panels: Support::Unsupported,
+            dock_monitor: Support::Unsupported,
         }
+    }
+
+    #[test]
+    fn a_named_monitor_needs_its_capability_only_on_a_dock() {
+        let named = |placement| {
+            WindowOptions::new("bar")
+                .placement(placement)
+                .monitor(Monitor::Named("HDMI-A-1".into()))
+        };
+        let dock = Placement::Dock {
+            edge: Edge::Top,
+            thickness: 36.0,
+        };
+        let caps = Capabilities {
+            dock: Support::Supported,
+            ..all_best_effort()
+        };
+        let err = named(dock).validate(&caps).expect_err("no dock_monitor");
+        assert_eq!(err.kind(), GfxErrorKind::Unsupported);
+        assert!(err.to_string().contains("Monitor::Named"), "{err}");
+        let caps = Capabilities {
+            dock_monitor: Support::Supported,
+            ..caps
+        };
+        assert!(named(dock).validate(&caps).is_ok());
+        assert!(named(Placement::Default).validate(&all_best_effort()).is_ok(), "ignored off a dock");
+        assert_eq!(WindowOptions::new("t").monitor, Monitor::Primary);
     }
 
     #[test]
