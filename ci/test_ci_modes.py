@@ -20,8 +20,9 @@ class ModeTests(unittest.TestCase):
         self.assertEqual(ci_mode.select("pull_request", pr, "b" * 40), ("full", sha))
         pr["pull_request"]["labels"] = []
         self.assertEqual(ci_mode.select("pull_request", pr, "b" * 40), ("minimal", sha))
-        self.assertEqual(ci_mode.select("push", {}, sha), ("minimal", sha))
-        self.assertEqual(ci_mode.select("merge_group", {}, sha), ("minimal", sha))
+        # The expensive tier runs post-merge and in the queue, never on a plain PR.
+        self.assertEqual(ci_mode.select("push", {}, sha), ("full", sha))
+        self.assertEqual(ci_mode.select("merge_group", {}, sha), ("full", sha))
         self.assertEqual(
             ci_mode.select("workflow_dispatch", {"inputs": {"candidate_sha": sha}}, "b" * 40),
             ("full", sha),
@@ -74,11 +75,11 @@ class ModeTests(unittest.TestCase):
         dylints = re.search(r"(?ms)^  dylints:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
         # Only a valid per-job attestation may suppress this job on a PR or a
         # queue run; the trust policy forces extended/full labels to execute it
-        # remotely. A main push skips it (GEN-022 step 6, forge-ci/ci.yml#432):
-        # the queue proved the tree and `dylint-cache-writer` runs the pass.
+        # remotely. A main push runs it too (restore-only beside
+        # `dylint-cache-writer`), so post-merge main is Dylint-checked.
         self.assertEqual(
             re.findall(r"(?m)^    if: (.*)$", dylints),
-            ["needs.verify.outputs.skip_dylints != 'true' && github.event_name != 'push'"],
+            ["needs.verify.outputs.skip_dylints != 'true'"],
         )
         self.assertNotIn("matrix:", dylints)
         self.assertIn("run: python3 ci/dylint_steps.py lanes", dylints)

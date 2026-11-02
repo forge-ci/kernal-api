@@ -1,7 +1,8 @@
 #![cfg(feature = "fs")]
 
 //! Where a directory walk runs, and why a dedicated pool is not the same
-//! walk on a busy machine (soldr#2760).
+//! walk on a busy machine (soldr#2760); and that no mode ever ends a walk
+//! short without an error item (kernal-api#563).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -37,8 +38,15 @@ fn every_parallelism_yields_the_same_entries() {
     small_tree(dir.path());
     let root = dir.path().to_path_buf();
 
-    let shared = walked(DirectoryWalk::new(root.clone())).unwrap();
+    let shared =
+        walked(DirectoryWalk::new(root.clone()).parallelism(DirectoryWalkParallelism::SharedPool))
+            .unwrap();
     assert!(shared.contains(&root.join("nested/deeper/low.txt")));
+    let sequential =
+        walked(DirectoryWalk::new(root.clone()).parallelism(DirectoryWalkParallelism::Sequential))
+            .unwrap();
+    assert_eq!(sequential, shared);
+    assert_eq!(walked(DirectoryWalk::new(root.clone())).unwrap(), shared);
     for threads in [0, 1, 3] {
         let dedicated = walked(
             DirectoryWalk::new(root.clone())
@@ -53,8 +61,9 @@ fn every_parallelism_yields_the_same_entries() {
     );
 }
 
-/// A saturated shared pool ends a shared walk with an error; a dedicated
-/// pool walks the same tree to completion.
+/// A saturated shared pool ends a shared walk with an explicit
+/// `ResourceBusy` error item -- never a shorter all-`Ok` stream -- while the
+/// sequential mode and a dedicated pool walk the same tree to completion.
 ///
 /// Run in a child process: saturating the process-wide pool would make any
 /// concurrently running shared walk in this binary fail for the same reason.
@@ -90,8 +99,9 @@ fn saturated_shared_pool_child() {
     let saturating = {
         let gate = Arc::clone(&gate);
         let parked = Arc::clone(&parked);
-        let walk =
-            DirectoryWalk::new(blocker.path().to_path_buf()).prune_directories(move |directory| {
+        let walk = DirectoryWalk::new(blocker.path().to_path_buf())
+            .parallelism(DirectoryWalkParallelism::SharedPool)
+            .prune_directories(move |directory| {
                 if directory.file_name().is_some_and(|name| name == "sub") {
                     parked.fetch_add(1, Ordering::SeqCst);
                     let (open, opened) = &*gate;
@@ -127,11 +137,41 @@ fn saturated_shared_pool_child() {
     .expect("a dedicated-pool walk does not depend on the shared pool");
     assert!(dedicated.contains(&root.join("nested/deeper/low.txt")));
 
-    let shared = run(DirectoryWalk::new(root));
+    let sequential =
+        run(DirectoryWalk::new(root.clone()).parallelism(DirectoryWalkParallelism::Sequential))
+            .expect("a sequential walk does not depend on the shared pool");
+    assert_eq!(sequential, dedicated);
+
+    // The truncation contract: whatever the shared walk yields, either it is
+    // the whole tree or one of its items is the busy error. An all-`Ok`
+    // stream that is short of the tree is the bug this guards against.
+    let items: Vec<std::io::Result<PathBuf>> = {
+        let walk = DirectoryWalk::new(root).parallelism(DirectoryWalkParallelism::SharedPool);
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            sender.send(
+                walk.walk()
+                    .map(|entry| entry.map(|entry| entry.into_path()))
+                    .collect(),
+            )
+        });
+        receiver
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the walk must finish rather than hang")
+    };
+    let busy = items.iter().any(|item| {
+        item.as_ref()
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::ResourceBusy)
+    });
+    let complete: BTreeSet<PathBuf> = items.into_iter().filter_map(Result::ok).collect();
     assert!(
-        shared.is_err(),
-        "a walk on the saturated shared pool gives up; that is what the \
-         dedicated pool exists to avoid"
+        busy,
+        "a walk on the saturated shared pool gives up, and says so; that is \
+         what the sequential and dedicated modes exist to avoid"
+    );
+    assert!(
+        complete.len() < dedicated.len(),
+        "the busy error marks a walk that really is short"
     );
 
     let (open, opened) = &*gate;

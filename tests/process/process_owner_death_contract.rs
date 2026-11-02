@@ -42,7 +42,12 @@ fn owner_death_helper_spawns_an_adapted_child() {
             std::time::Duration::from_secs(60),
         )
         .expect("test runtime budget");
-    std::fs::write(pid_file, pid.to_string()).expect("publish adapted child PID");
+    // Publish atomically: the owner polls for this path, so it must never see
+    // it exist before its contents are complete (kernal-api#569).
+    let pid_file = std::path::PathBuf::from(pid_file);
+    let staging = pid_file.with_extension("pid.tmp");
+    std::fs::write(&staging, pid.to_string()).expect("stage adapted child PID");
+    std::fs::rename(&staging, &pid_file).expect("publish adapted child PID");
 }
 
 #[test]
@@ -107,7 +112,11 @@ fn wait_for_pid_file(path: &Path) -> u32 {
 fn child_is_live(pid: u32) -> bool {
     let mut system = System::new();
     let pid = Pid::from_u32(pid);
-    system.refresh_process(pid);
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        true,
+        sysinfo::ProcessRefreshKind::everything(),
+    );
     !matches!(
         system.process(pid).map(|process| process.status()),
         None | Some(ProcessStatus::Zombie)
@@ -117,7 +126,11 @@ fn child_is_live(pid: u32) -> bool {
 fn terminate_test_child(pid: u32) {
     let mut system = System::new();
     let pid = Pid::from_u32(pid);
-    system.refresh_process(pid);
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        true,
+        sysinfo::ProcessRefreshKind::everything(),
+    );
     if let Some(process) = system.process(pid) {
         let _ = process.kill();
     }

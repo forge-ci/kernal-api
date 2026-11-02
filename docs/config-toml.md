@@ -13,6 +13,6 @@ Those two decoded limits are checked after backend parsing, not as independent
 CPU or parser-allocation quotas. The private parser retains its default
 recursion limit. Errors return no partial document and do not echo source text.
 
-The exact private `toml` 0.8.23 dependency is enabled on runtime edges only by
+The exact private `toml` 1.1.8 dependency is enabled on runtime edges only by
 this feature. It already occurs as a build dependency, so whole dependency-graph
 absence and build-speed gains are not claimed. CI checks runtime edges separately.

@@ -197,23 +197,17 @@ impl<R: Read> Read for Guard<R> {
     reason = "Existing function complexity measured at ratchet adoption"
 )]
 pub(super) fn extract_tar(
-    file: File,
+    source: impl Read,
     dest: &Path,
     format: ArchiveFormat,
     limits: ExtractionLimits,
     member: Option<PathBuf>,
 ) -> io::Result<()> {
-    let decoder: Box<dyn Read> = match format {
-        ArchiveFormat::TarGzip => Box::new(flate2::read::MultiGzDecoder::new(file)),
-        ArchiveFormat::TarZstd => {
-            let mut decoder = zstd::stream::read::Decoder::new(file)?;
-            decoder.window_log_max(27)?;
-            Box::new(decoder)
-        }
-        ArchiveFormat::Zip => return Err(invalid("expected tar encoding")),
-    };
+    let compression = super::stream::TarCompression::for_format(format)
+        .ok_or_else(|| invalid("expected tar encoding"))?;
+    let decoder = super::stream::decoder(source, compression)?;
     let root = if member.is_none() {
-        Some(prepare_destination(dest)?)
+        Some(prepare_destination(dest, limits.existing_destination)?)
     } else {
         None
     };
@@ -291,13 +285,15 @@ pub(super) fn extract_tar(
         if entry.size() > remaining {
             return Err(invalid("tar output exceeds byte limit"));
         }
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&output)?;
+        let mut file = match &root {
+            Some(root) => create_output(root, &output, limits.existing_destination)?,
+            None => {
+                if let Some(parent) = output.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                OpenOptions::new().write(true).create_new(true).open(&output)?
+            }
+        };
         copy_entry_bounded(&mut entry, &mut file, &mut remaining, limits.max_entry_bytes)?;
         file.flush()?;
         #[cfg(unix)]
@@ -314,7 +310,13 @@ pub(super) fn extract_tar(
     // selected member near the beginning of the archive.
     io::copy(&mut archive.into_inner(), &mut io::sink())?;
     if let Some(root) = root {
-        install_links(&root, links, limits.max_link_steps, limits.dangling_links)?;
+        install_links(
+            &root,
+            links,
+            limits.max_link_steps,
+            limits.dangling_links,
+            limits.existing_destination,
+        )?;
     }
     if member.is_some() && !found {
         return Err(io::Error::new(
