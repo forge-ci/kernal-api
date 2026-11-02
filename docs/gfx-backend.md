@@ -91,10 +91,36 @@ field dark with no outline. An earlier windowed capture taken under a locked
 session, where the window never got keyboard focus, looked different for
 that reason alone. Rendering the snapshot with focus off reproduces it.
 
-Run the example with `LD_LIBRARY_PATH` including the Vulkan loader
-(`/run/current-system/sw/share/nix-ld/lib` on NixOS) outside `soldr`; without
-it wgpu falls back to GL, and the windowless GL path fails with "Parent
-device is lost" on this host.
+### Which adapter a snapshot uses
+
+wgpu picks the adapter, and its environment variables steer it:
+`WGPU_BACKEND` (`vulkan`, `gl`), `WGPU_ADAPTER_NAME` (substring match),
+`WGPU_POWER_PREF`, plus the Vulkan loader's `VK_ICD_FILENAMES`.
+
+**"Parent device is lost"** from `gfx::snapshot` means wgpu's **GL** backend
+running on **NVIDIA's EGL** (`libEGL_nvidia`, chosen by glvnd). Measured on
+a two-NVIDIA-GPU NixOS host (2026-11-02). GL on Mesa's EGL works, and Vulkan
+works on either NVIDIA GPU and on lavapipe. Load and adapter choice make no
+difference. A process ends up on GL when it cannot dlopen `libvulkan.so.1`,
+which a NixOS binary outside a dev shell cannot do by default:
+
+| Environment | Result |
+| --- | --- |
+| nothing (no Vulkan loader on the path → GL → NVIDIA EGL) | Parent device is lost |
+| `WGPU_BACKEND=gl` (+ `LIBGL_ALWAYS_SOFTWARE=1`, still NVIDIA EGL) | Parent device is lost |
+| `WGPU_ADAPTER_NAME=3060` / `=llvmpipe` without the loader | Parent device is lost (still GL) |
+| `WGPU_BACKEND=gl __EGL_VENDOR_LIBRARY_FILENAMES=…/50_mesa.json` | works |
+| `LD_LIBRARY_PATH=/run/current-system/sw/share/nix-ld/lib` (Vulkan, NVIDIA) | works |
+| same + `WGPU_ADAPTER_NAME=2080` / `WGPU_POWER_PREF=low` | works |
+| same + `WGPU_BACKEND=vulkan VK_ICD_FILENAMES=…/lvp_icd.x86_64.json` (lavapipe) | works, 3/3 |
+
+CI and any host-independent render should pin software Vulkan:
+
+    WGPU_BACKEND=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json   # Debian/Ubuntu mesa-vulkan-drivers
+
+On NixOS put the Vulkan loader on the path
+(`LD_LIBRARY_PATH=/run/current-system/sw/share/nix-ld/lib`) and use
+`/run/opengl-driver/share/vulkan/icd.d/lvp_icd.x86_64.json`.
 
 ## Docks
 
