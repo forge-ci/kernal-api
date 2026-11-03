@@ -16,7 +16,7 @@ on:
   push:
     branches: [main]
   # GEN-022 (forge-ci/ci.yml#405): main merges through a merge queue, which
-  # validates the exact merge commit. A queue run selects the push tier.
+  # validates the exact merge commit on the Linux-only `test` tier (no hosted macOS).
   merge_group:
     types: [checks_requested]
 
@@ -136,8 +136,8 @@ jobs:
   # on one runner: the Linux-only checks first, then lint and the full suite.
   linux:
     needs: verify
-    # A main push and a queue run select full mode (ci/ci_mode.py): the full
-    # matrix and Full coverage run post-merge; a plain PR stays on the cheap tier.
+    # A main push, a dispatch or a `ci-full` PR selects full mode (ci/ci_mode.py):
+    # the full matrix (hosted macOS) and Full coverage. The queue runs `test`.
     if: needs.verify.outputs.skip_linux != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
