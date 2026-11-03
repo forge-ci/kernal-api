@@ -20,9 +20,10 @@ class ModeTests(unittest.TestCase):
         self.assertEqual(ci_mode.select("pull_request", pr, "b" * 40), ("full", sha))
         pr["pull_request"]["labels"] = []
         self.assertEqual(ci_mode.select("pull_request", pr, "b" * 40), ("minimal", sha))
-        # The expensive tier runs post-merge and in the queue, never on a plain PR.
+        # The expensive tier runs post-merge, on dispatch and on `ci-full`; the
+        # queue stays on the Linux-only standard lane (no hosted macOS).
         self.assertEqual(ci_mode.select("push", {}, sha), ("full", sha))
-        self.assertEqual(ci_mode.select("merge_group", {}, sha), ("full", sha))
+        self.assertEqual(ci_mode.select("merge_group", {}, sha), ("test", sha))
         self.assertEqual(
             ci_mode.select("workflow_dispatch", {"inputs": {"candidate_sha": sha}}, "b" * 40),
             ("full", sha),

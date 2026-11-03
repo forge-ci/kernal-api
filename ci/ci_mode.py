@@ -16,10 +16,16 @@ def _sha(value):
 def select(event_name, event, github_sha):
     if event_name == "workflow_dispatch":
         return "full", _sha(event.get("inputs", {}).get("candidate_sha"))
-    if event_name in ("push", "merge_group"):
-        # The expensive tier: a queue run proves the exact merge commit and a
-        # main push re-proves main, both with the full matrix and Full coverage.
+    if event_name == "push":
+        # The expensive tier: a main push re-proves main with the full matrix
+        # (hosted macOS included) and Full coverage.
         return "full", _sha(github_sha)
+    if event_name == "merge_group":
+        # The queue proves the exact merge commit on the Linux-only standard
+        # lane. Hosted macOS runners can sit queued past the ruleset's
+        # check_response_timeout (run 41534759807 waited ~87 min on one), so
+        # they stay off the queue path; main push, dispatch and `ci-full` keep them.
+        return "test", _sha(github_sha)
     if event_name == "pull_request":
         pr = event["pull_request"]
         labels = {label["name"] for label in pr.get("labels", [])}
