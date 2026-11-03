@@ -480,6 +480,14 @@ def prune(
 ) -> tuple[int, int]:
     current_lock_hash = current_lock_hash or checked_out_lock_hash()
     before = api.caches()
+    # Cleanup or eviction can leave no cook bases at all. There is no cook
+    # generation to retire then, and no sentinel authorizing other deletions.
+    # Include every ref and schema so an unrecognized or PR-only cook inventory
+    # still reaches the safety guards rather than being mistaken for emptiness.
+    if not any(cache.key.startswith("cook-base-") for cache in before):
+        version_tuple(current_version)
+        print("nothing to prune yet: no cook-base entries exist; deleting nothing")
+        return 0, 0
     if not require_current_generation_present(before, current_version):
         older = ", ".join(
             sorted(
