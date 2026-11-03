@@ -75,7 +75,7 @@ the stub never has to stand in for real source.
   constant. They assert on source text that is identical on every host and
   ci.yml's Linux `test-run` lanes already run them. This mirrors the exclusion
   the aarch64 lane carries in `ci.yml`.
-- **16 further tests**, excluded by name and grouped by cause in
+- **22 further tests**, excluded by name and grouped by cause in
   `recovery-guest.sh`. Each entry is named rather than pattern-matched, so the
   list stays reviewable, and each group carries the evidence observed in the
   guest. None of it is a blanket filter: a test that starts failing for a *new*
@@ -85,7 +85,9 @@ the stub never has to stand in for real source.
 |---|---|---|
 | `EXCLUDE_CAP_PRIMITIVES` | 12 | `cap-primitives` 4.0.3 panics converting a negative `st_rdev` — `u64::try_from(stat.st_rdev).unwrap()` at `metadata_ext.rs:171`. The `dev` field two lines above guards the same signedness; only `rdev` was missed. This guest reports negative device numbers; hosted Macs do not, and all 12 pass there. Upstream fix: bytecodealliance/cap-std#428 (we wait rather than `[patch]`, which would not reach our consumers). |
 | `EXCLUDE_MACOS_RENAME` | 3 | The guest's filesystem returns `ENOTSUP` (45) for `renameatx_np(RENAME_EXCL)` (readiness marker) and `renamex_np(RENAME_SWAP)` (`install_directory`, which documents returning the filesystem's error when exchange is unsupported). Real APFS supports both, and all three pass on hosted Macs. |
-| `EXCLUDE_VM_TIMING` | 1 | Two cores in a VM are not representative for wall-clock assertions; a suspension window elapsed before the work did. |
+| `EXCLUDE_GUEST_ROOT` | 4 | Recovery's Terminal runs as root, and root bypasses mode bits: the mode-bit write seal cannot refuse root, so `owner_write_refused` is false even after `set_readonly(true)` (`write_seal_facade.rs:99`). In this guest an inherited ACL is also missing from a new child (`inherited ACL must be rejected: ()`). All four pass on hosted Macs as a normal user. |
+| `EXCLUDE_SOURCE_FIXTURE` | 2 | The APE fixture `tests/fixtures/ape-hello/hello.com` resolves through `CARGO_MANIFEST_DIR`, which is the fixture-less stub workspace here, so the guest gets `ENOENT`. Both pass on hosted Macs. |
+| `EXCLUDE_VM_TIMING` | 1 | Two VM cores: the cancel races forced containment (`ForcedContainment { trigger: Cancelled }` instead of `Stopped(Cancelled)`, `wasm_worker_containment.rs:182`). Passes on hosted Macs; root cause tracked in #568. |
 
 **Every macOS portability finding this lane surfaced is resolved** (#283). The
 TLS fixture validity, the `/var` → `/private/var` comparison, and the
