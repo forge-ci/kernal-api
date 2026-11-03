@@ -613,7 +613,9 @@ class CookCacheRetentionTests(unittest.TestCase):
                     continue
                 for apply in (False, True):
                     api = FakeGitHub()
-                    api.caches = lambda: [Cache(1, f"cook-base-{schema}-linux-x64-soldrv0.9.22", ref, 900)]
+                    api.caches = lambda schema=schema, ref=ref: [
+                        Cache(1, f"cook-base-{schema}-linux-x64-soldrv0.9.22", ref, 900)
+                    ]
                     error = "no main cook-base exists"
                     with self.subTest(schema=schema, ref=ref, apply=apply):
                         with self.assertRaisesRegex(ValueError, error):
