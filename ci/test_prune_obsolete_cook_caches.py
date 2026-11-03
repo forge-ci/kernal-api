@@ -560,6 +560,43 @@ class CookCacheRetentionTests(unittest.TestCase):
         )
         self.assertEqual(retired_cross_target_cook_bases([current, cross], "0.9.47"), [cross])
 
+    def test_empty_cook_base_inventory_skips_without_deleting_other_families(self):
+        class FakeGitHub:
+            def __init__(self, entries):
+                self.entries = entries
+
+            def caches(self):
+                return list(self.entries)
+
+            def delete_cache(self, cache_id):
+                self.fail_unexpected_operation()
+
+            def usage_bytes(self):
+                self.fail_unexpected_operation()
+
+            def fail_unexpected_operation(self):
+                raise AssertionError("empty cook inventory must skip all pruning and budget checks")
+
+        for entries in (
+            [],
+            [
+                Cache(index, f"{family}-v{schema}-unrelated", ref, BUDGET_BYTES + 1)
+                for index, (family, schema, ref) in enumerate(
+                    (
+                        (family, schema, ref)
+                        for family in ("build", "dylint")
+                        for schema in (2, 3)
+                        for ref in ("refs/heads/main", "refs/pull/9/merge")
+                    ),
+                    start=1,
+                )
+            ],
+        ):
+            for apply in (False, True):
+                with self.subTest(entries=entries, apply=apply), contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(prune(FakeGitHub(entries), "0.9.47", apply=apply), (0, 0))
+                    self.assertIn("no cook-base entries exist; deleting nothing", out.getvalue())
+
     def test_prune_still_refuses_an_empty_main_cook_base_inventory(self):
         class FakeGitHub:
             deletions: list = []
@@ -570,10 +607,20 @@ class CookCacheRetentionTests(unittest.TestCase):
             def delete_cache(self, cache_id):
                 self.deletions.append(cache_id)
 
-        api = FakeGitHub()
-        with self.assertRaisesRegex(ValueError, "no main cook-base exists for Soldr 0.9.23"):
-            prune(api, "0.9.23", apply=True, current_lock_hash="0" * 16)
-        self.assertEqual(api.deletions, [])
+        for schema in ("v2", "v3", "unknown"):
+            for ref in ("refs/heads/main", "refs/pull/9/merge"):
+                if schema != "unknown" and ref == "refs/heads/main":
+                    continue
+                for apply in (False, True):
+                    api = FakeGitHub()
+                    api.caches = lambda schema=schema, ref=ref: [
+                        Cache(1, f"cook-base-{schema}-linux-x64-soldrv0.9.22", ref, 900)
+                    ]
+                    error = "no main cook-base exists"
+                    with self.subTest(schema=schema, ref=ref, apply=apply):
+                        with self.assertRaisesRegex(ValueError, error):
+                            prune(api, "0.9.23", apply=apply, current_lock_hash="0" * 16)
+                        self.assertEqual(api.deletions, [])
 
     def test_prune_still_refuses_a_future_cook_base_generation(self):
         class FakeGitHub:
