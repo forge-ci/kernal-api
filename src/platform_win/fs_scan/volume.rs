@@ -182,7 +182,7 @@ pub(super) fn emit(
                 ..root_meta
             }
         };
-        let entry = Entry::new(path, meta, parent);
+        let entry = Entry::new(path, meta, parent.file_identity());
         summary.allocated += r.allocated;
         summary.apparent += r.apparent;
         summary.entries += 1;

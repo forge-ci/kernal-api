@@ -302,7 +302,7 @@ pub(crate) fn fast_scan(
             summary.allocated += meta.allocated;
             summary.apparent += meta.apparent;
             summary.entries += 1;
-            if !sink(Entry::new(relative, meta, parent)) {
+            if !sink(Entry::new(relative, meta, parent.file_identity())) {
                 summary.cancelled = true;
                 break;
             }

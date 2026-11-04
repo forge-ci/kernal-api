@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Condvar, Mutex, MutexGuard};
 
-use super::{Metadata, OwnedEntry as Entry, ScanError, ScanOptions, Summary};
+use super::{FileIdentity, Metadata, OwnedEntry as Entry, ScanError, ScanOptions, Summary};
 use crate::native_fs_scan::{self as platform, Dir};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -17,7 +17,7 @@ struct Task {
     dir: Dir,
     path: std::path::PathBuf,
     system_root: bool,
-    meta: Metadata,
+    identity: FileIdentity,
 }
 
 struct Work {
@@ -140,7 +140,7 @@ impl Worker<'_> {
         } else {
             std::mem::take(&mut path)
         };
-        if !self.emit(Entry::new(event_path, meta, task.meta)) {
+        if !self.emit(Entry::new(event_path, meta, task.identity)) {
             return false;
         }
         if meta.is_dir {
@@ -160,7 +160,7 @@ impl Worker<'_> {
                             dir,
                             path,
                             system_root: false,
-                            meta,
+                            identity: meta.file_identity(),
                         },
                     ) {
                         // Saturation is unusual; reuse the ordinary traversal with a
@@ -230,7 +230,7 @@ pub fn scan_stream(
         None
     };
     let mut summary = Summary::default();
-    let entry = Entry::new(std::path::PathBuf::new(), meta, meta);
+    let entry = Entry::new(std::path::PathBuf::new(), meta, meta.file_identity());
     account(&mut summary, &entry);
     if !sink(entry) {
         summary.cancelled = true;
@@ -310,7 +310,7 @@ impl Work {
             dir,
             path: std::path::PathBuf::new(),
             system_root: platform::is_system_root(meta),
-            meta,
+            identity: meta.file_identity(),
         });
         work
     }

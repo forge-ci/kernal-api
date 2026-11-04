@@ -171,7 +171,7 @@ fn unpaired_utf16_filename_survives() -> Result<(), Box<dyn std::error::Error>> 
             },
         )?;
         assert_eq!(summary.errors, 0);
-        assert_eq!(names, [path.clone()]);
+        assert_eq!(names.as_slice(), std::slice::from_ref(&path));
     }
     Ok(())
 }

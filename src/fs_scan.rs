@@ -202,11 +202,11 @@ pub(crate) struct OwnedEntry {
 }
 
 impl OwnedEntry {
-    pub(crate) fn new(path: PathBuf, meta: Metadata, parent: Metadata) -> Self {
+    pub(crate) fn new(path: PathBuf, meta: Metadata, parent: FileIdentity) -> Self {
         Self {
             path,
             meta,
-            parent: parent.file_identity().entry_id(),
+            parent: parent.entry_id(),
         }
     }
     fn borrowed(&self) -> ScanEntry<'_> {
