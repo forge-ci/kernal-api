@@ -69,31 +69,11 @@ EXCLUDE_CAP_PRIMITIVES='commit_error_cleans_staging_after_destination_parent_is_
 # supports both; all three tests pass on hosted Intel and Apple Silicon runners.
 EXCLUDE_MACOS_RENAME='failed_marker_write_is_cleaned_up_and_existing_marker_is_preserved marker_is_invisible_until_payload_is_complete install_directory_replaces_an_existing_tree_and_removes_the_old_one'
 
-# Recovery's Terminal runs as root, and root bypasses POSIX mode bits. The
-# write seal is a mode-bit seal (owner-write cleared), so root can still open
-# the sealed file for writing. Guest evidence (run 41658083156): even the
-# legacy precondition `set_readonly(true); assert!(owner_write_refused)` fails
-# at tests/fs/write_seal_facade.rs:99, which only a privileged writer can do.
-# The same thing breaks inherited-ACL creation in this guest: the child came out
-# ACL-free (`inherited ACL must be rejected: ()`), while the direct-grant ACL
-# test still passes. All four pass on hosted macos-15-intel as a normal user
-# (ci.yml run 41628848892, job 125920375402).
-EXCLUDE_GUEST_ROOT='a_sealed_file_refuses_owner_writes_but_readonly_stays_false a_legacy_readonly_file_upgrades_to_the_seal the_seal_rides_the_file_record_across_hardlinks open_file_acl_rejects_inherited_grants'
-
-# The APE fixture (tests/fixtures/ape-hello/hello.com, an LFS file) is resolved
-# through CARGO_MANIFEST_DIR. That points at the stub workspace below, which
-# holds no fixtures, so the guest sees ENOENT (`real APE image launched: Os {
-# code: 2 ... }`, `assertion failed: ape::is_ape_file(&hello())`). Both tests
-# pass on hosted macos-15-intel, which has the LFS checkout.
-EXCLUDE_SOURCE_FIXTURE='the_real_fixture_is_an_ape_image command_routes_a_real_image_through_its_loader'
-
-# Two-core VM timing: the cancel races the worker's forced containment, and the
-# test sees `ForcedContainment { trigger: Cancelled }` where it expects
-# `Stopped(Cancelled)` (tests/wasm_worker_containment.rs:182). It fails in every
-# guest run and passes on hosted runners. Root cause is tracked in #568.
-EXCLUDE_VM_TIMING='real_worker_sequential_stress_leaves_no_parent_state'
-
-EXCLUDED_TESTS="$EXCLUDE_CAP_PRIMITIVES $EXCLUDE_MACOS_RENAME $EXCLUDE_GUEST_ROOT $EXCLUDE_SOURCE_FIXTURE $EXCLUDE_VM_TIMING"
+# The seven failures from run 41658083156 now retain coverage in the guest:
+# seal metadata is checked as root (DAC write refusal requires an ordinary
+# owner), inherited ACL entries are installed explicitly, the real APE image
+# is embedded, and cancellation stress accepts either contained cancel path.
+EXCLUDED_TESTS="$EXCLUDE_CAP_PRIMITIVES $EXCLUDE_MACOS_RENAME"
 
 GUEST_EXCLUDE=''
 for name in $EXCLUDED_TESTS; do
