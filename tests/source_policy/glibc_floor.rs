@@ -27,8 +27,12 @@ const NEWER_THAN_FLOOR: &[(&str, &str)] = &[
 fn references_wrapper(line: &str, name: &str) -> bool {
     let token = format!("libc::{name}");
     line.match_indices(&token).any(|(at, _)| {
-        !line[at + token.len()..]
-            .starts_with(|next: char| next.is_ascii_alphanumeric() || next == '_')
+        let suffix = &line[at + token.len()..];
+        // statx also names a struct. A type argument does not link its wrapper.
+        let statx_type = name == "statx"
+            && line[..at].trim_end().ends_with("::<")
+            && suffix.trim_start().starts_with('>');
+        !statx_type && !suffix.starts_with(|next: char| next.is_ascii_alphanumeric() || next == '_')
     })
 }
 
@@ -49,6 +53,17 @@ fn wrapper_references_include_function_values_and_respect_identifier_boundaries(
     ] {
         assert!(!references_wrapper(line, "statx"), "{line}");
     }
+}
+
+#[test]
+fn statx_layout_type_does_not_require_a_libc_wrapper() {
+    for line in ["size_of::<libc::statx>()", "size_of::< libc::statx >()"] {
+        assert!(!references_wrapper(line, "statx"), "{line}");
+    }
+    assert!(references_wrapper(
+        "size_of::<libc::statx>(); libc::statx(fd, name, flags, mask, buf);",
+        "statx"
+    ));
 }
 
 #[test]
