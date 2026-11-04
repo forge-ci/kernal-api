@@ -28,8 +28,9 @@ import urllib.request
 from pathlib import Path
 
 try:
-    from ci import gha
+    from ci import check_compilation_boundary_dependencies, gha
 except ImportError:  # run as a script: ci/ is sys.path[0]
+    import check_compilation_boundary_dependencies
     import gha
 
 CONPTY_DIR = "target/conpty-assets"
@@ -51,6 +52,9 @@ def verify_version(tag: str) -> int:
         raise gha.StepError(f"pyproject.toml does not carry version {version}")
     if f'__version__ = "{version}"' not in Path("python/kernal_api/__init__.py").read_text(encoding="utf-8"):
         raise gha.StepError(f"python/kernal_api/__init__.py does not carry version {version}")
+    problems = check_compilation_boundary_dependencies.lock_sync_failures()
+    if problems:
+        raise gha.StepError("\n".join(problems))
     return 0
 
 

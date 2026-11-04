@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tomllib
+from pathlib import Path
 
 CASES = (
     ("pty", "portable-pty"),
@@ -71,6 +73,43 @@ SKETCH_AND_WEBVIEW_PACKAGES = {
 }
 
 
+def lock_sync_failures() -> list[str]:
+    """Catch release bumps before resolving any dependency graphs."""
+    manifest = tomllib.loads(Path("Cargo.toml").read_text(encoding="utf-8"))["package"]
+    paths = subprocess.run(
+        ["git", "ls-files", "*Cargo.lock"], check=True, text=True, capture_output=True
+    ).stdout.splitlines()
+    failures = []
+    for path in paths:
+        packages = tomllib.loads(Path(path).read_text(encoding="utf-8"))["package"]
+        for package in packages:
+            if package["name"] == manifest["name"] and "source" not in package:
+                if package["version"] != manifest["version"]:
+                    failures.append(
+                        f"dependent lock sync: {path} pins {manifest['name']} {package['version']}; "
+                        f"Cargo.toml is {manifest['version']}; run soldr cargo update "
+                        f"-p {manifest['name']} --manifest-path {Path(path).with_name('Cargo.toml')}"
+                    )
+    return failures
+
+
+def verify_lock_sync() -> None:
+    problems = lock_sync_failures()
+    if problems:
+        raise SystemExit("\n".join(problems))
+
+
+def cargo_tree(command: list[str]) -> str:
+    """Keep Cargo's diagnostic when a locked graph cannot be resolved."""
+    try:
+        return subprocess.run(command, check=True, text=True, capture_output=True).stdout
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(
+            f"compilation boundary: {' '.join(command)} failed (exit {error.returncode})\n"
+            f"cargo stderr:\n{error.stderr or '(empty)'}"
+        ) from None
+
+
 def tree(features: str, *, normal_only: bool = False) -> set[str]:
     command = [
         "soldr",
@@ -85,8 +124,8 @@ def tree(features: str, *, normal_only: bool = False) -> set[str]:
     ]
     if features:
         command.extend(("--features", features))
-    completed = subprocess.run(command, check=True, text=True, capture_output=True)
-    return {line.split(maxsplit=1)[0] for line in completed.stdout.splitlines() if line and not line.startswith("[")}
+    stdout = cargo_tree(command)
+    return {line.split(maxsplit=1)[0] for line in stdout.splitlines() if line and not line.startswith("[")}
 
 
 def consumer_features(edges: str, *extra: str) -> set[str]:
@@ -108,8 +147,8 @@ def consumer_features(edges: str, *extra: str) -> set[str]:
         "{p}|{f}",
         *extra,
     ]
-    completed = subprocess.run(command, check=True, text=True, capture_output=True)
-    rows = [line[1:].split("|", 1) for line in completed.stdout.splitlines() if line.startswith("1kernal-api ")]
+    stdout = cargo_tree(command)
+    rows = [line[1:].split("|", 1) for line in stdout.splitlines() if line.startswith("1kernal-api ")]
     if len(rows) != 1:
         raise SystemExit(f"expected one kernal-api {edges} edge, found {len(rows)}")
     return {feature for feature in rows[0][1].split(",") if feature}
@@ -148,6 +187,7 @@ def rustls_client_failures() -> list[str]:
 
 
 def main() -> int:  # noqa: C901 -- Existing dependency-boundary checks; ratchet complexity 13.
+    verify_lock_sync()
     default_graph = tree("")
     failures: list[str] = []
     # TOML already builds the kernel's catalog. Only its runtime edge is opt-in.

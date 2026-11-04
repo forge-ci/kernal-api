@@ -105,6 +105,17 @@ class ModeTests(unittest.TestCase):
 
 
 class FullCoverageTests(unittest.TestCase):
+    def test_failed_linux_names_skipped_and_missing_matrix_legs(self):
+        sha = "a" * 40
+        needs = {name: {"result": "success"} for name in full_coverage.REQUIRED_NEEDS}
+        needs.update({"linux": {"result": "failure"}, "build": {"result": "skipped"}, "test": {"result": "skipped"}})
+        errors = full_coverage.failures(sha, sha, needs, [{"name": "linux", "conclusion": "failure"}])
+        for expected in ("linux: failure", "build: skipped", "test: skipped"):
+            self.assertIn(expected, errors)
+        for name in full_coverage.REQUIRED_JOBS:
+            if name.startswith(("Build (", "Test (")):
+                self.assertIn(f"{name}: missing", errors)
+
     def test_skipped_macos_execution_fails_closed(self):
         sha = "a" * 40
         jobs = [{"name": name, "conclusion": "success", "steps": []} for name in full_coverage.REQUIRED_JOBS]
