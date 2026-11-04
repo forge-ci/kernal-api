@@ -451,8 +451,17 @@ pub fn read_private_regular_file_bounded(path: &Path, max_bytes: usize) -> io::R
 
 #[cfg(feature = "fs")]
 use std::ffi::{OsStr, OsString};
+/// The regular-file handle type returned by the facade's openers and append seams.
+///
+/// Every handle-returning accessor on this module ([`open_read_regular_file`],
+/// [`create_file`], [`open_read_write_file`], [`open_shared_append`],
+/// [`open_lock_file`]) hands back this type. Re-exporting it lets consumers name
+/// the handle in their own public signatures without reaching for
+/// `std::fs::File` directly, which the platform-boundary lint bans outside the
+/// adapters. The type is the host's `std::fs::File`, not a wrapper: locking,
+/// metadata and I/O semantics are unchanged.
 #[cfg(feature = "fs")]
-use std::fs::File;
+pub use std::fs::File;
 #[cfg(feature = "fs")]
 use std::io;
 #[cfg(feature = "fs")]
