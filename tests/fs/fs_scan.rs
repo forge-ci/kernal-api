@@ -54,8 +54,8 @@ fn stream_preserves_names_parents_and_deduplicates_hardlinks(
     assert_eq!(file.1, sub.0.entry_id());
     assert_eq!(file.0, alias.0);
     assert_eq!(file.4 + alias.4, 8192);
-    assert_eq!(summary.allocated, serial.values().map(|e| e.3).sum());
-    assert_eq!(summary.apparent, serial.values().map(|e| e.4).sum());
+    assert_eq!(summary.allocated, serial.values().map(|e| e.3).sum::<u64>());
+    assert_eq!(summary.apparent, serial.values().map(|e| e.4).sum::<u64>());
     let parallel = fs_scan::scan_stream(
         root,
         &ScanOptions {
