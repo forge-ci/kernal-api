@@ -496,12 +496,28 @@ fn real_worker_sequential_stress_leaves_no_parent_state() {
             false,
             SketchWorkerTerminal::Execution(SketchExecutionError::Trapped),
         );
-        run_case(
+        // Cancellation may land during upload on a loaded two-core guest.
+        // Both paths guarantee containment; this stress test proves cleanup,
+        // while real_worker_classifies_fuel_cancellation_and_deadline checks
+        // the cooperative terminal separately.
+        run_case_checking(
             threaded_fixture::looping_root_wasm(),
             Duration::from_secs(2),
             long_fuel(),
             true,
-            SketchWorkerTerminal::Stopped(SketchWorkerStopReason::Cancelled),
+            OUTER_BOUND,
+            |terminal| {
+                assert!(
+                    matches!(
+                        terminal,
+                        SketchWorkerTerminal::Stopped(SketchWorkerStopReason::Cancelled)
+                            | SketchWorkerTerminal::ForcedContainment {
+                                trigger: SketchWorkerStopReason::Cancelled
+                            }
+                    ),
+                    "unexpected cancellation terminal: {terminal:?}"
+                );
+            },
         );
     }
 }
