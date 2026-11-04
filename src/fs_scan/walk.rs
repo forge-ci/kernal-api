@@ -132,8 +132,15 @@ impl Worker<'_> {
             meta.allocated = 0;
             meta.apparent = 0;
         }
-        let path = task.path.join(name);
-        if !self.emit(Entry::new(path.clone(), meta, task.meta)) {
+        let mut path = task.path.join(name);
+        // Only queued directories need to retain a second path. Moving file
+        // paths keeps the consumer adapter from adding an allocation per file.
+        let event_path = if meta.is_dir {
+            path.clone()
+        } else {
+            std::mem::take(&mut path)
+        };
+        if !self.emit(Entry::new(event_path, meta, task.meta)) {
             return false;
         }
         if meta.is_dir {
