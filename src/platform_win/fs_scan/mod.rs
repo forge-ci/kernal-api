@@ -12,9 +12,15 @@ use windows_sys::Win32::Storage::FileSystem::*;
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
 use crate::fs_scan::{EntryKind, Metadata, ScanCapability};
+#[cfg(not(test))]
 mod records;
+#[cfg(test)]
+use crate::fs_scan::windows_record_tests as records;
 use records as windows_records;
+#[cfg(not(test))]
 mod mft;
+#[cfg(test)]
+use crate::fs_scan::mft_parser_tests as mft;
 use crate::fs_scan::{OwnedEntry as Entry, ScanError, ScanOptions, Summary};
 
 mod volume;

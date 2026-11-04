@@ -7,8 +7,11 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use crate::fs_scan::{EntryKind, Metadata};
+#[cfg(not(test))]
 #[path = "fs_scan_bulk.rs"]
 mod bulk;
+#[cfg(test)]
+use crate::fs_scan::bulk_parser_tests as bulk;
 
 pub(crate) struct Dir(OwnedFd);
 const OPEN: i32 = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;

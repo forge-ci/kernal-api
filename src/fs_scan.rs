@@ -38,17 +38,17 @@ mod walk;
     reason = "Foreign parser fields are consumed by its native scanner"
 )]
 #[path = "platform_macos/fs_scan_bulk.rs"]
-mod bulk_parser_tests;
+pub(crate) mod bulk_parser_tests;
 #[cfg(test)]
 #[allow(
     dead_code,
     reason = "Foreign parser fields are consumed by its native scanner"
 )]
 #[path = "platform_win/fs_scan/mft.rs"]
-mod mft_parser_tests;
+pub(crate) mod mft_parser_tests;
 #[cfg(test)]
 #[path = "platform_win/fs_scan/records.rs"]
-mod windows_record_tests;
+pub(crate) mod windows_record_tests;
 
 /// Selection policy; automatic preserves the native scanner's fallback order.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
