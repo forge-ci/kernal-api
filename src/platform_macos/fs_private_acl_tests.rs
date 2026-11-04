@@ -5,9 +5,9 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 use std::time::Duration;
 
-fn grant_acl(path: &Path, acl: &str) {
+fn grant_acl(path: &Path, mode: &str, acl: &str) {
     let spec = crate::SpawnSpec::new("/bin/chmod")
-        .arg("+a")
+        .arg(mode)
         .arg(acl)
         .arg(path.as_os_str());
     let output = crate::run_bounded_command(spec, Duration::from_secs(5), 8192)
@@ -36,7 +36,7 @@ fn open_file_acl_rejects_grants_and_stays_bound_after_replacement() {
         .mode(0o600)
         .open(&original_path)
         .expect("create replacement");
-    grant_acl(&original_path, "everyone allow read");
+    grant_acl(&original_path, "+a", "everyone allow read");
     super::ensure_no_extended_acl(&original).expect("original handle remains ACL-free");
     assert_eq!(
         super::ensure_no_extended_acl(&replacement)
@@ -49,12 +49,12 @@ fn open_file_acl_rejects_grants_and_stays_bound_after_replacement() {
 #[test]
 fn open_file_acl_rejects_inherited_grants() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    grant_acl(
-        directory.path(),
-        "everyone allow list,search,file_inherit,directory_inherit",
-    );
     let child = directory.path().join("child");
     std::fs::create_dir(&child).expect("create child");
+    // Test the held-file validator, not automatic inheritance on the backing
+    // filesystem (Recovery's scratch filesystem does not propagate this ACL).
+    // Darwin chmod +ai explicitly installs an inherited entry.
+    grant_acl(&child, "+ai", "everyone allow list,search");
     let held = File::open(&child).expect("open child");
     assert_eq!(
         super::ensure_no_extended_acl(&held)

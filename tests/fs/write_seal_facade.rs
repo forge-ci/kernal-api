@@ -9,6 +9,21 @@ use std::io::Write as _;
 
 use kernal_api::platform::fs::{deny_in_place_writes, in_place_writes_denied, set_readonly};
 
+/// Assert write refusal for ordinary owners. Unix root bypasses DAC mode bits;
+/// retain the seal/readonly/hardlink metadata assertions for that identity.
+fn assert_owner_write_refused(path: &std::path::Path) {
+    use kernal_api::platform::host::{current_process_privilege, PrivilegedIdentity};
+    if current_process_privilege().expect("privilege lookup") == Some(PrivilegedIdentity::UnixRoot)
+    {
+        eprintln!("write-refusal assertion gated: Unix root bypasses DAC mode bits");
+        return;
+    }
+    assert!(
+        owner_write_refused(path),
+        "ordinary owner write must be refused"
+    );
+}
+
 /// Open the file for an in-place write and report whether the OS refused it.
 fn owner_write_refused(path: &std::path::Path) -> bool {
     match std::fs::OpenOptions::new().write(true).open(path) {
@@ -41,10 +56,7 @@ fn a_sealed_file_refuses_owner_writes_but_readonly_stays_false() {
         in_place_writes_denied(&path).expect("probe"),
         "the seal must be observable",
     );
-    assert!(
-        owner_write_refused(&path),
-        "the owner must not be able to write the sealed file in place",
-    );
+    assert_owner_write_refused(&path);
 }
 
 #[test]
@@ -96,7 +108,7 @@ fn a_legacy_readonly_file_upgrades_to_the_seal() {
     // attribute set. This is exactly the state that made rustc's pre-check
     // fail (zccache#1791).
     set_readonly(&path, true).expect("legacy seal");
-    assert!(owner_write_refused(&path));
+    assert_owner_write_refused(&path);
 
     deny_in_place_writes(&path).expect("upgrade");
 
@@ -108,10 +120,7 @@ fn a_legacy_readonly_file_upgrades_to_the_seal() {
         "the upgrade must clear the legacy mechanism so pre-checks pass",
     );
     assert!(in_place_writes_denied(&path).expect("probe"));
-    assert!(
-        owner_write_refused(&path),
-        "the upgraded seal must still refuse the owner's in-place write",
-    );
+    assert_owner_write_refused(&path);
 }
 
 #[test]
@@ -122,10 +131,8 @@ fn the_seal_rides_the_file_record_across_hardlinks() {
 
     deny_in_place_writes(&path).expect("seal through one name");
 
-    assert!(
-        owner_write_refused(&sibling),
-        "a hardlink shares the file record, so the seal must apply through it",
-    );
+    assert!(in_place_writes_denied(&sibling).expect("seal through hardlink"));
+    assert_owner_write_refused(&sibling);
     assert!(
         !std::fs::metadata(&sibling)
             .expect("metadata")

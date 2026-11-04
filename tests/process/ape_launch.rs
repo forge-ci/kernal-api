@@ -240,13 +240,18 @@ fn a_refused_image_that_is_not_ape_keeps_its_error() {
 /// The cosmocc hello-world (`tests/fixtures/ape-hello`): a fat x86_64 +
 /// aarch64 APE image that prints `hello world` and its arguments.
 fn hello() -> PathBuf {
-    // The runtime variable, not `env!`: CI runs these tests from an archive
-    // built on another host, and nextest's `--workspace-remap` sets this to
-    // the checkout the fixture actually lives in.
-    let root = std::env::var_os("CARGO_MANIFEST_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    root.join("tests/fixtures/ape-hello/hello.com")
+    // Source-free nextest archives have no checkout at the remapped workspace.
+    // Keep the real image in the binary and retain its executable mode.
+    static FIXTURE: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let dir = FIXTURE.get_or_init(|| {
+        let dir = tempfile::tempdir().expect("APE fixture directory");
+        let path = dir.path().join("hello.com");
+        std::fs::copy(std::env::current_exe().unwrap(), &path).expect("copy executable mode");
+        std::fs::write(&path, include_bytes!("../fixtures/ape-hello/hello.com"))
+            .expect("materialize real APE fixture");
+        dir
+    });
+    dir.path().join("hello.com")
 }
 
 /// Whether this host runs the real image through its own embedded loader,
