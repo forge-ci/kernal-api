@@ -18,11 +18,14 @@ import argparse
 import json
 import os
 import platform
+import queue
 import re
 import shutil
 import subprocess
 import sys
 import tarfile
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -108,6 +111,11 @@ GUESTS = {
     "screenshot-block": "screenshot-block.admitted.wasm",
 }
 MANIFEST = "manifest.json"
+# Per-invocation bounds, each well under the step's 30 minutes. Healthy runs
+# (41714637441 attempt 3): the display suite takes 174s on aarch64 Linux, and
+# the whole step takes 3.5-5.2 min on every host.
+DISPLAY_SUITE_DEADLINE = 600
+PROOF_DEADLINE = 300
 RESULT = re.compile(r"^test result: ok\. (\d+) passed; 0 failed;", re.MULTILINE)
 
 
@@ -122,26 +130,103 @@ def capture(arguments: list, *, env: dict[str, str] | None = None, cwd: Path = R
         raise
 
 
-def stream(arguments: list, *, env: dict[str, str] | None = None, cwd: Path = REPO) -> str:
-    """Run a proof, echoing its combined output live, and return that output."""
+class ProofDeadlineExceeded(RuntimeError):
+    """A proof outlived its bound; the message names the test and the portal."""
+
+
+# libtest prints `test <name> ... ` and only ends the line when the test does,
+# so the running test is the last such prefix in the output.
+RUNNING_TEST = re.compile(r"^test (\S+) \.\.\. ", re.MULTILINE)
+FAILED_PORTAL = re.compile(r"Activated service '(org\.freedesktop\.[\w.]*portal[\w.]*)' failed")
+
+
+def deadline_message(what: str, deadline: float, output: str) -> str:
+    tests = RUNNING_TEST.findall(output)
+    running = f"while `{tests[-1]}` was running" if tests else "before any test started"
+    portals = sorted(set(FAILED_PORTAL.findall(output)))
+    portal = (
+        f"; the session bus failed to activate {', '.join(portals)}, so the webview was waiting on a"
+        " desktop portal that never came up"
+        if portals
+        else "; no desktop-portal activation failure was logged"
+    )
+    return f"{what} exceeded its {deadline:g}s deadline {running}{portal}. Killed its process group."
+
+
+# POSIX: each proof leads its own session, so a deadline kills its whole tree.
+PROCESS_GROUPS = os.name == "posix"
+
+
+def _kill_tree(process: subprocess.Popen) -> None:
+    if PROCESS_GROUPS:
+        try:
+            os.killpg(process.pid, 9)
+        except ProcessLookupError:
+            pass
+    else:
+        process.kill()
+    process.wait()
+
+
+def stream(
+    arguments: list,
+    *,
+    env: dict[str, str] | None = None,
+    cwd: Path = REPO,
+    deadline: float | None = None,
+    what: str = "proof",
+) -> str:
+    """Run a proof, echoing its combined output live, and return that output.
+
+    With ``deadline`` the whole process group is killed once it is exceeded and
+    ProofDeadlineExceeded names the running test. A runner writes its trace to
+    files, so without this a wedged webview spends the step budget silently.
+    """
     arguments = [str(argument) for argument in arguments]
     print("Running: " + " ".join(arguments), flush=True)
     process = subprocess.Popen(  # pylint: disable=consider-using-with
         arguments,
         cwd=cwd,
         env=env,
-        text=True,
-        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        start_new_session=PROCESS_GROUPS,
     )
     assert process.stdout is not None
-    lines = []
-    for line in process.stdout:
-        sys.stdout.write(line)
-        lines.append(line)
-    sys.stdout.flush()
-    output = "".join(lines)
+    chunks: queue.Queue[bytes] = queue.Queue()
+
+    def pump() -> None:
+        assert process.stdout is not None
+        while chunk := process.stdout.read1(65536):
+            chunks.put(chunk)
+        chunks.put(b"")
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    end = None if deadline is None else time.monotonic() + deadline
+    received = []
+    while True:
+        remaining = None if end is None else end - time.monotonic()
+        try:
+            if remaining is not None and remaining <= 0:
+                raise queue.Empty
+            chunk = chunks.get(timeout=remaining)
+        except queue.Empty:
+            _kill_tree(process)
+            reader.join(timeout=5)
+            process.stdout.close()
+            output = b"".join(received).decode(errors="replace")
+            message = deadline_message(what, deadline or 0, output)
+            print(f"\n##[error]{message}", flush=True)
+            raise ProofDeadlineExceeded(message) from None
+        if not chunk:
+            break
+        received.append(chunk)
+        sys.stdout.write(chunk.decode(errors="replace"))
+        sys.stdout.flush()
+    reader.join()
+    process.stdout.close()
+    output = b"".join(received).decode(errors="replace")
     if process.wait():
         raise subprocess.CalledProcessError(process.returncode, arguments, output)
     return output
@@ -462,7 +547,9 @@ def with_display(arguments: list, env: dict[str, str]) -> list:
     # names are not shell identifiers -- every NEXTEST_BIN_EXE_<name-with-dash>
     # (PR #271's first run). Hand them to `env` as arguments after the wrapper.
     assignments = [f"{name}={value}" for name, value in sorted(env.items()) if name.startswith("NEXTEST_BIN_EXE_")]
-    return ["dbus-run-session", "--", "xvfb-run", "-a", "env", *assignments, *arguments]
+    # xvfb-run goes outside so the session bus inherits DISPLAY: inside it,
+    # every activated xdg-desktop-portal-gtk died "cannot open display: ".
+    return ["xvfb-run", "-a", "dbus-run-session", "--", "env", *assignments, *arguments]
 
 
 def run_compiler(root: Path, manifest: dict, guest_dir: Path, work: Path) -> None:
@@ -500,13 +587,15 @@ def run_screenshot(root: Path, manifest: dict, guest_dir: Path, work: Path) -> N
     )
     screenshot = role_test(root, manifest, "screenshot")
     screenshot_env = role_env(root, manifest, "screenshot", base)
-    stream([screenshot], env=screenshot_env)
+    stream([screenshot], env=screenshot_env, deadline=PROOF_DEADLINE, what="the screenshot unit tests")
     output = stream(
         with_display(
             [screenshot, "--ignored", "--nocapture", "--test-threads=1", "--skip", GUEST_BUILDING_SCREENSHOT_TEST],
             screenshot_env,
         ),
         env=screenshot_env,
+        deadline=DISPLAY_SUITE_DEADLINE,
+        what="the native screenshot proof",
     )
     require_passed(output, "the native screenshot proof")
     # The host-only graph admits the same guests without the worker binary.
@@ -520,6 +609,8 @@ def run_screenshot(root: Path, manifest: dict, guest_dir: Path, work: Path) -> N
             admission_env,
         ),
         env=admission_env,
+        deadline=PROOF_DEADLINE,
+        what="the screenshot admission proof",
     )
 
     output = stream([role_test(root, manifest, "compiler-host"), THREADED_TEST], env=base)

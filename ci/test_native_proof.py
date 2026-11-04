@@ -40,6 +40,7 @@ class FakeCargo:
         self.root = root
         self.host = host
         self.calls = []
+        self.deadlines = []
 
     def __call__(self, arguments, *, env=None, cwd=proof.REPO):
         arguments = [str(argument) for argument in arguments]
@@ -109,6 +110,7 @@ class FakeHost:
     def __init__(self, result=PASSED_ONCE):
         self.result = result
         self.calls = []
+        self.deadlines = []
 
     def capture(self, arguments, *, env=None, cwd=proof.REPO):
         arguments = [str(argument) for argument in arguments]
@@ -121,8 +123,9 @@ class FakeHost:
             return proof.COMPONENT_ENCODER_OUTPUT.format(bytes=17)
         raise AssertionError(f"unexpected capture: {arguments}")
 
-    def stream(self, arguments, *, env=None, cwd=proof.REPO):
+    def stream(self, arguments, *, env=None, cwd=proof.REPO, deadline=None, what="proof"):
         self.calls.append(([str(argument) for argument in arguments], env))
+        self.deadlines.append((what, deadline))
         return self.result
 
 
@@ -300,7 +303,7 @@ class RunTests(unittest.TestCase):
             (arguments, env) for arguments, env in host.calls if "--ignored" in arguments and "--list" not in arguments
         ]
         screenshot, screenshot_env = ignored[0]
-        self.assertEqual(screenshot[:5], ["dbus-run-session", "--", "xvfb-run", "-a", "env"])
+        self.assertEqual(screenshot[:5], ["xvfb-run", "-a", "dbus-run-session", "--", "env"])
         self.assertTrue(screenshot_env["NEXTEST_BIN_EXE_kernal-wasm-worker"].endswith("screenshot/kernal-wasm-worker"))
         self.assertTrue(
             screenshot_env["NEXTEST_BIN_EXE_kernal-api-wasm-tauri"].endswith("screenshot/kernal-api-wasm-tauri")
@@ -340,7 +343,7 @@ class RunTests(unittest.TestCase):
     def test_screenshot_suite_needs_no_virtual_display_off_linux(self):
         host = FakeHost()
         self.run_suite("screenshot", host, system="Windows")
-        self.assertFalse(any(arguments[0] in {"dbus-run-session", "env"} for arguments, _ in host.calls))
+        self.assertFalse(any(arguments[0] in {"dbus-run-session", "xvfb-run", "env"} for arguments, _ in host.calls))
         ignored = next(
             arguments for arguments, _ in host.calls if "--ignored" in arguments and "--nocapture" in arguments
         )
@@ -499,3 +502,71 @@ class GuestTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "native_proof"
+
+
+def _alive(pid: int) -> bool:
+    if not proof.PROCESS_GROUPS:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    # A reaped-but-unwaited zombie still answers signal 0; it is not running.
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
+            return handle.read().split(") ", 1)[1][0] != "Z"
+    except OSError:
+        return True
+
+
+class ProofDeadlineTests(unittest.TestCase):
+    target = RunTests.target
+    """Run 41714637441 attempt 2: a wedged webview ate the 30-minute step silently."""
+
+    def test_a_portal_unavailable_hang_fails_fast_naming_the_test_and_portal(self):
+        with tempfile.TemporaryDirectory() as work:
+            pid_file = Path(work) / "grandchild.pid"
+            start = __import__("time").monotonic()
+            with self.assertRaises(proof.ProofDeadlineExceeded) as raised:
+                proof.stream(
+                    [sys.executable, "-I", FIXTURES / "portal_unavailable_harness.py", pid_file],
+                    deadline=3,
+                    what="the native screenshot proof",
+                )
+            elapsed = __import__("time").monotonic() - start
+            self.assertLess(elapsed, 30, "deadline did not bound the wait")
+            message = str(raised.exception)
+            self.assertIn("the native screenshot proof exceeded its 3s deadline", message)
+            self.assertIn("actual_screenshot_cli_runs_the_offline_guest_and_commits_only_its_output", message)
+            self.assertIn("org.freedesktop.impl.portal.desktop.gtk", message)
+            if proof.PROCESS_GROUPS:
+                grandchild = int(pid_file.read_text(encoding="utf-8"))
+                for _ in range(100):
+                    if not _alive(grandchild):
+                        break
+                    __import__("time").sleep(0.05)
+                self.assertFalse(_alive(grandchild), "the wedged process group survived the deadline")
+
+    def test_a_healthy_proof_inside_its_deadline_still_returns_and_fails_on_its_own_status(self):
+        output = proof.stream([sys.executable, "-I", "-c", "print('test result: ok. 1 passed; 0 failed;')"], deadline=30)
+        self.assertIn("1 passed", output)
+        with self.assertRaises(subprocess.CalledProcessError):
+            proof.stream([sys.executable, "-I", "-c", "raise SystemExit(3)"], deadline=30)
+
+    def test_the_session_bus_inherits_the_virtual_display(self):
+        # dbus-run-session outside xvfb-run started the bus without DISPLAY, so
+        # every activated portal-gtk died "cannot open display: " (empty).
+        with patch.object(proof.platform, "system", return_value="Linux"):
+            wrapped = proof.with_display(["harness"], {"NEXTEST_BIN_EXE_a-b": "/x"})
+        self.assertEqual(wrapped, ["xvfb-run", "-a", "dbus-run-session", "--", "env", "NEXTEST_BIN_EXE_a-b=/x", "harness"])
+
+    def test_every_display_bound_screenshot_invocation_carries_a_deadline_under_the_step_budget(self):
+        host = FakeHost()
+        RunTests.run_suite(self, "screenshot", host, system="Linux")
+        bounded = dict(host.deadlines)
+        for what in ("the native screenshot proof", "the screenshot admission proof"):
+            self.assertIsNotNone(bounded.get(what), what)
+            self.assertLess(bounded[what], 30 * 60, what)
