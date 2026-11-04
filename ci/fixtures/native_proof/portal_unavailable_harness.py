@@ -7,7 +7,6 @@ fixture-driven test asserts the proof driver ends it quickly, names the test
 and the portal, and leaves no grandchild behind.
 """
 
-import os
 import subprocess
 import sys
 import time
@@ -22,7 +21,11 @@ sys.stderr.write(
     "org.freedesktop.impl.portal.desktop.gtk exited with status 1\n"
 )
 sys.stderr.flush()
-child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+# The grandchild is meant to outlive this process: the proof asserts the driver
+# kills it. A context manager would reap it on exit and defeat the fixture.
+child = subprocess.Popen(  # pylint: disable=consider-using-with
+    [sys.executable, "-c", "import time; time.sleep(600)"]
+)
 with open(pid_file, "w", encoding="utf-8") as handle:
     handle.write(str(child.pid))
 time.sleep(600)
