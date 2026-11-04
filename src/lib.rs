@@ -293,6 +293,11 @@ mod runtime;
 /// ownership names before later phases move a capability behind them.
 pub mod platform;
 
+#[cfg(feature = "fs-scan")]
+pub mod fs_scan;
+#[cfg(feature = "fs-scan")]
+use platform_imp::fs_scan as native_fs_scan;
+
 // This is deliberately the crate's only host selector.  Facade modules are
 // neutral; native details live behind the selected private root.
 cfg_select! {

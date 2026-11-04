@@ -1102,3 +1102,7 @@ pub const fn process_can_replace_current_image() -> bool {
 pub(crate) mod interrupt;
 #[path = "platform_linux/termination.rs"]
 pub(crate) mod termination;
+
+#[cfg(feature = "fs-scan")]
+#[path = "platform_linux/fs_scan.rs"]
+pub(crate) mod fs_scan;

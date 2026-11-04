@@ -901,3 +901,7 @@ pub(crate) fn configure_native_worker_environment(command: &mut std::process::Co
 pub(crate) mod interrupt;
 #[path = "platform_win/termination.rs"]
 pub(crate) mod termination;
+
+#[cfg(feature = "fs-scan")]
+#[path = "platform_win/fs_scan/mod.rs"]
+pub(crate) mod fs_scan;

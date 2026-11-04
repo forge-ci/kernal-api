@@ -1158,3 +1158,7 @@ pub const fn process_can_replace_current_image() -> bool {
 pub(crate) mod interrupt;
 #[path = "platform_macos/termination.rs"]
 pub(crate) mod termination;
+
+#[cfg(feature = "fs-scan")]
+#[path = "platform_macos/fs_scan.rs"]
+pub(crate) mod fs_scan;
