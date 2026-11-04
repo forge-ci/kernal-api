@@ -551,7 +551,9 @@ class ProofDeadlineTests(unittest.TestCase):
                 self.assertFalse(_alive(grandchild), "the wedged process group survived the deadline")
 
     def test_a_healthy_proof_inside_its_deadline_still_returns_and_fails_on_its_own_status(self):
-        output = proof.stream([sys.executable, "-I", "-c", "print('test result: ok. 1 passed; 0 failed;')"], deadline=30)
+        output = proof.stream(
+            [sys.executable, "-I", "-c", "print('test result: ok. 1 passed; 0 failed;')"], deadline=30
+        )
         self.assertIn("1 passed", output)
         with self.assertRaises(subprocess.CalledProcessError):
             proof.stream([sys.executable, "-I", "-c", "raise SystemExit(3)"], deadline=30)
@@ -561,7 +563,9 @@ class ProofDeadlineTests(unittest.TestCase):
         # every activated portal-gtk died "cannot open display: " (empty).
         with patch.object(proof.platform, "system", return_value="Linux"):
             wrapped = proof.with_display(["harness"], {"NEXTEST_BIN_EXE_a-b": "/x"})
-        self.assertEqual(wrapped, ["xvfb-run", "-a", "dbus-run-session", "--", "env", "NEXTEST_BIN_EXE_a-b=/x", "harness"])
+        self.assertEqual(
+            wrapped, ["xvfb-run", "-a", "dbus-run-session", "--", "env", "NEXTEST_BIN_EXE_a-b=/x", "harness"]
+        )
 
     def test_every_display_bound_screenshot_invocation_carries_a_deadline_under_the_step_budget(self):
         host = FakeHost()
