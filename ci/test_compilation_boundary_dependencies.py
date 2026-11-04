@@ -1,6 +1,7 @@
 """Regression checks for release lock drift and Cargo diagnostics."""
 
 import subprocess
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -10,10 +11,11 @@ from ci import check_compilation_boundary_dependencies as boundary
 class CompilationBoundaryTests(unittest.TestCase):
     def test_version_bump_fails_before_cargo_tree(self):
         original = boundary.Path.read_text
+        current = tomllib.loads(boundary.Path("Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
 
         def bumped(path, *args, **kwargs):
             text = original(path, *args, **kwargs)
-            return text.replace('version = "0.1.38"', 'version = "0.1.39"') if str(path) == "Cargo.toml" else text
+            return text.replace(f'version = "{current}"', 'version = "999.0.0"') if str(path) == "Cargo.toml" else text
 
         with patch.object(boundary.Path, "read_text", bumped), patch.object(boundary, "tree") as tree:
             with self.assertRaisesRegex(SystemExit, "dependent lock sync:"):
