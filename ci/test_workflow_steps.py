@@ -185,13 +185,21 @@ class ReleaseStepTests(unittest.TestCase):
     def test_version_must_match_every_manifest(self):
         root = temporary_directory(self)
         (root / "python/kernal_api").mkdir(parents=True)
-        (root / "Cargo.toml").write_text('[package]\nversion = "1.2.3"\n', encoding="utf-8")
+        (root / "Cargo.toml").write_text('[package]\nname = "kernal-api"\nversion = "1.2.3"\n', encoding="utf-8")
         (root / "pyproject.toml").write_text('version = "1.2.3"\n', encoding="utf-8")
         (root / "python/kernal_api/__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
         cwd = os.getcwd()
         os.chdir(root)
         self.addCleanup(os.chdir, cwd)
+        lock = root / "Cargo.lock"
+        lock.write_text('[[package]]\nname = "kernal-api"\nversion = "1.2.3"\n', encoding="utf-8")
+        subprocess.run(["git", "init", "--quiet"], check=True)
+        subprocess.run(["git", "add", "Cargo.lock"], check=True)
         self.assertEqual(release_steps.verify_version("v1.2.3"), 0)
+        lock.write_text(lock.read_text(encoding="utf-8").replace("1.2.3", "1.2.2"), encoding="utf-8")
+        with self.assertRaisesRegex(gha.StepError, "dependent lock sync: Cargo.lock"):
+            release_steps.verify_version("v1.2.3")
+        lock.write_text(lock.read_text(encoding="utf-8").replace("1.2.2", "1.2.3"), encoding="utf-8")
         with self.assertRaises(gha.StepError):
             release_steps.verify_version("v1.2.4")
         (root / "pyproject.toml").write_text('version = "1.2.2"\n', encoding="utf-8")
