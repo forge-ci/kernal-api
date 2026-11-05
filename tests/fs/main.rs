@@ -12,6 +12,7 @@ mod context_file_observation;
 mod directory_cursor;
 mod directory_walk_options;
 mod directory_walk_parallelism;
+mod fs_scan;
 mod fs_watch_facade;
 #[path = "../support/readiness_marker.rs"]
 mod marker_support;

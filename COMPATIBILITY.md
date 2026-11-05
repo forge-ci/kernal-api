@@ -132,6 +132,14 @@ the same client operation and no runtime fallback to a second HAL.
   (the default, which abandons a walk the saturated shared pool cannot serve
   within about a second) or `DedicatedPool { threads }`, a per-walk pool that
   never ends a walk because the machine is busy.
+- `fs_scan` (feature `fs-scan`, independent of `fs`): native disk accounting
+  with caller-thread callbacks, lossless root-relative names, opaque parent and
+  file identities, hardlink deduplication, cancellation and descendant-error
+  counts. `ScanCapability::Automatic` preserves the MFT/USN/walk fallback
+  order; `DirectoryWalk` disables volume optimizations. Host capabilities
+  describe support, not account permission. It adds no third-party dependency.
+  See [the scan contract](docs/fs-scan.md) for physical allocation and native
+  evidence limits.
 - `platform::ipc` owner-only single-instance transport (feature `ipc`):
   `LocalSocketListener::bind_owner_only` (pathname socket, mode `0o600`,
   observed `SocketPeerCredentials`), `LocalSocketStream`,

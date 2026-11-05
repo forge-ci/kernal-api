@@ -24,6 +24,48 @@ const NEWER_THAN_FLOOR: &[(&str, &str)] = &[
     ("gettid", "2.30"),
 ];
 
+fn references_wrapper(line: &str, name: &str) -> bool {
+    let token = format!("libc::{name}");
+    line.match_indices(&token).any(|(at, _)| {
+        let suffix = &line[at + token.len()..];
+        // statx also names a struct. A type argument does not link its wrapper.
+        let statx_type = name == "statx"
+            && line[..at].trim_end().ends_with("::<")
+            && suffix.trim_start().starts_with('>');
+        !statx_type && !suffix.starts_with(|next: char| next.is_ascii_alphanumeric() || next == '_')
+    })
+}
+
+#[test]
+fn wrapper_references_include_function_values_and_respect_identifier_boundaries() {
+    for line in [
+        "unsafe { libc::statx(fd, name, flags, mask, buf) }",
+        "unsafe { libc::statx (fd, name, flags, mask, buf) }",
+        "let wrapper = libc::statx;",
+        "consume(libc::statx);",
+    ] {
+        assert!(references_wrapper(line, "statx"), "{line}");
+    }
+    for line in [
+        "libc::statx_extra()",
+        "libc::statx2()",
+        "libc::syscall(libc::SYS_statx, fd, name, flags, mask, buf)",
+    ] {
+        assert!(!references_wrapper(line, "statx"), "{line}");
+    }
+}
+
+#[test]
+fn statx_layout_type_does_not_require_a_libc_wrapper() {
+    for line in ["size_of::<libc::statx>()", "size_of::< libc::statx >()"] {
+        assert!(!references_wrapper(line, "statx"), "{line}");
+    }
+    assert!(references_wrapper(
+        "size_of::<libc::statx>(); libc::statx(fd, name, flags, mask, buf);",
+        "statx"
+    ));
+}
+
 #[test]
 fn no_libc_wrapper_newer_than_the_glibc_2_17_floor() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -35,12 +77,7 @@ fn no_libc_wrapper_newer_than_the_glibc_2_17_floor() {
                 continue;
             }
             for (name, glibc) in NEWER_THAN_FLOOR {
-                let token = format!("libc::{name}");
-                let calls_wrapper = line.match_indices(&token).any(|(at, _)| {
-                    !line[at + token.len()..]
-                        .starts_with(|next: char| next.is_ascii_alphanumeric() || next == '_')
-                });
-                if calls_wrapper {
+                if references_wrapper(line, name) {
                     found.push(format!(
                         "{}:{}: libc::{name} needs glibc {glibc}",
                         path.display(),

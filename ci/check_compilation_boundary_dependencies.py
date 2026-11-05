@@ -186,6 +186,13 @@ def rustls_client_failures() -> list[str]:
     return [f"http-client-rustls graph contains {', '.join(native)}"] if native else []
 
 
+def fs_scan_failures(default_graph: set[str]) -> list[str]:
+    """The scan feature must activate no dependency beyond the default HAL."""
+    if tree("fs-scan") != default_graph:
+        return ["fs-scan unexpectedly changes the default dependency graph"]
+    return []
+
+
 def main() -> int:  # noqa: C901 -- Existing dependency-boundary checks; ratchet complexity 13.
     verify_lock_sync()
     default_graph = tree("")
@@ -199,6 +206,7 @@ def main() -> int:  # noqa: C901 -- Existing dependency-boundary checks; ratchet
         unexpected = sorted(graph & SKETCH_AND_WEBVIEW_PACKAGES)
         if unexpected:
             failures.append(f"{label} graph unexpectedly contains {', '.join(unexpected)}")
+    failures.extend(fs_scan_failures(default_graph))
     if "portable-pty" in tree("terminal-input"):
         failures.append("terminal-input unexpectedly enables PTY process spawning")
     enabled_graphs: dict[str, set[str]] = {}

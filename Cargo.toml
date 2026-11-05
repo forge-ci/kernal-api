@@ -1,6 +1,6 @@
 [package]
 name = "kernal-api"
-version = "0.1.38"
+version = "0.1.39"
 build = "build.rs"
 edition = "2021"
 rust-version = "1.95.0"
@@ -140,6 +140,8 @@ terminal-input = []
 # and the on-disk correctness cost of a hand-rolled reflink ioctl is high --
 # so those three stay private dependencies behind this facade.
 fs = ["dep:dirs", "dep:globset", "dep:jwalk", "dep:reflink-copy", "dep:tempfile"]
+# Native disk accounting without the general-purpose filesystem dependencies.
+fs-scan = []
 # Filesystem-change-notification primitive: watcher construction and event
 # classification only, not debouncing, ignore-lists, or cache-invalidation
 # policy. Linux and macOS privately adapt the exact-pinned `notify` release;
@@ -340,6 +342,7 @@ full = [
   "conpty-sidecar",
   "crash",
   "fs",
+  "fs-scan",
   "fs-watch",
   "ipc-async",
   "profile",
