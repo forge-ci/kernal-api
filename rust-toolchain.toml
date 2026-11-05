@@ -1,5 +1,7 @@
 [toolchain]
 channel = "1.95.0"
 profile = "minimal"
-components = ["clippy", "rustfmt"]
+# rustc's cross-target strip tool needs the matching LLVM runtime beside it.
+# llvm-tools-preview supplies lib/rustlib/<host>/lib for rust-objcopy's RUNPATH.
+components = ["clippy", "rustfmt", "llvm-tools"]
 
