@@ -19,6 +19,7 @@ mod marker_support;
 mod materialization;
 mod open_acl;
 mod private_regular_file_facade;
+mod public_file_handle;
 mod readiness_marker;
 mod sha256_facade;
 mod temporary_directory;
