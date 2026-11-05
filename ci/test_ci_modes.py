@@ -68,8 +68,15 @@ class ModeTests(unittest.TestCase):
         reclaim = linux.split("- name: Reclaim runner disk for full Linux builds\n", 1)[1].split("\n      #", 1)[0]
         self.assertIn("if: steps.mode.outputs.mode == 'full'", reclaim)
         self.assertIn("uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be", reclaim)
-        for setting in ("android: true", "dotnet: true", "haskell: true", "docker-images: true",
-                        "large-packages: false", "tool-cache: false", "swap-storage: false"):
+        for setting in (
+            "android: true",
+            "dotnet: true",
+            "haskell: true",
+            "docker-images: true",
+            "large-packages: false",
+            "tool-cache: false",
+            "swap-storage: false",
+        ):
             self.assertIn(setting, reclaim)
         self.assertLess(linux.index("Reclaim runner disk"), linux.index("- name: Set up soldr"))
         self.assertNotIn("SOLDR_TARGET_BLOCK_FREE_GB", linux)
