@@ -10,6 +10,26 @@ WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
 
 
 class ModeTests(unittest.TestCase):
+    def test_dependency_boundary_runs_before_merge_without_expensive_checks(self):
+        from unittest.mock import patch
+
+        from ci import linux_steps
+
+        text = WORKFLOW.read_text(encoding="utf-8")
+        linux = re.search(r"(?ms)^  linux:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
+        self.assertIn(
+            "if: github.event_name == 'merge_group' || needs.verify.outputs.skip_linux != 'true'",
+            linux,
+        )
+        step = text.split("- name: Check the compilation boundary\n", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("if: steps.mode.outputs.mode != 'minimal'", step)
+        self.assertIn("run: uv run --no-project ci/linux_steps.py dependency-boundary", step)
+        release = text.split("- name: Check the release tooling\n", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("if: steps.mode.outputs.mode == 'full'", release)
+        with patch.object(linux_steps.gha, "run") as run:
+            self.assertEqual(linux_steps.COMMANDS["dependency-boundary"](), 0)
+        run.assert_called_once_with([*linux_steps.UV, "ci/check_compilation_boundary_dependencies.py"])
+
     def test_event_selection(self):
         sha = "a" * 40
         pr = {"pull_request": {"head": {"sha": sha}, "labels": []}}

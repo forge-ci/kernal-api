@@ -124,7 +124,10 @@ class NativeProofJobsTests(unittest.TestCase):
 
     def test_main_push_runs_the_full_tier(self):
         """A main push runs `linux` (full mode), `dylints` and Python lint; none is push-gated."""
-        self.assertIn("if: needs.verify.outputs.skip_linux != 'true'\n", self.job("linux"))
+        self.assertIn(
+            "if: github.event_name == 'merge_group' || needs.verify.outputs.skip_linux != 'true'\n",
+            self.job("linux"),
+        )
         self.assertIn("if: needs.verify.outputs.skip_dylints != 'true'\n", self.job("dylints"))
         self.assertIn("needs: [linux, build, test, dylints]\n", self.job("full-coverage"))
         self.assertNotIn("if:", self.job("fast").split("steps:", 1)[0])
