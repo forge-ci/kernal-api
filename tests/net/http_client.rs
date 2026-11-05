@@ -172,24 +172,42 @@ fn blocking_stream_preserves_overflow_and_timeout_errors() {
             .unwrap();
         let mut request = [0; 4096];
         let _ = socket.read(&mut request).unwrap();
+        // Deliberately exceed the old 50 ms header budget.
+        std::thread::sleep(std::time::Duration::from_millis(100));
         socket
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n")
             .unwrap();
-        let _ = held.recv_timeout(std::time::Duration::from_secs(2));
+        // Keep the body pending until the client reports its timeout. A wall-clock
+        // fallback could close the socket first on a descheduled runner.
+        let _ = held.recv();
     });
-    let client = BlockingClient::new(
-        &runtime,
-        Limits {
-            read_timeout: std::time::Duration::from_millis(50),
-            ..Limits::default()
-        },
-    )
-    .unwrap();
+    let limits = Limits::default();
+    let client = BlockingClient::new(&runtime, limits).unwrap();
     let response = client.get(&url).unwrap();
+    // Headers use the normal generous budget. Only the pending body uses a
+    // paused clock: Tokio advances to its read deadline without a real-time race
+    // against the fixture or a slow runner. No production timeout API is needed.
+    let started = runtime
+        .run_within(
+            async {
+                tokio::time::pause();
+                tokio::time::Instant::now()
+            },
+            std::time::Duration::from_secs(300),
+        )
+        .unwrap();
     let result = response.into_bytes();
+    let elapsed = runtime
+        .run_within(
+            async { started.elapsed() },
+            std::time::Duration::from_secs(300),
+        )
+        .unwrap();
     let _ = release.send(());
     worker.join().unwrap();
     assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+    assert!(elapsed >= limits.read_timeout);
+    assert!(elapsed < limits.total_timeout);
 }
 
 fn fixture(response: &[u8]) -> (String, std::thread::JoinHandle<()>) {
