@@ -6,7 +6,7 @@ Each subcommand is one workflow step; the step keeps its name, `if:` and
 through Soldr's front door.
 
 Subcommands: ci-guards, boundary-scan, dylint-fmt, desktop-status [--full],
-release-tooling, python-package, abi-generation, feature-isolation,
+dependency-boundary, release-tooling, python-package, abi-generation, feature-isolation,
 external-consumers, webview-proofs, screenshot-cli.
 """
 
@@ -192,8 +192,13 @@ def desktop_status(full: bool) -> int:
     return 0
 
 
-def release_tooling() -> int:
+def dependency_boundary() -> int:
+    """Resolve dependency graphs without compiling, including in the merge queue."""
     gha.run([*UV, "ci/check_compilation_boundary_dependencies.py"])
+    return 0
+
+
+def release_tooling() -> int:
     gha.run([*UV, "ci/test_release_package_features.py"])
     # tomllib needs Python >= 3.11, so these cannot share the package's 3.10
     # floor; 3.12 is the runner's own interpreter.
@@ -368,6 +373,7 @@ COMMANDS = {
     "ci-guards": ci_guards,
     "boundary-scan": boundary_scan,
     "dylint-fmt": dylint_fmt,
+    "dependency-boundary": dependency_boundary,
     "release-tooling": release_tooling,
     "python-package": python_package,
     "abi-generation": abi_generation,

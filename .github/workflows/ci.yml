@@ -272,7 +272,10 @@ jobs:
         if: steps.mode.outputs.mode == 'full'
         # --all-features --lib system_tray, then --all-features --test terminal system_tray
         run: python3 ci/linux_steps.py desktop-status --full
-      - name: Check the compilation boundary and the release tooling
+      - name: Check the compilation boundary
+        if: steps.mode.outputs.mode != 'minimal'
+        run: uv run --no-project ci/linux_steps.py dependency-boundary
+      - name: Check the release tooling
         if: steps.mode.outputs.mode == 'full'
         run: python3 ci/linux_steps.py release-tooling
       - name: Test the Python package
