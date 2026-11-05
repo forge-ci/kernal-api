@@ -93,6 +93,9 @@ pub mod json;
 /// and the recovery every spawn applies when a host refuses an APE image.
 pub mod ape;
 
+/// Wall-clock epoch seconds and milliseconds.
+pub mod clock;
+
 /// Kernel-owned BLAKE3 content hashing for bytes, readers, and files, plus
 /// an incremental hasher and key-derivation domain separation.
 pub mod hash;
