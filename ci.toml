@@ -227,7 +227,7 @@ inputs = {}
 
 [allow]
 workflows = { "ci.yml" = ["pull_request", "push:main", "workflow_dispatch", "merge_group"], "auto-release.yml" = ["workflow_dispatch"], "release.yml" = ["workflow_call"], "macos-x64-tests.yml" = ["schedule", "workflow_dispatch"] }
-actions   = ["actions/checkout", "actions/upload-artifact", "actions/download-artifact", "astral-sh/setup-uv", "zackees/setup-soldr", "zackees/docker-mac-x64", "rust-lang/crates-io-auth-action"]
+actions   = ["jlumbroso/free-disk-space", "actions/checkout", "actions/upload-artifact", "actions/download-artifact", "astral-sh/setup-uv", "zackees/setup-soldr", "zackees/docker-mac-x64", "rust-lang/crates-io-auth-action"]
 tools     = ["soldr", "uv", "git", "jq", "sudo"]
 secrets   = ["PYPI_API_TOKEN"]                    # a finding against the OIDC-only policy (SEC-005), declared rather than hidden
 # The one setup-soldr call site; its remote permission passes through the ci-lint plan's
