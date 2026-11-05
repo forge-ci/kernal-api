@@ -20,21 +20,13 @@ on:
   merge_group:
     types: [checks_requested]
 
-# One live run per workflow per ref, main included: a new push cancels the
-# superseded run instead of queuing behind it in the shared account-wide runner
-# pool. Main used to be exempt through a `github.run_id` group, which kept a CI
-# record for every main commit -- at the cost of a full matrix per commit even
-# when the next push landed seconds later. Two pushes four seconds apart held
-# nine runners in `reld` while unrelated PRs queued. A superseded main commit
-# now has no run of its own; its content is covered by the run for the commit
-# that replaced it.
-#
-# Main pushes no longer cancel (CACHE-016): main is the only writer of the
-# must-hit Dylint cache, and a cancelled run loses its save, so every PR misses.
-# The merge queue (GEN-022) lands one PR at a time, so main pushes rarely
-# overlap; a later one waits, and GitHub drops an older *pending* run itself.
+# Main pushes need one non-replaceable group per run: every main SHA must
+# finish full-tier validation and the Dylint cache writer must save (CACHE-016).
+# GitHub replaces an older pending run in a shared group even when
+# cancel-in-progress is false; that setting protects only an in-progress run.
+# Other events still coalesce by ref (or the dispatched candidate SHA).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_id || github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Read-only by default (ci-lint SEC-002). Each job whose last step cancels
@@ -199,6 +191,21 @@ jobs:
           PYTHONPATH: .ci-lint
           GITHUB_TOKEN: ${{ github.token }}
         run: uv run --no-project --python 3.12 --with pyyaml==6.0.3 python -m ci_lint precheck --repo . --live
+      # The full graph outgrows the stock image's free space (2.32 GiB in
+      # run 42005878882). Reclaim unused SDKs before setup restores/cooks,
+      # retaining LLVM, graphics packages, tool caches and swap. Keep Soldr's
+      # 5 GiB guard: reducing it would only postpone disk exhaustion.
+      - name: Reclaim runner disk for full Linux builds
+        if: steps.mode.outputs.mode == 'full'
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          large-packages: false
+          tool-cache: false
+          swap-storage: false
       # Only full mode compiles the webview graph or drives a display. The
       # minimal and test graphs (`default = []`, `json`) link no GTK, WebKit or
       # soup library; `openssl-sys` in dev-dependencies uses the runner
