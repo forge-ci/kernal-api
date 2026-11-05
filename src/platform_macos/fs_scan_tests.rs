@@ -70,16 +70,30 @@ fn real_tree_parallel_accounting() -> Result<(), Box<dyn std::error::Error>> {
     let expected = ground_truth(&root)?;
     let sparse = fs::metadata(root.join("sparse"))?;
     use std::os::unix::fs::MetadataExt;
-    assert!(sparse.blocks() * 512 < sparse.len());
+    // Some guest filesystems fully allocate the sparse-write fixture. Always
+    // check actual accounting; require a hole only when metadata proves one.
+    let supports_sparse = sparse.blocks() * 512 < sparse.len();
     for threads in [1, 2, 8] {
+        let mut saw_sparse = false;
         let summary = scan_stream(
             &root,
             &ScanOptions {
                 threads: Some(threads),
                 ..Default::default()
             },
-            |_| true,
+            |entry| {
+                if entry.relative_name == "sparse" {
+                    saw_sparse = true;
+                    assert_eq!(entry.allocated, sparse.blocks() * 512);
+                    assert_eq!(entry.apparent, sparse.len());
+                    if supports_sparse {
+                        assert!(entry.allocated < entry.apparent);
+                    }
+                }
+                true
+            },
         )?;
+        assert!(saw_sparse);
         assert_eq!(
             (summary.allocated, summary.apparent, summary.entries),
             expected
@@ -124,13 +138,13 @@ fn arbitrary_filename_bytes_survive() -> Result<(), Box<dyn std::error::Error>> 
     let root = scratch("bytes")?;
     let filesystem = native_macos::filesystem(&root)?;
     let invalid = root.join(std::ffi::OsStr::from_bytes(b"bad-\xff\n\""));
-    if matches!(filesystem.as_slice(), b"apfs" | b"hfs") {
-        let error = fs::write(&invalid, b"bytes").expect_err("UTF-8 filesystem accepted 0xff");
-        assert_eq!(error.raw_os_error(), Some(libc::EILSEQ));
-    } else {
-        // Filesystems that support arbitrary bytes retain the original assertion.
-        fs::write(&invalid, b"bytes")?;
-    }
+    // Probe the actual mount: guest filesystems may reject invalid UTF-8 even
+    // when their reported filesystem type is neither APFS nor HFS+.
+    let supports_arbitrary_bytes = match fs::write(&invalid, b"bytes") {
+        Ok(()) => true,
+        Err(error) if error.raw_os_error() == Some(libc::EILSEQ) => false,
+        Err(error) => return Err(error.into()),
+    };
     for name in ["composed-\u{e9}\n\"", "decomposed-e\u{301}\n\""] {
         fs::write(root.join(name), b"bytes")?;
     }
@@ -141,7 +155,8 @@ fn arbitrary_filename_bytes_survive() -> Result<(), Box<dyn std::error::Error>> 
     if filesystem == b"hfs" {
         // HFS+ stores its decomposed form; APFS must preserve the supplied bytes.
         expected[0] = root.join("composed-e\u{301}\n\"");
-    } else if filesystem != b"apfs" {
+    }
+    if supports_arbitrary_bytes {
         expected.push(invalid);
     }
     expected.sort();
