@@ -16,6 +16,11 @@ class ModeTests(unittest.TestCase):
         from ci import linux_steps
 
         text = WORKFLOW.read_text(encoding="utf-8")
+        linux = re.search(r"(?ms)^  linux:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
+        self.assertIn(
+            "if: github.event_name == 'merge_group' || needs.verify.outputs.skip_linux != 'true'",
+            linux,
+        )
         step = text.split("- name: Check the compilation boundary\n", 1)[1].split("\n      - ", 1)[0]
         self.assertIn("if: steps.mode.outputs.mode != 'minimal'", step)
         self.assertIn("run: uv run --no-project ci/linux_steps.py dependency-boundary", step)

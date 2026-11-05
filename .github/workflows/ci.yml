@@ -138,7 +138,8 @@ jobs:
     needs: verify
     # A main push, a dispatch or a `ci-full` PR selects full mode (ci/ci_mode.py):
     # the full matrix (hosted macOS) and Full coverage. The queue runs `test`.
-    if: needs.verify.outputs.skip_linux != 'true'
+    # Minimal attestations omit dependency-boundary; the queue must execute it.
+    if: github.event_name == 'merge_group' || needs.verify.outputs.skip_linux != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
