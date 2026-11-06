@@ -23,6 +23,10 @@ mod tests {
         });
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Existing end-to-end output-copy proof is 104 lines"
+    )]
     #[test]
     fn output_copy_is_one_shot_and_keeps_lowering_allowance_until_drop() {
         let runtime = crate::async_engine::RuntimeBuilder::current_thread()

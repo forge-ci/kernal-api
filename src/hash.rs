@@ -76,7 +76,7 @@ impl Blake3Digest {
         }
 
         let mut bytes = [0_u8; BLAKE3_DIGEST_LENGTH];
-        for (target, pair) in bytes.iter_mut().zip(hex.chunks_exact(2)) {
+        for (target, pair) in bytes.iter_mut().zip(hex.as_chunks::<2>().0) {
             let high = hex_digit(pair[0]).ok_or(Blake3HexDecodeError::InvalidCharacter)?;
             let low = hex_digit(pair[1]).ok_or(Blake3HexDecodeError::InvalidCharacter)?;
             *target = (high << 4) | low;

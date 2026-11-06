@@ -202,7 +202,7 @@ pub(crate) fn read_back(
     let mapped = slice.get_mapped_range().map_err(backend_error)?;
     let mut pixels = Vec::with_capacity(width as usize * height as usize);
     for row in mapped.chunks(padded as usize) {
-        for px in row[..unpadded as usize].chunks_exact(4) {
+        for px in row[..unpadded as usize].as_chunks::<4>().0 {
             pixels.push(egui::Color32::from_rgba_premultiplied(
                 px[0], px[1], px[2], px[3],
             ));
@@ -270,7 +270,7 @@ mod tests {
         let first = &shot.rgba()[..4];
         assert_eq!(first[3], 255, "opaque panel");
         assert!(
-            shot.rgba().chunks_exact(4).any(|px| px != first),
+            shot.rgba().as_chunks::<4>().0.iter().any(|px| px != first),
             "text was drawn over the panel"
         );
     }

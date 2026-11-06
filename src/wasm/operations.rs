@@ -5128,7 +5128,7 @@ mod tests {
                     // The pending four-byte write cannot yet complete, so crossing
                     // three idle intervals distinguishes a resettable idle deadline
                     // from a total worker or operation deadline.
-                    for expected in [b'f', b'u', b'l'] {
+                    for expected in *b"ful" {
                         crate::async_engine::sleep(std::time::Duration::from_millis(7)).await;
                         assert_eq!(hub.blob_read(1, blob, 1).unwrap(), [expected]);
                         assert_eq!(hub.poll_wire(1, write.wire()) as u8, STATUS_PENDING);

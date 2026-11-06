@@ -191,8 +191,10 @@ fn filename(a: &[u8], r: &mut Record, preferred: &mut u8) -> io::Result<()> {
     }
     let name = v.get(66..66 + n * 2).ok_or_else(invalid)?;
     let utf16: Vec<u16> = name
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     r.name = String::from_utf16(&utf16).map_err(|_| invalid())?;
     if r.name.is_empty()
@@ -247,8 +249,10 @@ pub fn usn_record(b: &[u8]) -> io::Result<(usize, u64, u64, String)> {
         .get(offset..offset.checked_add(name_length).ok_or_else(invalid)?)
         .ok_or_else(invalid)?;
     let utf16: Vec<_> = name
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     let name = String::from_utf16(&utf16).map_err(|_| invalid())?;
     if name.is_empty()

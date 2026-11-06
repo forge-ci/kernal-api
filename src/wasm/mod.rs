@@ -1851,7 +1851,7 @@ impl ThreadController {
             .workers
             .lock()
             .map_err(|_| SketchExecutionError::ChildPanicked)?;
-        let mut outcomes: Vec<_> = workers.outcomes.drain(..).collect();
+        let mut outcomes: Vec<_> = std::mem::take(&mut workers.outcomes);
         workers.accepted = 0;
         outcomes.sort_by_key(|(tid, _)| *tid);
         let report: Vec<_> = outcomes

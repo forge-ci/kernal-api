@@ -241,6 +241,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Existing end-to-end streaming proof is 125 lines"
+    )]
     #[test]
     fn authenticated_inventory_entry_open_streams_large_payload_with_bounded_capacity() {
         for read_all in [true, false] {
