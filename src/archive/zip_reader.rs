@@ -78,7 +78,8 @@ impl Reader {
 
 fn validate_entry<R: io::Read + ?Sized>(
     entry: &zip::read::ZipFile<'_, R>,
-    limits: ExtractionLimits) -> io::Result<()> {
+    limits: ExtractionLimits,
+) -> io::Result<()> {
     // Initial streamed-entry capability is regular-files only. Links, dirs,
     // and special entries must not silently turn into ordinary byte streams.
     let kind = entry.unix_mode().unwrap_or(0) & 0o170000;

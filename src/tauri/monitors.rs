@@ -68,9 +68,9 @@ pub(crate) fn convert(
 ) -> Result<Vec<WebviewMonitor>, WebviewError> {
     let primary_index = primary
         .and_then(|primary| {
-            monitors
-                .iter()
-                .position(|monitor| monitor.position == primary.position && monitor.size == primary.size)
+            monitors.iter().position(|monitor| {
+                monitor.position == primary.position && monitor.size == primary.size
+            })
         })
         .unwrap_or(0);
     monitors
@@ -98,14 +98,12 @@ pub(crate) fn convert(
                 area.size.height,
                 scale,
             );
-            let work_area = if work_area.width > 0.0
-                && work_area.height > 0.0
-                && bounds.contains(&work_area)
-            {
-                work_area
-            } else {
-                bounds
-            };
+            let work_area =
+                if work_area.width > 0.0 && work_area.height > 0.0 && bounds.contains(&work_area) {
+                    work_area
+                } else {
+                    bounds
+                };
             Ok(WebviewMonitor {
                 bounds,
                 work_area,
@@ -139,11 +137,13 @@ impl ExternalWebviewClient {
             let _ = sender.send(convert(&monitors, primary.as_ref()));
         })
         .map_err(|error| WebviewError::HostFailure(error.to_string()))?;
-        let monitors = receiver
-            .await
-            .map_err(|_| WebviewError::HostFailure("event loop stopped during monitor query".into()))??;
+        let monitors = receiver.await.map_err(|_| {
+            WebviewError::HostFailure("event loop stopped during monitor query".into())
+        })??;
         if monitors.is_empty() {
-            return Err(WebviewError::HostFailure("the toolkit reported no monitors".into()));
+            return Err(WebviewError::HostFailure(
+                "the toolkit reported no monitors".into(),
+            ));
         }
         Ok(Some(monitors))
     }
@@ -173,22 +173,38 @@ mod tests {
         let left = monitor(0, 1920, 1140, 1.0);
         let right = monitor(1920, 2400, 1100, 2.0);
         let converted = convert(&[left, right.clone()], Some(&right)).unwrap();
-        assert_eq!(converted.iter().filter(|monitor| monitor.primary).count(), 1);
+        assert_eq!(
+            converted.iter().filter(|monitor| monitor.primary).count(),
+            1
+        );
         assert!(converted[1].primary);
         assert_eq!(
             converted[1].bounds,
-            WebviewLogicalRect { x: 960.0, y: 0.0, width: 1200.0, height: 600.0 }
+            WebviewLogicalRect {
+                x: 960.0,
+                y: 0.0,
+                width: 1200.0,
+                height: 600.0
+            }
         );
         assert_eq!(converted[1].work_area.height, 550.0);
-        assert!(converted.iter().all(|monitor| monitor.bounds.contains(&monitor.work_area)));
+        assert!(converted
+            .iter()
+            .all(|monitor| monitor.bounds.contains(&monitor.work_area)));
     }
 
     #[test]
     fn without_a_toolkit_primary_the_first_monitor_is_primary() {
-        let converted = convert(&[monitor(0, 800, 600, 1.0), monitor(800, 800, 600, 1.0)], None)
-            .unwrap();
+        let converted = convert(
+            &[monitor(0, 800, 600, 1.0), monitor(800, 800, 600, 1.0)],
+            None,
+        )
+        .unwrap();
         assert_eq!(
-            converted.iter().map(|monitor| monitor.primary).collect::<Vec<_>>(),
+            converted
+                .iter()
+                .map(|monitor| monitor.primary)
+                .collect::<Vec<_>>(),
             [true, false]
         );
     }
@@ -199,7 +215,9 @@ mod tests {
         escaping.work_area.size = PhysicalSize::new(900, 600);
         let empty = monitor(800, 800, 0, 1.0);
         let converted = convert(&[escaping, empty], None).unwrap();
-        assert!(converted.iter().all(|monitor| monitor.work_area == monitor.bounds));
+        assert!(converted
+            .iter()
+            .all(|monitor| monitor.work_area == monitor.bounds));
     }
 
     #[test]

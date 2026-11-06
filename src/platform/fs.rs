@@ -109,8 +109,8 @@ mod materialize;
 pub use materialize::{
     allocated_bytes, allow_in_place_writes, apply_metadata_mode, await_no_writers, classify,
     deny_in_place_writes, extent_sharing, file_change_marker, file_id_width, hard_link_count,
-    in_place_writes_denied, make_executable, make_owner_executable, metadata_mode, native_call_path,
-    path_from_raw_bytes, set_readonly, symlink_file, sync_directory_if_supported,
+    in_place_writes_denied, make_executable, make_owner_executable, metadata_mode,
+    native_call_path, path_from_raw_bytes, set_readonly, symlink_file, sync_directory_if_supported,
     volume_identity_u128, ExtentSharing, FileChangeMarker, LinkKind, WriterWait,
 };
 /// Path-observed file identity with the native identifier width.
@@ -1888,7 +1888,10 @@ pub fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
 ///
 /// Returns an error when `path` is missing or the change is denied.
 #[cfg(feature = "fs")]
-pub fn set_permissions(path: impl AsRef<Path>, permissions: std::fs::Permissions) -> io::Result<()> {
+pub fn set_permissions(
+    path: impl AsRef<Path>,
+    permissions: std::fs::Permissions,
+) -> io::Result<()> {
     std::fs::set_permissions(path, permissions)
 }
 
@@ -1910,7 +1913,6 @@ pub fn read_dir_paths(path: impl AsRef<Path>) -> io::Result<Vec<PathBuf>> {
     }
     Ok(paths)
 }
-
 
 #[cfg(all(test, feature = "fs"))]
 mod tests {
@@ -2114,7 +2116,8 @@ mod tests {
         let held = open_lock_file(&path).expect("open holder");
 
         // An exclusive holder must not stop a plain reader.
-        let exclusive = lock_exclusive_for(&held, Duration::from_secs(1)).expect("holder takes it exclusively");
+        let exclusive =
+            lock_exclusive_for(&held, Duration::from_secs(1)).expect("holder takes it exclusively");
         let mut contents = Vec::new();
         std::fs::File::open(&path)
             .expect("a non-participant can open it")
@@ -2127,7 +2130,8 @@ mod tests {
         // does not truncate: a lock file's contents belong to whoever wrote
         // them, and replacing five bytes with five keeps this about the lock
         // rather than about file length.
-        let shared = lock_shared_for(&held, Duration::from_secs(1)).expect("holder takes it shared");
+        let shared =
+            lock_shared_for(&held, Duration::from_secs(1)).expect("holder takes it shared");
         std::fs::OpenOptions::new()
             .write(true)
             .truncate(false)
@@ -2558,7 +2562,8 @@ mod tests {
 
         // Dropping the guard releases.
         {
-            let held = lock_exclusive_owned_for(open(), Duration::from_secs(1)).expect("first holder takes the lock");
+            let held = lock_exclusive_owned_for(open(), Duration::from_secs(1))
+                .expect("first holder takes the lock");
             let conflict =
                 try_lock_exclusive(&open()).expect_err("a second holder must be refused");
             assert!(is_lock_conflict(&conflict));
@@ -2568,7 +2573,8 @@ mod tests {
 
         // `unlock` releases at a chosen point and hands the handle back still
         // open, which is why it exists rather than only `drop`.
-        let held = lock_exclusive_owned_for(open(), Duration::from_secs(1)).expect("retake the lock");
+        let held =
+            lock_exclusive_owned_for(open(), Duration::from_secs(1)).expect("retake the lock");
         assert!(is_lock_conflict(
             &try_lock_exclusive(&open()).expect_err("still exclusive")
         ));
@@ -2749,7 +2755,9 @@ mod tests {
         remove_file(&second).expect("remove");
         assert!(!second.exists(), "the file is gone");
         assert_eq!(
-            remove_file(&second).expect_err("removing a missing file is an error").kind(),
+            remove_file(&second)
+                .expect_err("removing a missing file is an error")
+                .kind(),
             io::ErrorKind::NotFound
         );
     }
@@ -2823,7 +2831,10 @@ mod tests {
         }
 
         let metadata = path_metadata(&link).expect("following stat");
-        assert!(metadata.is_file(), "the following stat describes the target");
+        assert!(
+            metadata.is_file(),
+            "the following stat describes the target"
+        );
         assert_eq!(metadata.len(), 8, "the following stat sizes the target");
     }
 
@@ -2856,10 +2867,7 @@ mod tests {
             let mut file = create_file(&path).expect("create handle");
             std::io::Write::write_all(&mut file, b"first generation").expect("write first");
         }
-        assert_eq!(
-            read_file(&path).expect("read back"),
-            b"first generation"
-        );
+        assert_eq!(read_file(&path).expect("read back"), b"first generation");
         assert_eq!(
             read_to_string(&path).expect("read back as text"),
             "first generation"

@@ -97,13 +97,19 @@ fn encode_event(event: SseEvent, max_event: usize) -> io::Result<Bytes> {
             "SSE event exceeds configured limit",
         ));
     }
-    if event.id.as_ref().is_some_and(|id| id.contains(['\r', '\n', '\0']))
+    if event
+        .id
+        .as_ref()
+        .is_some_and(|id| id.contains(['\r', '\n', '\0']))
         || event
             .event
             .as_ref()
             .is_some_and(|kind| kind.contains(['\r', '\n', '\0']))
     {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid SSE field"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid SSE field",
+        ));
     }
     let normalized = event.data.replace("\r\n", "\n").replace('\r', "\n");
     let mut encoded = String::new();

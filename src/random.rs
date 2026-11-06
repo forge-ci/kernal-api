@@ -134,10 +134,19 @@ mod tests {
     fn error_messages_remain_stable() {
         let cases = [
             (RandomError::InvalidLimits, "invalid secure entropy limits"),
-            (RandomError::TooLarge, "secure entropy request exceeds byte limit"),
+            (
+                RandomError::TooLarge,
+                "secure entropy request exceeds byte limit",
+            ),
             (RandomError::AtCapacity, "secure entropy capacity exhausted"),
-            (RandomError::RuntimeUnavailable, "secure entropy requires an active async runtime"),
-            (RandomError::Unavailable, "operating-system secure entropy unavailable"),
+            (
+                RandomError::RuntimeUnavailable,
+                "secure entropy requires an active async runtime",
+            ),
+            (
+                RandomError::Unavailable,
+                "operating-system secure entropy unavailable",
+            ),
             (RandomError::TimedOut, "secure entropy deadline expired"),
             (RandomError::Cancelled, "secure entropy request cancelled"),
             (RandomError::WorkerFailed, "secure entropy worker failed"),

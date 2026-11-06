@@ -392,7 +392,10 @@ struct Runtime {
 }
 
 impl Runtime {
-    fn new(metadata: CrashMetadata, config: CrashSamplerConfig) -> Result<(Arc<Self>, u64), InstallError> {
+    fn new(
+        metadata: CrashMetadata,
+        config: CrashSamplerConfig,
+    ) -> Result<(Arc<Self>, u64), InstallError> {
         let (file, path, template) = spool::create_sink(&metadata).map_err(InstallError::Spool)?;
         let shared = Arc::new(Shared::new(file, template));
 
@@ -1226,7 +1229,8 @@ fn with_platform_fields<R>(
 }
 
 fn sampler_loop(shared: Arc<Shared>, config: CrashSamplerConfig) {
-    let mut resolver = crate::snapshot::SessionResolver::for_crash(&crate::snapshot::SnapshotConfig::default());
+    let mut resolver =
+        crate::snapshot::SessionResolver::for_crash(&crate::snapshot::SnapshotConfig::default());
     let mut previous = None;
     let mut cadence = config.interval;
     while !shared.stop.load(Ordering::Acquire) {
@@ -1679,7 +1683,8 @@ mod tests {
     fn teardown_detaches_from_a_sampler_that_is_mid_capture() {
         let _state = process_state();
         let _no_sampler = disable_test_sampler();
-        let (runtime, _id) = Runtime::new(metadata("sampler-detach"), CrashSamplerConfig::default()).unwrap();
+        let (runtime, _id) =
+            Runtime::new(metadata("sampler-detach"), CrashSamplerConfig::default()).unwrap();
         let mut runtime = Arc::try_unwrap(runtime).ok().expect("sole runtime owner");
         let path = runtime.path.clone();
         // Stand in for the first sample's uninterruptible symbolization: the
@@ -1709,7 +1714,10 @@ mod tests {
         while path.exists() && std::time::Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(25));
         }
-        assert!(!path.exists(), "detached sampler left the crash sink behind");
+        assert!(
+            !path.exists(),
+            "detached sampler left the crash sink behind"
+        );
     }
 
     #[test]
@@ -1723,10 +1731,14 @@ mod tests {
         // it out could not pass.
         shared.reading.store(true, Ordering::Release);
         let cadence = Duration::from_secs(30);
-        let sampler = start_sampler(&shared, CrashSamplerConfig {
-            interval: cadence,
-            max_interval: cadence,
-        }).unwrap();
+        let sampler = start_sampler(
+            &shared,
+            CrashSamplerConfig {
+                interval: cadence,
+                max_interval: cadence,
+            },
+        )
+        .unwrap();
         // Not an assertion: this only gives the thread time to reach the wait
         // so an uninterruptible sleep reproduces as a failure rather than a
         // race against the loop's own stop check.
@@ -1753,7 +1765,9 @@ mod tests {
         let mut resolver = crate::snapshot::SessionResolver::for_crash(
             &crate::snapshot::SnapshotConfig::default(),
         );
-        if crate::snapshot::capture_all_threads(&crate::snapshot::SnapshotConfig::default()).is_err() {
+        if crate::snapshot::capture_all_threads(&crate::snapshot::SnapshotConfig::default())
+            .is_err()
+        {
             return; // Unsupported host/architecture has no native sampler.
         }
         // A parked sibling guarantees a thread to sample. Under load a capture
@@ -1768,8 +1782,14 @@ mod tests {
         sibling.join().expect("parked sibling");
         let sample = sample.expect("five captures each missed every thread");
         assert!(!sample.threads.is_empty(), "sampler dropped every thread");
-        assert!(sample.threads.iter().all(|thread| !thread.frames.is_empty()));
-        assert!(sample.modules.iter().all(|module| !module.identity.is_empty()));
+        assert!(sample
+            .threads
+            .iter()
+            .all(|thread| !thread.frames.is_empty()));
+        assert!(sample
+            .modules
+            .iter()
+            .all(|module| !module.identity.is_empty()));
         for thread in &sample.threads {
             for frame in &thread.frames {
                 assert!(frame.module_index.is_none_or(|index| {

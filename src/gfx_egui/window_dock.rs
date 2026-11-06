@@ -14,7 +14,10 @@
     reason = "used by hosts whose dock is a top-level window (Windows, macOS), not by Linux"
 )]
 
-use crate::gfx::{App, DockAlign, DockLength, Edge, Event, GfxError, GfxErrorKind, Monitor, MonitorInfo, WindowOptions};
+use crate::gfx::{
+    App, DockAlign, DockLength, Edge, Event, GfxError, GfxErrorKind, Monitor, MonitorInfo,
+    WindowOptions,
+};
 
 /// A rectangle in a y-down coordinate space (the host says which unit).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -27,14 +30,24 @@ pub(crate) struct Rect {
 
 impl Rect {
     pub(crate) fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Every coordinate multiplied by `factor` (logical to physical pixels
     /// at `factor` = DPI / 96, and back with its reciprocal).
     #[must_use]
     pub(crate) fn scaled(self, factor: f64) -> Self {
-        Self::new(self.x * factor, self.y * factor, self.width * factor, self.height * factor)
+        Self::new(
+            self.x * factor,
+            self.y * factor,
+            self.width * factor,
+            self.height * factor,
+        )
     }
 }
 
@@ -68,7 +81,11 @@ impl DockShape {
     /// placed by `align`.
     pub(crate) fn rect(&self, area: Rect) -> Rect {
         let along_x = matches!(self.edge, Edge::Top | Edge::Bottom);
-        let (span, depth) = if along_x { (area.width, area.height) } else { (area.height, area.width) };
+        let (span, depth) = if along_x {
+            (area.width, area.height)
+        } else {
+            (area.height, area.width)
+        };
         let thickness = self.thickness.clamp(0.0, depth.max(0.0));
         let length = match self.length {
             DockLength::Full => span,
@@ -80,9 +97,19 @@ impl DockShape {
             DockAlign::End => span - length,
         };
         match self.edge {
-            Edge::Bottom => Rect::new(area.x + offset, area.y + area.height - thickness, length, thickness),
+            Edge::Bottom => Rect::new(
+                area.x + offset,
+                area.y + area.height - thickness,
+                length,
+                thickness,
+            ),
             Edge::Left => Rect::new(area.x, area.y + offset, thickness, length),
-            Edge::Right => Rect::new(area.x + area.width - thickness, area.y + offset, thickness, length),
+            Edge::Right => Rect::new(
+                area.x + area.width - thickness,
+                area.y + offset,
+                thickness,
+                length,
+            ),
             Edge::Top => Rect::new(area.x + offset, area.y, length, thickness),
         }
     }
@@ -141,7 +168,10 @@ impl WindowDock {
     }
 
     /// Hand the created window to the host and put it in place.
-    pub(crate) fn attach(&mut self, window: raw_window_handle::RawWindowHandle) -> Result<(), GfxError> {
+    pub(crate) fn attach(
+        &mut self,
+        window: raw_window_handle::RawWindowHandle,
+    ) -> Result<(), GfxError> {
         self.host.attach(window)?;
         self.host.place(self.monitor, &self.shape)
     }
@@ -201,11 +231,17 @@ pub(crate) fn run(
     };
     let names = host.monitors();
     if names.is_empty() {
-        return Err(GfxError::new(GfxErrorKind::Backend, "Placement::Dock: no monitor is connected"));
+        return Err(GfxError::new(
+            GfxErrorKind::Backend,
+            "Placement::Dock: no monitor is connected",
+        ));
     }
     let (monitor, fallback) = pick(&names, host.primary(), &options.monitor);
     let start = host.initial(monitor, &shape);
-    #[expect(clippy::cast_possible_truncation, reason = "screen coordinates fit an f32")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "screen coordinates fit an f32"
+    )]
     let viewport = egui::ViewportBuilder::default()
         .with_title(options.title.clone())
         .with_position([start.x as f32, start.y as f32])
@@ -237,10 +273,20 @@ mod tests {
     use super::*;
 
     fn shape(edge: Edge, length: DockLength, align: DockAlign) -> DockShape {
-        DockShape { edge, thickness: 30.0, length, align }
+        DockShape {
+            edge,
+            thickness: 30.0,
+            length,
+            align,
+        }
     }
 
-    const AREA: Rect = Rect { x: 100.0, y: 50.0, width: 1000.0, height: 800.0 };
+    const AREA: Rect = Rect {
+        x: 100.0,
+        y: 50.0,
+        width: 1000.0,
+        height: 800.0,
+    };
 
     #[test]
     fn a_full_dock_spans_its_edge() {
@@ -254,12 +300,28 @@ mod tests {
     #[test]
     fn a_fixed_dock_is_aligned_along_its_edge_and_clamped() {
         let fixed = |edge, align| shape(edge, DockLength::Fixed(200.0), align).rect(AREA);
-        assert_eq!(fixed(Edge::Top, DockAlign::Start), Rect::new(100.0, 50.0, 200.0, 30.0));
-        assert_eq!(fixed(Edge::Top, DockAlign::Center), Rect::new(500.0, 50.0, 200.0, 30.0));
-        assert_eq!(fixed(Edge::Top, DockAlign::End), Rect::new(900.0, 50.0, 200.0, 30.0));
-        assert_eq!(fixed(Edge::Right, DockAlign::End), Rect::new(1070.0, 650.0, 30.0, 200.0));
+        assert_eq!(
+            fixed(Edge::Top, DockAlign::Start),
+            Rect::new(100.0, 50.0, 200.0, 30.0)
+        );
+        assert_eq!(
+            fixed(Edge::Top, DockAlign::Center),
+            Rect::new(500.0, 50.0, 200.0, 30.0)
+        );
+        assert_eq!(
+            fixed(Edge::Top, DockAlign::End),
+            Rect::new(900.0, 50.0, 200.0, 30.0)
+        );
+        assert_eq!(
+            fixed(Edge::Right, DockAlign::End),
+            Rect::new(1070.0, 650.0, 30.0, 200.0)
+        );
         let long = shape(Edge::Left, DockLength::Fixed(5000.0), DockAlign::Center).rect(AREA);
-        assert_eq!(long, Rect::new(100.0, 50.0, 30.0, 800.0), "clamped to the edge");
+        assert_eq!(
+            long,
+            Rect::new(100.0, 50.0, 30.0, 800.0),
+            "clamped to the edge"
+        );
     }
 
     #[test]
@@ -267,7 +329,10 @@ mod tests {
         let at_150 = shape(Edge::Top, DockLength::Fixed(200.0), DockAlign::Start).scaled(1.5);
         assert!((at_150.thickness - 45.0).abs() < 1e-9);
         assert_eq!(at_150.length, DockLength::Fixed(300.0));
-        assert_eq!(Rect::new(10.0, 20.0, 30.0, 40.0).scaled(2.0), Rect::new(20.0, 40.0, 60.0, 80.0));
+        assert_eq!(
+            Rect::new(10.0, 20.0, 30.0, 40.0).scaled(2.0),
+            Rect::new(20.0, 40.0, 60.0, 80.0)
+        );
     }
 
     #[test]

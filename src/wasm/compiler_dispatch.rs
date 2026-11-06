@@ -160,11 +160,11 @@ pub(in crate::wasm) mod tests {
             "USERPROFILE",
             "WINDIR",
         ]
-            .into_iter()
-            .fold(spec, |spec, key| match std::env::var_os(key) {
-                Some(value) => spec.env(key, value),
-                None => spec,
-            });
+        .into_iter()
+        .fold(spec, |spec, key| match std::env::var_os(key) {
+            Some(value) => spec.env(key, value),
+            None => spec,
+        });
         spec
     }
 
@@ -176,102 +176,108 @@ pub(in crate::wasm) mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let hub = OperationHub::new(4, 2).unwrap();
-            let spec = compiler_helper_spec();
-            let grant = hub
-                .grant_compiler_with_cache(
-                    7,
-                    spec,
-                    Duration::from_secs(15),
-                    Some((CACHE_KEY, false)),
-                )
-                .unwrap()
-                .wire();
-            let mut initial = Some(grant);
-            let handle = runtime.handle();
-            let mut imports = CompilerImports {
-                hub: &hub,
-                store: 7,
-                runtime: Some(&handle),
-                memory: &memory,
-                grant: &mut initial,
-            };
-            assert_eq!(imports.submit(35, 1, 0), Some(0));
-            assert_eq!(imports.submit(35, 0, 1), Some(0));
-            assert_eq!(imports.submit(35, 0, 0), Some(grant));
-            assert_eq!(imports.submit(35, 0, 0), Some(0));
-            assert_eq!(imports.submit(48, grant, u64::from(u32::MAX)), Some(0));
-            for (cell, byte) in memory.data().iter().zip(CACHE_KEY) {
-                // SAFETY: this test owns the single shared-memory fixture.
-                unsafe { AtomicU8::from_ptr(cell.get()) }.store(byte, Ordering::Relaxed);
-            }
-            // A 64-bit host value must not alias the valid Wasm address zero.
-            assert_eq!(imports.submit(48, grant, 1_u64 << 32), Some(0));
-            assert_eq!(imports.submit(48, grant, 0), Some(2));
-            assert_eq!(imports.submit(36, grant, 1), Some(0));
-            let spawn = imports.submit(36, grant, 0).unwrap();
-            let process = crate::async_engine::timeout(Duration::from_secs(5), async {
-                loop {
-                    let result = hub.poll_wire(7, spawn);
-                    if result != 0 {
+        runtime
+            .run_within(
+                async {
+                    let hub = OperationHub::new(4, 2).unwrap();
+                    let spec = compiler_helper_spec();
+                    let grant = hub
+                        .grant_compiler_with_cache(
+                            7,
+                            spec,
+                            Duration::from_secs(15),
+                            Some((CACHE_KEY, false)),
+                        )
+                        .unwrap()
+                        .wire();
+                    let mut initial = Some(grant);
+                    let handle = runtime.handle();
+                    let mut imports = CompilerImports {
+                        hub: &hub,
+                        store: 7,
+                        runtime: Some(&handle),
+                        memory: &memory,
+                        grant: &mut initial,
+                    };
+                    assert_eq!(imports.submit(35, 1, 0), Some(0));
+                    assert_eq!(imports.submit(35, 0, 1), Some(0));
+                    assert_eq!(imports.submit(35, 0, 0), Some(grant));
+                    assert_eq!(imports.submit(35, 0, 0), Some(0));
+                    assert_eq!(imports.submit(48, grant, u64::from(u32::MAX)), Some(0));
+                    for (cell, byte) in memory.data().iter().zip(CACHE_KEY) {
+                        // SAFETY: this test owns the single shared-memory fixture.
+                        unsafe { AtomicU8::from_ptr(cell.get()) }.store(byte, Ordering::Relaxed);
+                    }
+                    // A 64-bit host value must not alias the valid Wasm address zero.
+                    assert_eq!(imports.submit(48, grant, 1_u64 << 32), Some(0));
+                    assert_eq!(imports.submit(48, grant, 0), Some(2));
+                    assert_eq!(imports.submit(36, grant, 1), Some(0));
+                    let spawn = imports.submit(36, grant, 0).unwrap();
+                    let process = crate::async_engine::timeout(Duration::from_secs(5), async {
+                        loop {
+                            let result = hub.poll_wire(7, spawn);
+                            if result != 0 {
+                                assert_eq!(result as u8, 1);
+                                break result >> 8;
+                            }
+                            crate::async_engine::yield_now().await;
+                        }
+                    })
+                    .await
+                    .unwrap();
+                    let mut read = imports.submit(37, process, 0).unwrap();
+                    hub.suspend_wire(7, read).unwrap().notified().await;
+                    assert_eq!(imports.submit(38, read, 65535_u64 << 32), Some(0x80));
+                    assert_eq!(imports.submit(38, read, (65536_u64 << 32) | 1), Some(0x80));
+                    assert_eq!(
+                        imports.submit(38, read, (65536_u64 << 32) | u64::from(u32::MAX)),
+                        Some(0x80)
+                    );
+                    imports.store = 8;
+                    assert_eq!(imports.submit(38, read, 65536_u64 << 32), Some(0x80));
+                    imports.store = 7;
+                    assert_eq!(hub.poll_wire(7, read), 0x80);
+                    // stdout and stderr EOF events may race their buffered chunks.
+                    // The transfer proof requires a copied chunk, so consume only a
+                    // small, fixed number of normal EOF events first.
+                    let mut chunk = None;
+                    for _ in 0..8 {
+                        let result = imports.submit(38, read, 65536_u64 << 32).unwrap();
+                        // The outer wire adds terminal status below the event payload.
+                        // The event tag therefore occupies bits 8..16 and the copied
+                        // byte count begins at bit 16.
                         assert_eq!(result as u8, 1);
-                        break result >> 8;
+                        match (result >> 8) as u8 {
+                            1 | 2 => {
+                                chunk = Some(result);
+                                break;
+                            }
+                            3 | 4 => {
+                                read = imports.submit(37, process, 0).unwrap();
+                                hub.suspend_wire(7, read).unwrap().notified().await;
+                            }
+                            tag => panic!("unexpected packed output tag {tag}: {result:#x}"),
+                        }
                     }
-                    crate::async_engine::yield_now().await;
-                }
-            })
-            .await
-            .unwrap();
-            let mut read = imports.submit(37, process, 0).unwrap();
-            hub.suspend_wire(7, read).unwrap().notified().await;
-            assert_eq!(imports.submit(38, read, 65535_u64 << 32), Some(0x80));
-            assert_eq!(imports.submit(38, read, (65536_u64 << 32) | 1), Some(0x80));
-            assert_eq!(
-                imports.submit(38, read, (65536_u64 << 32) | u64::from(u32::MAX)),
-                Some(0x80)
-            );
-            imports.store = 8;
-            assert_eq!(imports.submit(38, read, 65536_u64 << 32), Some(0x80));
-            imports.store = 7;
-            assert_eq!(hub.poll_wire(7, read), 0x80);
-            // stdout and stderr EOF events may race their buffered chunks.
-            // The transfer proof requires a copied chunk, so consume only a
-            // small, fixed number of normal EOF events first.
-            let mut chunk = None;
-            for _ in 0..8 {
-                let result = imports.submit(38, read, 65536_u64 << 32).unwrap();
-                // The outer wire adds terminal status below the event payload.
-                // The event tag therefore occupies bits 8..16 and the copied
-                // byte count begins at bit 16.
-                assert_eq!(result as u8, 1);
-                match (result >> 8) as u8 {
-                    1 | 2 => {
-                        chunk = Some(result);
-                        break;
-                    }
-                    3 | 4 => {
-                        read = imports.submit(37, process, 0).unwrap();
-                        hub.suspend_wire(7, read).unwrap().notified().await;
-                    }
-                    tag => panic!("unexpected packed output tag {tag}: {result:#x}"),
-                }
-            }
-            let result = chunk.expect("fixture produced no output chunk");
-            assert!((1..=65536).contains(&(result >> 16)));
-            // SAFETY: read the same pinned shared cell atomically.
-            assert_ne!(
-                unsafe { AtomicU8::from_ptr(memory.data()[0].get()) }.load(Ordering::Relaxed),
-                0
-            );
-            assert_eq!(imports.submit(39, read, 0), Some(0));
-            assert_eq!(imports.submit(40, process, 1), Some(0));
-            assert_eq!(imports.submit(40, process, 0), Some(1));
-            hub.close_all(crate::operations::Terminal::Closed);
-            hub.join_process_jobs().await.unwrap();
-            assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
-            assert_eq!(hub.snapshot().retained_process_jobs, 0);
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+                    let result = chunk.expect("fixture produced no output chunk");
+                    assert!((1..=65536).contains(&(result >> 16)));
+                    // SAFETY: read the same pinned shared cell atomically.
+                    assert_ne!(
+                        unsafe { AtomicU8::from_ptr(memory.data()[0].get()) }
+                            .load(Ordering::Relaxed),
+                        0
+                    );
+                    assert_eq!(imports.submit(39, read, 0), Some(0));
+                    assert_eq!(imports.submit(40, process, 1), Some(0));
+                    assert_eq!(imports.submit(40, process, 0), Some(1));
+                    hub.close_all(crate::operations::Terminal::Closed);
+                    hub.join_process_jobs().await.unwrap();
+                    assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
+                    assert_eq!(hub.snapshot().retained_process_jobs, 0);
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -305,17 +311,11 @@ pub(in crate::wasm) mod tests {
         // The miss persists two verified 2 MiB streams as one exact artifact.
         // This fixture's larger storage and transfer bounds are explicit; the
         // ordinary sketch defaults remain unchanged.
-        let blobs = SketchBlobLimits::new(
-            64 * 1024,
-            4 * 1024 * 1024,
-            8 * 1024 * 1024,
-            128,
-            128,
-            128,
-        )
-        .unwrap()
-        .with_maximum_transfer_bytes(24 * 1024 * 1024)
-        .unwrap();
+        let blobs =
+            SketchBlobLimits::new(64 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024, 128, 128, 128)
+                .unwrap()
+                .with_maximum_transfer_bytes(24 * 1024 * 1024)
+                .unwrap();
         let execution = SketchExecutionLimits::default()
             .with_blob_limits(blobs)
             .with_fuel_limits(SketchFuelLimits::new(501_600_000, 500_000_000, 100_000).unwrap())
@@ -334,21 +334,26 @@ pub(in crate::wasm) mod tests {
             .build()
             .unwrap();
         assert_eq!(
-            runtime.run_within(sketch.execute_threaded_root_with_grant(
-                runtime.handle(),
-                crate::async_engine::CancellationSource::new().token(),
-                RootGrants {
-                    compiler: Some(RootCompilerGrant {
-                        spec,
-                        deadline: Duration::from_secs(15),
-                    }),
-                    output: Some(output.clone()),
-                    #[cfg(all(test, feature = "archive-auth-test-support"))]
-                    archive: None,
-                    #[cfg(feature = "tauri-webview")]
-                    webview: None,
-                },
-            ), std::time::Duration::from_secs(60)).expect("test runtime budget"),
+            runtime
+                .run_within(
+                    sketch.execute_threaded_root_with_grant(
+                        runtime.handle(),
+                        crate::async_engine::CancellationSource::new().token(),
+                        RootGrants {
+                            compiler: Some(RootCompilerGrant {
+                                spec,
+                                deadline: Duration::from_secs(15),
+                            }),
+                            output: Some(output.clone()),
+                            #[cfg(all(test, feature = "archive-auth-test-support"))]
+                            archive: None,
+                            #[cfg(feature = "tauri-webview")]
+                            webview: None,
+                        },
+                    ),
+                    std::time::Duration::from_secs(60)
+                )
+                .expect("test runtime budget"),
             Ok(ThreadedRootOutcome::Started)
         );
         assert_verified_artifact(&output);
@@ -371,7 +376,13 @@ pub(in crate::wasm) mod tests {
     fn assert_verified_artifact(output: &std::path::Path) {
         let bytes = std::fs::read(output).unwrap();
         assert_eq!(bytes.len(), 4 * 1024 * 1024);
-        assert_eq!(bytes.iter().filter(|byte| **byte == 0xf1).count(), 2 * 1024 * 1024);
-        assert_eq!(bytes.iter().filter(|byte| **byte == 0xf2).count(), 2 * 1024 * 1024);
+        assert_eq!(
+            bytes.iter().filter(|byte| **byte == 0xf1).count(),
+            2 * 1024 * 1024
+        );
+        assert_eq!(
+            bytes.iter().filter(|byte| **byte == 0xf2).count(),
+            2 * 1024 * 1024
+        );
     }
 }

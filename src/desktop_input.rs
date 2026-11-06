@@ -65,6 +65,9 @@ mod tests {
         assert_eq!(type_text("a\0b").await, Err(InputError::InvalidInput));
         let long = "x".repeat(MAX_TEXT_CHARS + 1);
         assert_eq!(type_text(&long).await, Err(InputError::InvalidInput));
-        assert_eq!(pointer_move_by(10_001, 0).await, Err(InputError::InvalidInput));
+        assert_eq!(
+            pointer_move_by(10_001, 0).await,
+            Err(InputError::InvalidInput)
+        );
     }
 }

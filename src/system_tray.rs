@@ -72,7 +72,10 @@ impl TrayOptions {
         quit: &str,
         description: &str,
     ) -> Result<Self, TrayError> {
-        if ![activate, open_dashboard, quit, description].into_iter().all(valid_label) {
+        if ![activate, open_dashboard, quit, description]
+            .into_iter()
+            .all(valid_label)
+        {
             return Err(TrayError::InvalidOptions);
         }
         self.labels = TrayLabels {
@@ -138,12 +141,21 @@ mod tests {
     fn labels_default_to_the_original_words_and_are_validated() {
         let options = TrayOptions::new("a.b", "T", 1, vec![0; 4]).unwrap();
         assert_eq!(options.labels, TrayLabels::default());
-        let named = options.clone().with_labels("Search", "Tasks", "Quit bar", "Talos").unwrap();
+        let named = options
+            .clone()
+            .with_labels("Search", "Tasks", "Quit bar", "Talos")
+            .unwrap();
         assert_eq!(named.labels.activate, "Search");
         assert_eq!(named.labels.open_dashboard, "Tasks");
         assert_eq!(named.labels.quit, "Quit bar");
         assert_eq!(named.labels.description, "Talos");
-        assert_eq!(options.clone().with_labels("", "b", "c", "d").err(), Some(TrayError::InvalidOptions));
-        assert_eq!(options.with_labels("a", "b\0", "c", "d").err(), Some(TrayError::InvalidOptions));
+        assert_eq!(
+            options.clone().with_labels("", "b", "c", "d").err(),
+            Some(TrayError::InvalidOptions)
+        );
+        assert_eq!(
+            options.with_labels("a", "b\0", "c", "d").err(),
+            Some(TrayError::InvalidOptions)
+        );
     }
 }

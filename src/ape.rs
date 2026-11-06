@@ -198,8 +198,7 @@ pub fn plan_launch(
     current_dir: Option<&Path>,
     options: &ApeOptions,
 ) -> Option<ApeLaunch> {
-    let launch =
-        running_process::ape::plan_launch(program, current_dir, &options.to_backend())?;
+    let launch = running_process::ape::plan_launch(program, current_dir, &options.to_backend())?;
     let kind = match launch.kind {
         running_process::ape::LoaderKind::Explicit => ApeLoaderKind::Explicit,
         running_process::ape::LoaderKind::Embedded => ApeLoaderKind::Embedded,

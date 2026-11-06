@@ -26,8 +26,8 @@ mod tar_format;
 mod write;
 
 pub use stream::{
-    extract_reader, zstd_decode, zstd_encode, TarCompression, TarEntries, TarEntry,
-    TarEntryKind, TarReader,
+    extract_reader, zstd_decode, zstd_encode, TarCompression, TarEntries, TarEntry, TarEntryKind,
+    TarReader,
 };
 pub use write::{TarWriter, ZipCompression, ZipWriter};
 
@@ -45,24 +45,34 @@ mod owned_source_tests {
     fn anonymous_seekable_source_extracts_large_entry_without_a_source_path() {
         const LENGTH: u64 = 17 * 1024 * 1024;
         let mut writer = zip::ZipWriter::new(tempfile::tempfile().unwrap());
-        writer.start_file("payload", zip::write::SimpleFileOptions::default()).unwrap();
+        writer
+            .start_file("payload", zip::write::SimpleFileOptions::default())
+            .unwrap();
         let chunk = [0x5a; 64 * 1024];
         for _ in 0..LENGTH / chunk.len() as u64 {
             writer.write_all(&chunk).unwrap();
         }
         let source = writer.finish().unwrap();
         let output = tempfile::tempdir().unwrap();
-        extract_file(source, output.path(), ArchiveFormat::Zip, ExtractionLimits {
-            max_entry_bytes: LENGTH,
-            max_output_bytes: LENGTH,
-            ..ExtractionLimits::default()
-        }).unwrap();
+        extract_file(
+            source,
+            output.path(),
+            ArchiveFormat::Zip,
+            ExtractionLimits {
+                max_entry_bytes: LENGTH,
+                max_output_bytes: LENGTH,
+                ..ExtractionLimits::default()
+            },
+        )
+        .unwrap();
         let mut payload = File::open(output.path().join("payload")).unwrap();
         let mut read = [0; 64 * 1024];
         let mut total = 0;
         loop {
             let count = payload.read(&mut read).unwrap();
-            if count == 0 { break; }
+            if count == 0 {
+                break;
+            }
             assert!(read[..count].iter().all(|byte| *byte == 0x5a));
             total += count as u64;
         }
@@ -636,12 +646,17 @@ fn preflight_zip(file: &mut File, limits: ExtractionLimits) -> io::Result<()> {
     file.rewind()
 }
 
-fn open_zip(mut file: File, limits: ExtractionLimits) -> io::Result<zip::ZipArchive<MetadataBudget>> {
+fn open_zip(
+    mut file: File,
+    limits: ExtractionLimits,
+) -> io::Result<zip::ZipArchive<MetadataBudget>> {
     if file.metadata()?.len() > limits.max_input_bytes {
         return Err(invalid("archive input exceeds byte limit"));
     }
     preflight_zip(&mut file, limits)?;
-    let budget = Arc::new(AtomicU64::new(limits.max_metadata_bytes.saturating_add(65557)));
+    let budget = Arc::new(AtomicU64::new(
+        limits.max_metadata_bytes.saturating_add(65557),
+    ));
     let reader = MetadataBudget {
         file,
         remaining: Arc::clone(&budget),
@@ -710,7 +725,12 @@ fn extract_zip(file: File, dest: &Path, limits: ExtractionLimits) -> io::Result<
             return Err(invalid("archive output exceeds byte limit"));
         }
         let mut target = create_output(&root, &output, limits.existing_destination)?;
-        copy_entry_bounded(&mut entry, &mut target, &mut remaining, limits.max_entry_bytes)?;
+        copy_entry_bounded(
+            &mut entry,
+            &mut target,
+            &mut remaining,
+            limits.max_entry_bytes,
+        )?;
         target.flush()?;
         #[cfg(unix)]
         if let Some(mode) = entry.unix_mode() {

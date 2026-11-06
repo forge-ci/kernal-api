@@ -11,8 +11,8 @@ use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::gfx::{
-    App, BackendKind, Capabilities, Color, DockLength, Event, GfxError, GfxErrorKind, Monitor, MonitorInfo, PanelOptions, Placement,
-    PointerButton, Support, Theme, ThemeMode, WindowOptions,
+    App, BackendKind, Capabilities, Color, DockLength, Event, GfxError, GfxErrorKind, Monitor,
+    MonitorInfo, PanelOptions, Placement, PointerButton, Support, Theme, ThemeMode, WindowOptions,
 };
 
 pub(crate) fn capabilities() -> Capabilities {
@@ -173,7 +173,11 @@ fn corner(radius: f32) -> u8 {
         u8::MAX
     } else {
         // In range and non-negative after the checks above.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "range checked")]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "range checked"
+        )]
         let value = radius.round() as u8;
         value
     }
@@ -209,7 +213,11 @@ impl eframe::App for Adapter {
         if ctx.input(|input| input.viewport().close_requested()) && !self.app.close_requested() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
-        if let Some(event) = self.dock.as_mut().and_then(window_dock::WindowDock::take_event) {
+        if let Some(event) = self
+            .dock
+            .as_mut()
+            .and_then(window_dock::WindowDock::take_event)
+        {
             self.events.insert(0, event);
         }
         let mut shared = Shared::new(std::mem::take(&mut self.events));
@@ -218,7 +226,9 @@ impl eframe::App for Adapter {
             shared.monitors = dock.monitors();
         }
         let app = &mut *self.app;
-        draw(ui, self.transparent, &mut shared, &mut |frame| app.frame(frame));
+        draw(ui, self.transparent, &mut shared, &mut |frame| {
+            app.frame(frame)
+        });
         if let Some(dock) = self.dock.as_mut() {
             let moved = shared.monitor.is_some();
             dock.update(shared.monitor.take(), shared.dock_length.take());
@@ -255,9 +265,9 @@ impl eframe::App for Adapter {
 
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
         if self.transparent {
-            self.theme
-                .background
-                .map_or([0.0; 4], |background| color32(background).to_normalized_gamma_f32())
+            self.theme.background.map_or([0.0; 4], |background| {
+                color32(background).to_normalized_gamma_f32()
+            })
         } else {
             visuals.panel_fill.to_normalized_gamma_f32()
         }
@@ -272,11 +282,15 @@ impl eframe::App for Adapter {
 /// applied twice.
 pub(crate) fn clear_color(ctx: &egui::Context, theme: Theme, transparent: bool) -> [f32; 4] {
     if !transparent {
-        return ctx.global_style().visuals.panel_fill.to_normalized_gamma_f32();
+        return ctx
+            .global_style()
+            .visuals
+            .panel_fill
+            .to_normalized_gamma_f32();
     }
-    theme
-        .background
-        .map_or([0.0; 4], |background| color32(background).to_normalized_gamma_f32())
+    theme.background.map_or([0.0; 4], |background| {
+        color32(background).to_normalized_gamma_f32()
+    })
 }
 
 /// Lay out one frame of `body` (an app's `frame` or `panel`) in a central panel.
@@ -411,7 +425,12 @@ impl FrameImp<'_> {
         response.changed()
     }
 
-    pub(crate) fn slider(&mut self, value: &mut f64, range: RangeInclusive<f64>, text: &str) -> bool {
+    pub(crate) fn slider(
+        &mut self,
+        value: &mut f64,
+        range: RangeInclusive<f64>,
+        text: &str,
+    ) -> bool {
         self.ui
             .add(egui::Slider::new(value, range).text(text))
             .changed()
@@ -557,7 +576,12 @@ impl FrameImp<'_> {
         }
         if let Monitor::Named(name) = &monitor {
             if !self.shared.monitors.iter().any(|info| &info.name == name) {
-                let present: Vec<&str> = self.shared.monitors.iter().map(|info| info.name.as_str()).collect();
+                let present: Vec<&str> = self
+                    .shared
+                    .monitors
+                    .iter()
+                    .map(|info| info.name.as_str())
+                    .collect();
                 return Err(GfxError::new(
                     GfxErrorKind::UnknownMonitor,
                     format!("set_monitor: {name:?} is not connected (monitors: {present:?})"),
@@ -585,9 +609,16 @@ mod tests {
         assert!((r - 200.0 / 255.0 * alpha).abs() < 2e-3, "{r}");
         assert!((g - 100.0 / 255.0 * alpha).abs() < 2e-3, "{g}");
         assert!(b.abs() < 1e-3);
-        assert_eq!(clear_color(&ctx, Theme::default(), true), [0.0; 4], "no background: clear");
+        assert_eq!(
+            clear_color(&ctx, Theme::default(), true),
+            [0.0; 4],
+            "no background: clear"
+        );
         let [.., opaque] = clear_color(&ctx, theme, false);
-        assert!(opaque < 1.0, "opaque swapchains ignore it, but it is the panel fill");
+        assert!(
+            opaque < 1.0,
+            "opaque swapchains ignore it, but it is the panel fill"
+        );
     }
 
     /// Run one headless frame (no window, no GPU) over `events`.
@@ -691,7 +722,10 @@ mod tests {
         let ctx = egui::Context::default();
         let mut kind = None;
         frame(&ctx, Vec::new(), |frame| {
-            kind = frame.set_dock_length(DockLength::Fixed(900.0)).err().map(|err| err.kind());
+            kind = frame
+                .set_dock_length(DockLength::Fixed(900.0))
+                .err()
+                .map(|err| err.kind());
         });
         assert_eq!(kind, Some(GfxErrorKind::Unsupported));
 
@@ -708,7 +742,10 @@ mod tests {
             };
             assert!(frame.set_dock_length(DockLength::Fixed(900.0)).is_ok());
             assert_eq!(
-                frame.set_dock_length(DockLength::Fixed(0.0)).err().map(|err| err.kind()),
+                frame
+                    .set_dock_length(DockLength::Fixed(0.0))
+                    .err()
+                    .map(|err| err.kind()),
                 Some(GfxErrorKind::InvalidOptions)
             );
             asked = shared.dock_length;
@@ -775,9 +812,15 @@ mod tests {
                 outer = egui::Rect::from_x_y_ranges(0.0..=1.0, top..=f.imp.ui.cursor().top());
             });
         }
-        assert!(inner_bottom - outer.top() > 500.0, "content is taller than the region");
+        assert!(
+            inner_bottom - outer.top() > 500.0,
+            "content is taller than the region"
+        );
         let used = outer.height();
-        assert!((100.0..120.0).contains(&used), "region takes ~100 px, took {used}");
+        assert!(
+            (100.0..120.0).contains(&used),
+            "region takes ~100 px, took {used}"
+        );
     }
 
     #[test]
@@ -802,8 +845,14 @@ mod tests {
         draw(vec![egui::Event::PointerMoved(target)]);
         draw(vec![click(target, true)]);
         draw(vec![click(target, false)]);
-        assert!(clicked.iter().any(|&(first, _)| first), "first row clicked: {clicked:?}");
-        assert!(clicked.iter().all(|&(_, second)| !second), "second row untouched: {clicked:?}");
+        assert!(
+            clicked.iter().any(|&(first, _)| first),
+            "first row clicked: {clicked:?}"
+        );
+        assert!(
+            clicked.iter().all(|&(_, second)| !second),
+            "second row untouched: {clicked:?}"
+        );
     }
 
     #[test]
@@ -862,7 +911,9 @@ mod tests {
         };
         let mut app = Body(&mut body);
         let mut output = ctx.run_ui(input, |ui| {
-            draw(ui, false, &mut Shared::new(Vec::new()), &mut |frame| app.frame(frame));
+            draw(ui, false, &mut Shared::new(Vec::new()), &mut |frame| {
+                app.frame(frame)
+            });
         });
         output.textures_delta.clear();
     }

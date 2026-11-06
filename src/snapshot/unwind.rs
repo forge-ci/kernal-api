@@ -680,9 +680,8 @@ impl FrameResolver {
         for (index, sample) in snapshot.threads.iter_mut().enumerate() {
             let previous = self.cached_threads.get(&sample.os_tid);
             let unchanged = previous.is_some_and(|cached| cached.fresh && cached.matches(sample));
-            let in_window = max_unwinds_per_tick.is_none_or(|limit| {
-                (index + thread_count - start) % thread_count.max(1) < limit
-            });
+            let in_window = max_unwinds_per_tick
+                .is_none_or(|limit| (index + thread_count - start) % thread_count.max(1) < limit);
             let fresh = unchanged || in_window;
             sample.frames = if unchanged {
                 previous.expect("unchanged implies cached").frames.clone()
@@ -695,8 +694,8 @@ impl FrameResolver {
             cached.fresh = fresh;
             next.insert(sample.os_tid, cached);
         }
-        self.next_unwind_index = (start + max_unwinds_per_tick.unwrap_or(thread_count))
-            % thread_count.max(1);
+        self.next_unwind_index =
+            (start + max_unwinds_per_tick.unwrap_or(thread_count)) % thread_count.max(1);
         self.cached_threads = next;
         snapshot.frames_resolved = true;
         Ok(())
@@ -841,7 +840,9 @@ mod resolver_tests {
     static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn serial() -> std::sync::MutexGuard<'static, ()> {
-        SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        SERIAL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// The first resolve builds the inventory exactly once.
@@ -855,7 +856,11 @@ mod resolver_tests {
         let _serial = serial();
         let mut resolver = FrameResolver::new();
         assert_eq!(resolver.rebuild_count(), 0, "construction must do no work");
-        assert_eq!(resolver.module_count(), 0, "no inventory before the first resolve");
+        assert_eq!(
+            resolver.module_count(),
+            0,
+            "no inventory before the first resolve"
+        );
         let mut snapshot = capture();
         resolver.resolve(&mut snapshot).expect("resolve");
         assert_eq!(
@@ -874,7 +879,10 @@ mod resolver_tests {
         for round in 0..3 {
             let mut snapshot = capture();
             resolver.resolve(&mut snapshot).expect("resolve");
-            assert!(snapshot.frames_resolved, "round {round} left frames unresolved");
+            assert!(
+                snapshot.frames_resolved,
+                "round {round} left frames unresolved"
+            );
         }
     }
 
@@ -902,7 +910,9 @@ mod resolver_tests {
         resolver
             .cached_threads
             .insert(stale.os_tid, CachedThread::from_sample(&stale));
-        resolver.resolve_with_limit(&mut snapshot, Some(16)).expect("resolve");
+        resolver
+            .resolve_with_limit(&mut snapshot, Some(16))
+            .expect("resolve");
         assert_eq!(snapshot.threads[16].frames, vec![0x1000]);
         assert!(!resolver.cached_threads[&17].fresh);
     }

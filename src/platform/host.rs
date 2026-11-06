@@ -214,7 +214,10 @@ mod tests {
         const MACOS: bool = target_is_macos();
         const LINUX: bool = target_is_linux();
 
-        assert_eq!([WINDOWS, MACOS, LINUX].iter().filter(|held| **held).count(), 1);
+        assert_eq!(
+            [WINDOWS, MACOS, LINUX].iter().filter(|held| **held).count(),
+            1
+        );
     }
 
     /// Reported features keep the documented order, without repeats.

@@ -50,8 +50,8 @@ mod rw_lock;
 mod signals;
 mod task_local;
 pub use broadcast::{
-    broadcast_channel, BroadcastReceiver, BroadcastRecvError, BroadcastRecvTimeoutError, BroadcastSender,
-    BroadcastTryRecvError,
+    broadcast_channel, BroadcastReceiver, BroadcastRecvError, BroadcastRecvTimeoutError,
+    BroadcastSender, BroadcastTryRecvError,
 };
 #[cfg(feature = "event-stream")]
 pub use broadcast::{BroadcastLagged, BroadcastStream};
@@ -571,9 +571,7 @@ impl<T: 'static> TaskGroup<T> {
         // Bounds the deprecated wait; inline it when that is removed (#433).
         #[allow(deprecated)]
         let wait = self.join_next();
-        self::timeout(timeout, wait)
-            .await
-            .map_err(|_| JoinTimedOut)
+        self::timeout(timeout, wait).await.map_err(|_| JoinTimedOut)
     }
 
     /// The number of tasks still running or awaiting collection in this
@@ -985,7 +983,9 @@ impl<'a> Notified<'a> {
     /// Returns [`NotifyTimedOut`] if no notification arrived in time.
     /// Requires a runtime with its timer enabled.
     pub async fn wait_within(self, timeout: Duration) -> Result<(), NotifyTimedOut> {
-        self::timeout(timeout, self).await.map_err(|_| NotifyTimedOut)
+        self::timeout(timeout, self)
+            .await
+            .map_err(|_| NotifyTimedOut)
     }
 }
 
@@ -1036,7 +1036,9 @@ impl OwnedNotified {
     /// Returns [`NotifyTimedOut`] if no notification arrived in time.
     /// Requires a runtime with its timer enabled.
     pub async fn wait_within(self, timeout: Duration) -> Result<(), NotifyTimedOut> {
-        self::timeout(timeout, self).await.map_err(|_| NotifyTimedOut)
+        self::timeout(timeout, self)
+            .await
+            .map_err(|_| NotifyTimedOut)
     }
 }
 
@@ -1050,7 +1052,9 @@ impl Future for OwnedNotified {
 
 impl std::fmt::Debug for OwnedNotified {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("OwnedNotified").finish_non_exhaustive()
+        formatter
+            .debug_struct("OwnedNotified")
+            .finish_non_exhaustive()
     }
 }
 
@@ -1410,7 +1414,11 @@ impl<T> Sender<T> {
     /// Returns the unsent value if every [`Receiver`] has been dropped or the
     /// channel stays full for the whole timeout. Requires a runtime with its
     /// timer enabled.
-    pub async fn send_within(&self, value: T, timeout: Duration) -> Result<(), SendTimeoutError<T>> {
+    pub async fn send_within(
+        &self,
+        value: T,
+        timeout: Duration,
+    ) -> Result<(), SendTimeoutError<T>> {
         match self::timeout(timeout, self.inner.reserve()).await {
             Ok(Ok(permit)) => {
                 permit.send(value);
@@ -1823,7 +1831,12 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let answer = runtime.run_within(async { launch(async { 42_u8 }).await.unwrap() }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let answer = runtime
+            .run_within(
+                async { launch(async { 42_u8 }).await.unwrap() },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(answer, 42);
     }
 
@@ -1833,7 +1846,12 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let result = runtime.run_within(timeout(Duration::ZERO, std::future::pending::<()>()), std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let result = runtime
+            .run_within(
+                timeout(Duration::ZERO, std::future::pending::<()>()),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert!(result.is_err());
     }
 
@@ -1843,17 +1861,22 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let source = CancellationSource::new();
-            let token = source.token();
-            let waiter = launch({
-                let token = token.clone();
-                async move { cancellable(&token, std::future::pending::<()>()).await }
-            });
-            yield_now().await;
-            source.cancel();
-            assert_eq!(waiter.await.unwrap(), Err(Cancelled));
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let source = CancellationSource::new();
+                    let token = source.token();
+                    let waiter = launch({
+                        let token = token.clone();
+                        async move { cancellable(&token, std::future::pending::<()>()).await }
+                    });
+                    yield_now().await;
+                    source.cancel();
+                    assert_eq!(waiter.await.unwrap(), Err(Cancelled));
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -1862,17 +1885,22 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let source = CancellationSource::new();
-            let token = source.token();
-            token
-                .state
-                .cancel_after_waiter_check
-                .store(true, Ordering::Release);
+        runtime
+            .run_within(
+                async {
+                    let source = CancellationSource::new();
+                    let token = source.token();
+                    token
+                        .state
+                        .cancel_after_waiter_check
+                        .store(true, Ordering::Release);
 
-            token.cancelled().await;
-            assert!(source.is_cancelled());
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+                    token.cancelled().await;
+                    assert!(source.is_cancelled());
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -1883,7 +1911,12 @@ mod tests {
             .unwrap();
         let deadline = Deadline::after(Duration::ZERO);
         assert!(deadline.is_elapsed());
-        let result = runtime.run_within(connection_until(deadline, std::future::pending::<()>()), std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let result = runtime
+            .run_within(
+                connection_until(deadline, std::future::pending::<()>()),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(result, Err(ConnectionDeadlineElapsed));
     }
 
@@ -1893,28 +1926,33 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            tokio::time::pause();
-            let reporter = ProgressReporter::new();
-            let watch = reporter.watch();
-            let operation = async move {
-                for _ in 0..3 {
-                    // Advancing from this same operation establishes the
-                    // contract sequence: report at 10/20/30 ms, each before
-                    // the 15 ms idle deadline. A spawned driver can advance
-                    // time before its sibling has reported and is not a
-                    // reliable policy test.
-                    tokio::time::advance(Duration::from_millis(10)).await;
-                    reporter.report_progress();
-                }
-                7_u8
-            };
+        runtime
+            .run_within(
+                async {
+                    tokio::time::pause();
+                    let reporter = ProgressReporter::new();
+                    let watch = reporter.watch();
+                    let operation = async move {
+                        for _ in 0..3 {
+                            // Advancing from this same operation establishes the
+                            // contract sequence: report at 10/20/30 ms, each before
+                            // the 15 ms idle deadline. A spawned driver can advance
+                            // time before its sibling has reported and is not a
+                            // reliable policy test.
+                            tokio::time::advance(Duration::from_millis(10)).await;
+                            reporter.report_progress();
+                        }
+                        7_u8
+                    };
 
-            assert_eq!(
-                progress_timeout(Duration::from_millis(15), &watch, operation).await,
-                Ok(7)
-            );
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+                    assert_eq!(
+                        progress_timeout(Duration::from_millis(15), &watch, operation).await,
+                        Ok(7)
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -1923,44 +1961,49 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            tokio::time::pause();
-            let reporter = ProgressReporter::new();
-            let watch = reporter.watch();
-            let release_progress = Arc::new(BackendNotify::new());
-            let progress_task = launch({
-                let reporter = reporter.clone();
-                let release_progress = Arc::clone(&release_progress);
-                async move {
-                    release_progress.notified().await;
-                    reporter.report_progress();
-                }
-            });
-            let mut result = std::pin::pin!(progress_timeout(
-                Duration::from_millis(10),
-                &watch,
-                std::future::pending::<()>(),
-            ));
+        runtime
+            .run_within(
+                async {
+                    tokio::time::pause();
+                    let reporter = ProgressReporter::new();
+                    let watch = reporter.watch();
+                    let release_progress = Arc::new(BackendNotify::new());
+                    let progress_task = launch({
+                        let reporter = reporter.clone();
+                        let release_progress = Arc::clone(&release_progress);
+                        async move {
+                            release_progress.notified().await;
+                            reporter.report_progress();
+                        }
+                    });
+                    let mut result = std::pin::pin!(progress_timeout(
+                        Duration::from_millis(10),
+                        &watch,
+                        std::future::pending::<()>(),
+                    ));
 
-            std::future::poll_fn(|context| {
-                assert!(matches!(
-                    result.as_mut().poll(context),
-                    std::task::Poll::Pending
-                ));
-                std::task::Poll::Ready(())
-            })
-            .await;
+                    std::future::poll_fn(|context| {
+                        assert!(matches!(
+                            result.as_mut().poll(context),
+                            std::task::Poll::Pending
+                        ));
+                        std::task::Poll::Ready(())
+                    })
+                    .await;
 
-            // Retained RED characterization of the removed test fixture:
-            // work that is merely scheduled is not progress. The separate
-            // task cannot report until after the idle deadline, so the typed
-            // idle error is the correct result and not a product regression.
-            tokio::time::advance(Duration::from_millis(10)).await;
-            assert_eq!(result.await, Err(ProgressIdleElapsed));
+                    // Retained RED characterization of the removed test fixture:
+                    // work that is merely scheduled is not progress. The separate
+                    // task cannot report until after the idle deadline, so the typed
+                    // idle error is the correct result and not a product regression.
+                    tokio::time::advance(Duration::from_millis(10)).await;
+                    assert_eq!(result.await, Err(ProgressIdleElapsed));
 
-            release_progress.notify_one();
-            progress_task.await.unwrap();
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+                    release_progress.notify_one();
+                    progress_task.await.unwrap();
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -1969,27 +2012,32 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            tokio::time::pause();
-            let reporter = ProgressReporter::new();
-            let watch = reporter.watch();
-            let mut result = std::pin::pin!(progress_timeout(
-                Duration::from_millis(10),
-                &watch,
-                std::future::pending::<()>(),
-            ));
+        runtime
+            .run_within(
+                async {
+                    tokio::time::pause();
+                    let reporter = ProgressReporter::new();
+                    let watch = reporter.watch();
+                    let mut result = std::pin::pin!(progress_timeout(
+                        Duration::from_millis(10),
+                        &watch,
+                        std::future::pending::<()>(),
+                    ));
 
-            std::future::poll_fn(|context| {
-                assert!(matches!(
-                    result.as_mut().poll(context),
-                    std::task::Poll::Pending
-                ));
-                std::task::Poll::Ready(())
-            })
-            .await;
-            tokio::time::advance(Duration::from_millis(10)).await;
-            assert_eq!(result.await, Err(ProgressIdleElapsed));
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+                    std::future::poll_fn(|context| {
+                        assert!(matches!(
+                            result.as_mut().poll(context),
+                            std::task::Poll::Pending
+                        ));
+                        std::task::Poll::Ready(())
+                    })
+                    .await;
+                    tokio::time::advance(Duration::from_millis(10)).await;
+                    assert_eq!(result.await, Err(ProgressIdleElapsed));
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -1998,26 +2046,31 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            tokio::time::pause();
-            let completed = Arc::new(AtomicBool::new(false));
-            let flag = Arc::clone(&completed);
-            let task = launch(async move {
-                sleep(Duration::from_millis(10)).await;
-                flag.store(true, Ordering::Release);
-            });
-            // Let the task start and register its sleep timer before it is
-            // cancelled, so this proves cancellation interrupts pending work
-            // rather than merely racing the task's own start.
-            yield_now().await;
-            drop(task);
-            tokio::time::advance(Duration::from_millis(20)).await;
-            yield_now().await;
-            assert!(
-                !completed.load(Ordering::Acquire),
-                "a dropped task must not run to completion"
-            );
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    tokio::time::pause();
+                    let completed = Arc::new(AtomicBool::new(false));
+                    let flag = Arc::clone(&completed);
+                    let task = launch(async move {
+                        sleep(Duration::from_millis(10)).await;
+                        flag.store(true, Ordering::Release);
+                    });
+                    // Let the task start and register its sleep timer before it is
+                    // cancelled, so this proves cancellation interrupts pending work
+                    // rather than merely racing the task's own start.
+                    yield_now().await;
+                    drop(task);
+                    tokio::time::advance(Duration::from_millis(20)).await;
+                    yield_now().await;
+                    assert!(
+                        !completed.load(Ordering::Acquire),
+                        "a dropped task must not run to completion"
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -2026,26 +2079,31 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            tokio::time::pause();
-            let completed = Arc::new(AtomicBool::new(false));
-            let flag = Arc::clone(&completed);
-            launch(async move {
-                sleep(Duration::from_millis(10)).await;
-                flag.store(true, Ordering::Release);
-            })
-            .detach();
-            // Let the detached task register its sleep timer at T0 before
-            // advancing the clock, matching `dropping_a_task_cancels_it`'s
-            // ordering so the timer fires within this advance.
-            yield_now().await;
-            tokio::time::advance(Duration::from_millis(20)).await;
-            yield_now().await;
-            assert!(
-                completed.load(Ordering::Acquire),
-                "a detached task must keep running after its handle is dropped"
-            );
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    tokio::time::pause();
+                    let completed = Arc::new(AtomicBool::new(false));
+                    let flag = Arc::clone(&completed);
+                    launch(async move {
+                        sleep(Duration::from_millis(10)).await;
+                        flag.store(true, Ordering::Release);
+                    })
+                    .detach();
+                    // Let the detached task register its sleep timer at T0 before
+                    // advancing the clock, matching `dropping_a_task_cancels_it`'s
+                    // ordering so the timer fires within this advance.
+                    yield_now().await;
+                    tokio::time::advance(Duration::from_millis(20)).await;
+                    yield_now().await;
+                    assert!(
+                        completed.load(Ordering::Acquire),
+                        "a detached task must keep running after its handle is dropped"
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -2054,10 +2112,15 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let (first, second) = join(async { 1_u8 }, async { 2_u8 }).await;
-            assert_eq!((first, second), (1, 2));
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let (first, second) = join(async { 1_u8 }, async { 2_u8 }).await;
+                    assert_eq!((first, second), (1, 2));
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -2089,16 +2152,21 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let notify = Arc::new(Notify::new());
-            let waiter_notify = Arc::clone(&notify);
-            let waiter = launch(async move {
-                waiter_notify.notified().await;
-            });
-            yield_now().await;
-            notify.notify_one();
-            waiter.await.unwrap();
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let notify = Arc::new(Notify::new());
+                    let waiter_notify = Arc::clone(&notify);
+                    let waiter = launch(async move {
+                        waiter_notify.notified().await;
+                    });
+                    yield_now().await;
+                    notify.notify_one();
+                    waiter.await.unwrap();
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -2137,15 +2205,20 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let (sender, mut receiver) = channel::<u8>(1);
-            sender.try_send(1).unwrap();
-            assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
-            assert_eq!(receiver.try_recv(), Ok(1));
-            assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
-            drop(sender);
-            assert_eq!(receiver.try_recv(), Err(TryRecvError::Disconnected));
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let (sender, mut receiver) = channel::<u8>(1);
+                    sender.try_send(1).unwrap();
+                    assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
+                    assert_eq!(receiver.try_recv(), Ok(1));
+                    assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
+                    drop(sender);
+                    assert_eq!(receiver.try_recv(), Err(TryRecvError::Disconnected));
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -2190,11 +2263,16 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let (sender, receiver) = oneshot_channel::<u8>();
-            sender.send(9).unwrap();
-            assert_eq!(receiver.await, Ok(9));
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let (sender, receiver) = oneshot_channel::<u8>();
+                    sender.send(9).unwrap();
+                    assert_eq!(receiver.await, Ok(9));
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -2203,10 +2281,15 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let (sender, receiver) = oneshot_channel::<u8>();
-            drop(sender);
-            assert_eq!(receiver.await, Err(OneshotReceiverClosed));
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let (sender, receiver) = oneshot_channel::<u8>();
+                    drop(sender);
+                    assert_eq!(receiver.await, Err(OneshotReceiverClosed));
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 }

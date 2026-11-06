@@ -233,7 +233,9 @@ impl Drop for Publication {
     fn drop(&mut self) {
         // Only remove the file while it still names this process: a successor
         // daemon may already have replaced it.
-        if DaemonIdentity::read_sidecar(&self.path).is_some_and(|current| current.pid() == self.identity.pid()) {
+        if DaemonIdentity::read_sidecar(&self.path)
+            .is_some_and(|current| current.pid() == self.identity.pid())
+        {
             DaemonIdentity::remove_sidecar(&self.path);
         }
     }
@@ -335,7 +337,11 @@ impl Write for Connection {
 // `timeout: None` is reached only from the deprecated `connect_published`;
 // drop that arm with it (#433).
 #[allow(deprecated)]
-fn dial(endpoint: &str, route: Route, timeout: Option<Duration>) -> Result<Connection, BrokerV2Error> {
+fn dial(
+    endpoint: &str,
+    route: Route,
+    timeout: Option<Duration>,
+) -> Result<Connection, BrokerV2Error> {
     let address = ipc::Endpoint::new(endpoint.to_owned()).map_err(BrokerV2Error::BackendConnect)?;
     let stream = match timeout {
         // A Unix connect completes into the backlog without waiting, so a
@@ -367,9 +373,13 @@ pub fn negotiate(
     version_hint: &str,
     deadline: Duration,
 ) -> Result<Option<String>, BrokerV2Error> {
-    let session =
-        backend::connect_service_with_deadline(checked(program)?, checked(service)?, version_hint, deadline)
-            .map_err(hello_error)?;
+    let session = backend::connect_service_with_deadline(
+        checked(program)?,
+        checked(service)?,
+        version_hint,
+        deadline,
+    )
+    .map_err(hello_error)?;
     let pipe = session.negotiated().backend_pipe.clone();
     Ok((!pipe.is_empty()).then_some(pipe))
 }
@@ -385,9 +395,16 @@ pub fn connect_published(service: &str) -> Result<Connection, BrokerV2Error> {
 ///
 /// An expired dial is [`BrokerV2Error::BackendConnect`] carrying
 /// [`io::ErrorKind::TimedOut`].
-pub fn connect_published_within(service: &str, timeout: Duration) -> Result<Connection, BrokerV2Error> {
+pub fn connect_published_within(
+    service: &str,
+    timeout: Duration,
+) -> Result<Connection, BrokerV2Error> {
     let identity = published(service)?.ok_or(BrokerV2Error::NotPublished)?;
-    dial(identity.endpoint().address(), Route::Published, Some(timeout))
+    dial(
+        identity.endpoint().address(),
+        Route::Published,
+        Some(timeout),
+    )
 }
 
 /// Reach `service`'s daemon: through `program`'s v2 broker when one is bound,
@@ -413,7 +430,8 @@ pub fn connect(
     let remaining = deadline.saturating_sub(started.elapsed());
     match negotiated {
         Ok(Some(endpoint)) => dial(&endpoint, Route::Broker, Some(remaining)),
-        Ok(None) | Err(BrokerV2Error::BrokerUnavailable(_) | BrokerV2Error::ServiceUnknown { .. }) => {
+        Ok(None)
+        | Err(BrokerV2Error::BrokerUnavailable(_) | BrokerV2Error::ServiceUnknown { .. }) => {
             connect_published_within(service, remaining)
         }
         Err(error) => Err(error),

@@ -97,7 +97,10 @@ impl PanelOptions {
         if !(self.offset.is_finite() && self.offset >= 0.0) {
             return Err(GfxError::new(
                 GfxErrorKind::InvalidOptions,
-                format!("panel offset must be finite and not negative, got {}", self.offset),
+                format!(
+                    "panel offset must be finite and not negative, got {}",
+                    self.offset
+                ),
             ));
         }
         Ok(())
@@ -142,7 +145,10 @@ pub struct MonitorInfo {
 }
 
 impl MonitorInfo {
-    #[cfg_attr(not(feature = "gfx-egui"), allow(dead_code, reason = "built by a backend"))]
+    #[cfg_attr(
+        not(feature = "gfx-egui"),
+        allow(dead_code, reason = "built by a backend")
+    )]
     pub(crate) fn new(name: String, current: bool) -> Self {
         Self { name, current }
     }
@@ -370,7 +376,10 @@ impl WindowOptions {
             if wanted && support == Support::Unsupported {
                 return Err(GfxError::new(
                     GfxErrorKind::Unsupported,
-                    format!("{name} is not supported by the {:?} gfx backend", caps.backend),
+                    format!(
+                        "{name} is not supported by the {:?} gfx backend",
+                        caps.backend
+                    ),
                 ));
             }
         }
@@ -422,7 +431,12 @@ mod tests {
             ..caps
         };
         assert!(named(dock).validate(&caps).is_ok());
-        assert!(named(Placement::Default).validate(&all_best_effort()).is_ok(), "ignored off a dock");
+        assert!(
+            named(Placement::Default)
+                .validate(&all_best_effort())
+                .is_ok(),
+            "ignored off a dock"
+        );
         assert_eq!(WindowOptions::new("t").monitor, Monitor::Primary);
     }
 
@@ -444,16 +458,24 @@ mod tests {
         assert!(dock(DockLength::Full).validate(&caps).is_ok());
         assert!(dock(DockLength::Fixed(900.0)).validate(&caps).is_ok());
         for bad in [0.0, -3.0, f32::NAN, f32::INFINITY] {
-            let err = dock(DockLength::Fixed(bad)).validate(&caps).expect_err("rejected");
+            let err = dock(DockLength::Fixed(bad))
+                .validate(&caps)
+                .expect_err("rejected");
             assert_eq!(err.kind(), GfxErrorKind::InvalidOptions);
         }
         let plain = WindowOptions::new("t");
-        assert_eq!((plain.dock_length, plain.dock_align), (DockLength::Full, DockAlign::Center));
+        assert_eq!(
+            (plain.dock_length, plain.dock_align),
+            (DockLength::Full, DockAlign::Center)
+        );
     }
 
     #[test]
     fn a_panel_needs_a_positive_size_and_offset() {
-        assert!(PanelOptions::new(320.0, 200.0).offset(40.0).validate().is_ok());
+        assert!(PanelOptions::new(320.0, 200.0)
+            .offset(40.0)
+            .validate()
+            .is_ok());
         for bad in [
             PanelOptions::new(0.0, 10.0),
             PanelOptions::new(10.0, f32::INFINITY),

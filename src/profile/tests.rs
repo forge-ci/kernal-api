@@ -218,7 +218,10 @@ fn a_handful_of_threads_fills_a_small_ring() {
 
     const CHILD: &str = "KERNAL_SMALL_RING_TEST_PARENT";
     if let Some(parent) = std::env::var_os(CHILD) {
-        assert_ne!(parent, std::ffi::OsString::from(std::process::id().to_string()));
+        assert_ne!(
+            parent,
+            std::ffi::OsString::from(std::process::id().to_string())
+        );
     } else {
         // A profile samples every sibling in its process. Parallel libtest
         // cases add unrelated threads and mapping changes, so their unwind

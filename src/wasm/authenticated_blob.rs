@@ -319,38 +319,43 @@ mod tests {
         let job = runtime
             .handle()
             .launch_blocking(move || sink.copy_archive(reader, 0));
-        runtime.run_within(async {
-            wait_full(&hub).await;
-            let paused = hub.snapshot();
-            assert_eq!(paused.pending_write_bytes, CHUNK);
-            assert!(!job.is_finished());
-            assert!(storage.used() > 16 * 1024 * 1024);
-            crate::async_engine::sleep(Duration::from_millis(20)).await;
-            assert_eq!(
-                hub.snapshot().buffered_blob_bytes,
-                paused.buffered_blob_bytes
-            );
-            assert_eq!(
-                hub.snapshot().pending_write_bytes,
-                paused.pending_write_bytes
-            );
-            let total = timeout(Duration::from_secs(10), async {
-                let mut total = 0_u64;
-                loop {
-                    let count = read(&hub, blob).await.unwrap();
-                    if count == 0 {
-                        break;
-                    }
-                    total += count as u64;
-                    assert!(total <= LENGTH);
-                }
-                total
-            })
-            .await
-            .unwrap();
-            assert_eq!(total, LENGTH);
-            assert_eq!(job.await.unwrap().unwrap(), LENGTH);
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    wait_full(&hub).await;
+                    let paused = hub.snapshot();
+                    assert_eq!(paused.pending_write_bytes, CHUNK);
+                    assert!(!job.is_finished());
+                    assert!(storage.used() > 16 * 1024 * 1024);
+                    crate::async_engine::sleep(Duration::from_millis(20)).await;
+                    assert_eq!(
+                        hub.snapshot().buffered_blob_bytes,
+                        paused.buffered_blob_bytes
+                    );
+                    assert_eq!(
+                        hub.snapshot().pending_write_bytes,
+                        paused.pending_write_bytes
+                    );
+                    let total = timeout(Duration::from_secs(10), async {
+                        let mut total = 0_u64;
+                        loop {
+                            let count = read(&hub, blob).await.unwrap();
+                            if count == 0 {
+                                break;
+                            }
+                            total += count as u64;
+                            assert!(total <= LENGTH);
+                        }
+                        total
+                    })
+                    .await
+                    .unwrap();
+                    assert_eq!(total, LENGTH);
+                    assert_eq!(job.await.unwrap().unwrap(), LENGTH);
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(storage.used(), 0);
         hub.abandon_blob_wire(1, blob.wire()).unwrap();
         let snapshot = hub.snapshot();
@@ -384,20 +389,25 @@ mod tests {
             let job = runtime
                 .handle()
                 .launch_blocking(move || sink.copy_archive(reader, 0));
-            runtime.run_within(async {
-                wait_full(&hub).await;
-                assert!(storage.used() > 0);
-                if let Some(terminal) = terminal {
-                    hub.close_all(terminal);
-                } else {
-                    hub.abandon_blob_wire(1, blob.wire()).unwrap();
-                }
-                assert!(timeout(Duration::from_secs(5), job)
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .is_err());
-            }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+            runtime
+                .run_within(
+                    async {
+                        wait_full(&hub).await;
+                        assert!(storage.used() > 0);
+                        if let Some(terminal) = terminal {
+                            hub.close_all(terminal);
+                        } else {
+                            hub.abandon_blob_wire(1, blob.wire()).unwrap();
+                        }
+                        assert!(timeout(Duration::from_secs(5), job)
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .is_err());
+                    },
+                    std::time::Duration::from_secs(60),
+                )
+                .expect("test runtime budget");
             assert_eq!(storage.used(), 0);
             let snapshot = hub.snapshot();
             assert_eq!(snapshot.live_resources, 0);
@@ -447,30 +457,35 @@ mod tests {
                 assert!(sink.write_all(&[0x5a; CHUNK]).is_err());
                 assert!(sink.finish().is_err());
             });
-            runtime.run_within(async {
-                timeout(Duration::from_secs(5), prefix.notified())
-                    .await
-                    .unwrap();
-                assert_eq!(read(&hub, blob).await.unwrap(), CHUNK);
-                let waiting = hub.submit_blob_read(1, blob, CHUNK).unwrap();
-                assert_eq!(
-                    hub.collect_blob_read_wire(1, waiting.wire(), CHUNK, |_| panic!(
-                        "premature EOF"
-                    ))
-                    .unwrap(),
-                    0
-                );
-                assert!(storage.used() > 0);
-                resume.notify_one();
-                let result = timeout(Duration::from_secs(5), job).await.unwrap();
-                assert_eq!(result.is_err(), panic_after_prefix);
-                let closed = hub
-                    .collect_blob_read_wire(1, waiting.wire(), CHUNK, |_| {
-                        panic!("failed producer published EOF")
-                    })
-                    .unwrap();
-                assert_eq!(closed as u8, STATUS_CLOSED);
-            }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+            runtime
+                .run_within(
+                    async {
+                        timeout(Duration::from_secs(5), prefix.notified())
+                            .await
+                            .unwrap();
+                        assert_eq!(read(&hub, blob).await.unwrap(), CHUNK);
+                        let waiting = hub.submit_blob_read(1, blob, CHUNK).unwrap();
+                        assert_eq!(
+                            hub.collect_blob_read_wire(1, waiting.wire(), CHUNK, |_| panic!(
+                                "premature EOF"
+                            ))
+                            .unwrap(),
+                            0
+                        );
+                        assert!(storage.used() > 0);
+                        resume.notify_one();
+                        let result = timeout(Duration::from_secs(5), job).await.unwrap();
+                        assert_eq!(result.is_err(), panic_after_prefix);
+                        let closed = hub
+                            .collect_blob_read_wire(1, waiting.wire(), CHUNK, |_| {
+                                panic!("failed producer published EOF")
+                            })
+                            .unwrap();
+                        assert_eq!(closed as u8, STATUS_CLOSED);
+                    },
+                    std::time::Duration::from_secs(60),
+                )
+                .expect("test runtime budget");
             assert_eq!(storage.used(), 0);
             assert_eq!(hub.snapshot().live_resources, 0);
             assert_eq!(hub.snapshot().pending_operations, 0);

@@ -212,11 +212,15 @@ fn backend_spec(spec: &LaunchSpec) -> running_process::independent_spawn::Launch
         stdout: spec.stdout.clone(),
         stderr: spec.stderr.clone(),
         readiness: match &spec.readiness {
-            Readiness::ProcessStarted => running_process::independent_spawn::Readiness::ProcessStarted,
-            Readiness::File { path, value } => running_process::independent_spawn::Readiness::File {
-                path: path.clone(),
-                value: value.clone(),
-            },
+            Readiness::ProcessStarted => {
+                running_process::independent_spawn::Readiness::ProcessStarted
+            }
+            Readiness::File { path, value } => {
+                running_process::independent_spawn::Readiness::File {
+                    path: path.clone(),
+                    value: value.clone(),
+                }
+            }
         },
     }
 }

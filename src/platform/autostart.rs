@@ -59,7 +59,6 @@ pub enum AutostartError {
     InitSystem(String),
 }
 
-
 impl From<io::Error> for AutostartError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)

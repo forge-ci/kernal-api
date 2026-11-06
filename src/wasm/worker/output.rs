@@ -145,9 +145,7 @@ mod tests {
         std::fs::create_dir(&approved).unwrap();
         let error = StagedOutput::new(&approved.join("..").join("result.png"))
             .err()
-            .expect(
-            "a parent path component must not broaden an exact output grant",
-        );
+            .expect("a parent path component must not broaden an exact output grant");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
