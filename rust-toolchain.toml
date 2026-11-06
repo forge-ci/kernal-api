@@ -1,5 +1,5 @@
 [toolchain]
-channel = "1.95.0"
+channel = "1.98.1"
 profile = "minimal"
 # rustc's cross-target strip tool needs the matching LLVM runtime beside it.
 # llvm-tools-preview supplies lib/rustlib/<host>/lib for rust-objcopy's RUNPATH.
