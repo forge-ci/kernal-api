@@ -287,7 +287,8 @@ impl SessionResolver {
         }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            self.resolver.resolve_with_limit(&mut snapshot, self.unwind_limit)?;
+            self.resolver
+                .resolve_with_limit(&mut snapshot, self.unwind_limit)?;
             self.modules = self.resolver.modules();
         }
         #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]

@@ -2,11 +2,11 @@
 // Candidate entry point is currently exercised only by the artifact proof.
 #![cfg_attr(not(test), allow(dead_code))]
 use crate::async_engine::RuntimeHandle;
+#[cfg(test)]
+use crate::operations::BlobLimits;
 use crate::operations::{
     ComponentResourceBudget, ComponentResourceLease, HubError, OpaqueToken, OperationHub,
 };
-#[cfg(test)]
-use crate::operations::BlobLimits;
 use std::sync::Arc;
 use wasmtime::component::{
     Accessor, HasData, Resource, ResourceTable, Source, StreamConsumer, StreamResult,
@@ -15,120 +15,129 @@ use wasmtime::component::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use crate::wasm::compiler_dispatch::tests::compiler_helper_spec;
+    use std::time::Duration;
     mod proof {
         wasmtime::component::bindgen!({
             path: "src/guest_component_compiler.wit", world: "compiler-proof",
         });
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Existing end-to-end output-copy proof is 104 lines"
+    )]
     #[test]
     fn output_copy_is_one_shot_and_keeps_lowering_allowance_until_drop() {
         let runtime = crate::async_engine::RuntimeBuilder::current_thread()
             .enable_all()
             .build()
             .unwrap();
-        runtime.run_within(async {
-            let hub = OperationHub::new(64, 64).unwrap();
-            let budget = ComponentResourceBudget::new(Arc::clone(&hub));
-            let spec = compiler_helper_spec();
-            let grant = hub
-                .grant_compiler(0, spec, Duration::from_secs(15))
-                .unwrap();
-            let spawn = Operation {
-                hub: Arc::clone(&hub),
-                token: hub
-                    .submit_compiler_spawn(runtime.handle(), 0, grant)
-                    .unwrap(),
-                kind: OperationKind::Spawn,
-            };
-            let process = OpaqueToken::from_wire(spawn.wait().await.unwrap());
-            let mut state = State {
-                hub: Arc::clone(&hub),
-                budget: Arc::clone(&budget),
-                runtime: runtime.handle(),
-                table: ResourceTable::new(),
-                initial: None,
-                limits: wasmtime::StoreLimitsBuilder::new().build(),
-                output_copies: 0,
-                cancel_read: None,
-            };
-            let mut copied = None;
-            // stdout and stderr EOF events may race their buffered chunks.
-            // Consume only a small, fixed number of normal terminal events;
-            // this proof specifically requires a copied payload.
-            for _ in 0..8 {
-                let permit = budget.acquire(65536).unwrap();
-                let operation = Operation {
-                    hub: Arc::clone(&hub),
-                    token: hub
-                        .submit_compiler_output(runtime.handle(), 0, process)
-                        .unwrap(),
-                    kind: OperationKind::Read,
-                };
-                operation.ready().await.unwrap();
-                let output = state
-                    .table
-                    .push(Output {
-                        operation: Some(operation),
-                        _permit: permit,
-                    })
-                    .unwrap();
-                let before = hub.snapshot().retained_transfer_capacity;
-                let data = compilers::HostOutput::copy(
-                    &mut state,
-                    Resource::new_borrow(output.rep()),
-                )
-                .unwrap()
-                .unwrap();
-                match &data.tag {
-                    OutputTag::Stdout | OutputTag::Stderr => {
-                        assert!(!data.bytes.is_empty());
-                        assert!(data.bytes.len() <= 65536);
-                        copied = Some((output, before, data));
-                        break;
+        runtime
+            .run_within(
+                async {
+                    let hub = OperationHub::new(64, 64).unwrap();
+                    let budget = ComponentResourceBudget::new(Arc::clone(&hub));
+                    let spec = compiler_helper_spec();
+                    let grant = hub
+                        .grant_compiler(0, spec, Duration::from_secs(15))
+                        .unwrap();
+                    let spawn = Operation {
+                        hub: Arc::clone(&hub),
+                        token: hub
+                            .submit_compiler_spawn(runtime.handle(), 0, grant)
+                            .unwrap(),
+                        kind: OperationKind::Spawn,
+                    };
+                    let process = OpaqueToken::from_wire(spawn.wait().await.unwrap());
+                    let mut state = State {
+                        hub: Arc::clone(&hub),
+                        budget: Arc::clone(&budget),
+                        runtime: runtime.handle(),
+                        table: ResourceTable::new(),
+                        initial: None,
+                        limits: wasmtime::StoreLimitsBuilder::new().build(),
+                        output_copies: 0,
+                        cancel_read: None,
+                    };
+                    let mut copied = None;
+                    // stdout and stderr EOF events may race their buffered chunks.
+                    // Consume only a small, fixed number of normal terminal events;
+                    // this proof specifically requires a copied payload.
+                    for _ in 0..8 {
+                        let permit = budget.acquire(65536).unwrap();
+                        let operation = Operation {
+                            hub: Arc::clone(&hub),
+                            token: hub
+                                .submit_compiler_output(runtime.handle(), 0, process)
+                                .unwrap(),
+                            kind: OperationKind::Read,
+                        };
+                        operation.ready().await.unwrap();
+                        let output = state
+                            .table
+                            .push(Output {
+                                operation: Some(operation),
+                                _permit: permit,
+                            })
+                            .unwrap();
+                        let before = hub.snapshot().retained_transfer_capacity;
+                        let data = compilers::HostOutput::copy(
+                            &mut state,
+                            Resource::new_borrow(output.rep()),
+                        )
+                        .unwrap()
+                        .unwrap();
+                        match &data.tag {
+                            OutputTag::Stdout | OutputTag::Stderr => {
+                                assert!(!data.bytes.is_empty());
+                                assert!(data.bytes.len() <= 65536);
+                                copied = Some((output, before, data));
+                                break;
+                            }
+                            OutputTag::StdoutEof | OutputTag::StderrEof | OutputTag::Exhausted => {
+                                assert!(data.bytes.is_empty());
+                                drop(data);
+                                compilers::HostOutput::drop(&mut state, output).unwrap();
+                            }
+                            OutputTag::StdoutAbandoned
+                            | OutputTag::StderrAbandoned
+                            | OutputTag::StdoutError
+                            | OutputTag::StderrError => {
+                                panic!("unexpected output failure: {:?}", data.tag)
+                            }
+                        }
                     }
-                    OutputTag::StdoutEof | OutputTag::StderrEof | OutputTag::Exhausted => {
-                        assert!(data.bytes.is_empty());
-                        drop(data);
-                        compilers::HostOutput::drop(&mut state, output).unwrap();
-                    }
-                    OutputTag::StdoutAbandoned
-                    | OutputTag::StderrAbandoned
-                    | OutputTag::StdoutError
-                    | OutputTag::StderrError => {
-                        panic!("unexpected output failure: {:?}", data.tag)
-                    }
-                }
-            }
-            let (output, before, data) = copied.expect("fixture produced no output chunk");
-            let output_copies = state.output_copies;
-            assert_eq!(hub.snapshot().retained_transfer_capacity, before - 65536);
-            assert_eq!(budget.live_resources(), 1);
-            assert!(matches!(
-                compilers::HostOutput::copy(&mut state, Resource::new_borrow(output.rep()))
-                    .unwrap(),
-                Err(Error::Rejected)
-            ));
-            assert_eq!(state.output_copies, output_copies);
-            assert_eq!(hub.snapshot().retained_transfer_capacity, before - 65536);
-            // In real execution the synchronous canonical lowering owns this
-            // Vec until it returns; only then may guest code drop the resource.
-            drop(data);
-            compilers::HostOutput::drop(&mut state, output).unwrap();
-            assert_eq!(
-                hub.snapshot().retained_transfer_capacity,
-                before - 2 * 65536
-            );
-            assert_eq!(budget.live_resources(), 0);
-            budget.begin_teardown().unwrap();
-            hub.close_all(crate::operations::Terminal::Closed);
-            drop(state);
-            hub.join_process_jobs().await.unwrap();
-            budget.finish_teardown().unwrap();
-            assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+                    let (output, before, data) = copied.expect("fixture produced no output chunk");
+                    let output_copies = state.output_copies;
+                    assert_eq!(hub.snapshot().retained_transfer_capacity, before - 65536);
+                    assert_eq!(budget.live_resources(), 1);
+                    assert!(matches!(
+                        compilers::HostOutput::copy(&mut state, Resource::new_borrow(output.rep()))
+                            .unwrap(),
+                        Err(Error::Rejected)
+                    ));
+                    assert_eq!(state.output_copies, output_copies);
+                    assert_eq!(hub.snapshot().retained_transfer_capacity, before - 65536);
+                    // In real execution the synchronous canonical lowering owns this
+                    // Vec until it returns; only then may guest code drop the resource.
+                    drop(data);
+                    compilers::HostOutput::drop(&mut state, output).unwrap();
+                    assert_eq!(
+                        hub.snapshot().retained_transfer_capacity,
+                        before - 2 * 65536
+                    );
+                    assert_eq!(budget.live_resources(), 0);
+                    budget.begin_teardown().unwrap();
+                    hub.close_all(crate::operations::Terminal::Closed);
+                    drop(state);
+                    hub.join_process_jobs().await.unwrap();
+                    budget.finish_teardown().unwrap();
+                    assert_eq!(hub.snapshot().retained_transfer_capacity, 0);
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -153,11 +162,7 @@ mod tests {
         clippy::too_many_lines,
         reason = "Existing function complexity measured at ratchet adoption"
     )]
-    fn execute_artifact(
-        variable: &str,
-        expect_lowering_trap: bool,
-        cancel_read: bool,
-    ) {
+    fn execute_artifact(variable: &str, expect_lowering_trap: bool, cancel_read: bool) {
         let bytes = std::fs::read(std::env::var_os(variable).expect("Component compiler artifact"))
             .unwrap();
         let mut config = wasmtime::Config::new();
@@ -212,21 +217,23 @@ mod tests {
         );
         store.limiter(|state| &mut state.limits);
         store.set_fuel(500_000_000).unwrap();
-        let result = runtime.run_within(crate::async_engine::timeout(
-            Duration::from_secs(30),
-            async {
-                let guest =
-                    proof::CompilerProof::instantiate_async(&mut store, &component, &linker)
-                        .await?;
-                let result = crate::async_engine::cancellable(
-                    &cancellation.token(),
-                    store.run_concurrent(async |accessor| guest.call_run(accessor).await),
-                )
-                .await???;
-                wasmtime::ensure!(result.is_ok(), "shared compiler policy rejected execution");
-                Ok::<(), wasmtime::Error>(())
-            },
-        ), std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let result = runtime
+            .run_within(
+                crate::async_engine::timeout(Duration::from_secs(30), async {
+                    let guest =
+                        proof::CompilerProof::instantiate_async(&mut store, &component, &linker)
+                            .await?;
+                    let result = crate::async_engine::cancellable(
+                        &cancellation.token(),
+                        store.run_concurrent(async |accessor| guest.call_run(accessor).await),
+                    )
+                    .await???;
+                    wasmtime::ensure!(result.is_ok(), "shared compiler policy rejected execution");
+                    Ok::<(), wasmtime::Error>(())
+                }),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         let copied = store.data().output_copies;
         let retained_before_teardown = hub.snapshot().retained_transfer_capacity;
         // Even failed instantiation, cancellation, and lowering traps must destroy
@@ -237,7 +244,9 @@ mod tests {
         let early_release = (live_before_drop > 0).then(|| budget.finish_teardown());
         drop(store);
         let retained_after_store_drop = hub.snapshot().retained_transfer_capacity;
-        let joined = runtime.run_within(hub.join_process_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let joined = runtime
+            .run_within(hub.join_process_jobs(), std::time::Duration::from_secs(60))
+            .expect("test runtime budget");
         budget.finish_teardown().unwrap();
         assert_eq!(budget.live_resources(), 0);
         let snapshot = hub.snapshot();
@@ -271,7 +280,10 @@ mod tests {
         } else {
             result.unwrap();
             assert!(copied > 1);
-            assert!(!artifact.exists(), "a Component miss has no output authority");
+            assert!(
+                !artifact.exists(),
+                "a Component miss has no output authority"
+            );
             assert_eq!(std::fs::read(&neighbor).unwrap(), b"leave this file alone");
         }
     }
@@ -765,12 +777,38 @@ impl HashInputConsumer {
             return HashInputFrame::Rejected;
         }
         let words = [
-            chunk.word_0, chunk.word_1, chunk.word_2, chunk.word_3, chunk.word_4, chunk.word_5,
-            chunk.word_6, chunk.word_7, chunk.word_8, chunk.word_9, chunk.word_10, chunk.word_11,
-            chunk.word_12, chunk.word_13, chunk.word_14, chunk.word_15, chunk.word_16,
-            chunk.word_17, chunk.word_18, chunk.word_19, chunk.word_20, chunk.word_21,
-            chunk.word_22, chunk.word_23, chunk.word_24, chunk.word_25, chunk.word_26,
-            chunk.word_27, chunk.word_28, chunk.word_29, chunk.word_30, chunk.word_31,
+            chunk.word_0,
+            chunk.word_1,
+            chunk.word_2,
+            chunk.word_3,
+            chunk.word_4,
+            chunk.word_5,
+            chunk.word_6,
+            chunk.word_7,
+            chunk.word_8,
+            chunk.word_9,
+            chunk.word_10,
+            chunk.word_11,
+            chunk.word_12,
+            chunk.word_13,
+            chunk.word_14,
+            chunk.word_15,
+            chunk.word_16,
+            chunk.word_17,
+            chunk.word_18,
+            chunk.word_19,
+            chunk.word_20,
+            chunk.word_21,
+            chunk.word_22,
+            chunk.word_23,
+            chunk.word_24,
+            chunk.word_25,
+            chunk.word_26,
+            chunk.word_27,
+            chunk.word_28,
+            chunk.word_29,
+            chunk.word_30,
+            chunk.word_31,
         ];
         let mut remaining = used;
         for word in words {
@@ -876,10 +914,9 @@ impl hashes::HostHasherWithStore for wasmtime::component::HasSelf<State> {
                     result: Some(sender),
                 },
             )?;
-            Ok::<
-                Result<(Arc<OperationHub>, OpaqueToken), hashes::Error>,
-                wasmtime::Error,
-            >(Ok((hub, token)))
+            Ok::<Result<(Arc<OperationHub>, OpaqueToken), hashes::Error>, wasmtime::Error>(Ok((
+                hub, token,
+            )))
         })?;
         let (hub, token) = match start {
             Ok(start) => start,

@@ -194,16 +194,22 @@ mod tests {
         let chord = Chord::parse("Meta+Space").unwrap();
         assert!(chord.modifiers().meta && chord.key() == Key::Space);
         assert_eq!(Chord::parse("super + SPACE").unwrap(), chord);
-        assert_eq!(
-            Chord::parse("Ctrl+Shift+K").unwrap().key(),
-            Key::Char('k')
-        );
+        assert_eq!(Chord::parse("Ctrl+Shift+K").unwrap().key(), Key::Char('k'));
         assert_eq!(Chord::parse("F9").unwrap().key(), Key::Function(9));
     }
 
     #[test]
     fn rejects_bare_keys_repeats_and_unknowns() {
-        for bad in ["Space", "a", "Meta+Meta+a", "Hyper+a", "Ctrl+", "Ctrl+F13", "Ctrl+ab", ""] {
+        for bad in [
+            "Space",
+            "a",
+            "Meta+Meta+a",
+            "Hyper+a",
+            "Ctrl+",
+            "Ctrl+F13",
+            "Ctrl+ab",
+            "",
+        ] {
             assert_eq!(Chord::parse(bad), Err(HotkeyError::InvalidOptions), "{bad}");
         }
     }

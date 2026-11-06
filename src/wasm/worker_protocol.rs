@@ -728,8 +728,10 @@ fn take_output_path(input: &mut &[u8]) -> Result<Option<std::path::PathBuf>, Pro
             return Err(ProtocolError::InvalidPayload);
         }
         let units: Vec<_> = bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
             .collect();
         if units.contains(&0) {
             return Err(ProtocolError::InvalidPayload);

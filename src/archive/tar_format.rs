@@ -291,10 +291,18 @@ pub(super) fn extract_tar(
                 if let Some(parent) = output.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                OpenOptions::new().write(true).create_new(true).open(&output)?
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&output)?
             }
         };
-        copy_entry_bounded(&mut entry, &mut file, &mut remaining, limits.max_entry_bytes)?;
+        copy_entry_bounded(
+            &mut entry,
+            &mut file,
+            &mut remaining,
+            limits.max_entry_bytes,
+        )?;
         file.flush()?;
         #[cfg(unix)]
         {

@@ -2,7 +2,10 @@
 
 /// Modifier keys held during an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[allow(clippy::struct_excessive_bools, reason = "one flag per physical modifier")]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "one flag per physical modifier"
+)]
 pub struct Modifiers {
     /// Shift.
     pub shift: bool,

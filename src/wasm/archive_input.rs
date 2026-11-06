@@ -482,7 +482,12 @@ pub(crate) mod tests {
         assert!(hub
             .read_encrypted_header(1, token.wire(), MAX_HEADER_BYTES, |_| panic!("consumed"))
             .is_err());
-        let result = runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let result = runtime
+            .run_within(
+                terminal(&hub, operation),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(result.terminal, Terminal::Completed);
         assert_eq!(hub.staging_budget.used(), length);
         let archive = {
@@ -516,7 +521,10 @@ pub(crate) mod tests {
         assert_eq!(sink.0, 17 * 1024 * 1024);
         drop(reader);
         hub.close_all(Terminal::Closed);
-        runtime.run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget").unwrap();
+        runtime
+            .run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60))
+            .expect("test runtime budget")
+            .unwrap();
         assert_eq!(hub.staging_budget.used(), 0);
         assert_eq!(hub.snapshot().live_resources, 0);
         assert_eq!(hub.snapshot().pending_operations, 0);
@@ -570,7 +578,13 @@ pub(crate) mod tests {
             } else {
                 hub.cancel_wire(1, operation.wire()).unwrap();
                 assert_eq!(
-                    runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").terminal,
+                    runtime
+                        .run_within(
+                            terminal(&hub, operation),
+                            std::time::Duration::from_secs(60)
+                        )
+                        .expect("test runtime budget")
+                        .terminal,
                     Terminal::Cancelled
                 );
             }
@@ -590,7 +604,10 @@ pub(crate) mod tests {
             );
             hub.close_all(Terminal::Closed);
             drop(resume_on_drop);
-            runtime.run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget").unwrap();
+            runtime
+                .run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60))
+                .expect("test runtime budget")
+                .unwrap();
             assert_eq!(
                 hub.archive_jobs
                     .lock()
@@ -628,27 +645,32 @@ pub(crate) mod tests {
         let operation = hub
             .submit_encrypted_authentication(runtime.handle(), 1, token, [8; 12])
             .unwrap();
-        runtime.run_within(async {
-            crate::async_engine::timeout(std::time::Duration::from_secs(5), async {
-                loop {
-                    if hub
-                        .state
-                        .lock()
-                        .unwrap()
-                        .operations
-                        .get(&operation)
-                        .unwrap()
-                        .terminal
-                        .is_some()
-                    {
-                        break;
-                    }
-                    hub.suspend(operation, 1).unwrap().notified().await;
-                }
-            })
-            .await
-            .unwrap();
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    crate::async_engine::timeout(std::time::Duration::from_secs(5), async {
+                        loop {
+                            if hub
+                                .state
+                                .lock()
+                                .unwrap()
+                                .operations
+                                .get(&operation)
+                                .unwrap()
+                                .terminal
+                                .is_some()
+                            {
+                                break;
+                            }
+                            hub.suspend(operation, 1).unwrap().notified().await;
+                        }
+                    })
+                    .await
+                    .unwrap();
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(hub.snapshot().live_resources, 1);
         assert_eq!(hub.staging_budget.used(), length);
         assert!(hub
@@ -668,7 +690,10 @@ pub(crate) mod tests {
             Err(HubError::WrongKind)
         );
         hub.close_all(Terminal::Closed);
-        runtime.run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget").unwrap();
+        runtime
+            .run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60))
+            .expect("test runtime budget")
+            .unwrap();
     }
 
     #[test]
@@ -735,18 +760,23 @@ pub(crate) mod tests {
         let operation = hub
             .submit_encrypted_authentication(runtime.handle(), 1, token, [0; 12])
             .unwrap();
-        runtime.run_within(async {
-            loop {
-                if let Some(result) = hub.observe_terminal(1, operation).unwrap() {
-                    assert_eq!(result.terminal, Terminal::Rejected);
-                    assert_eq!(result.resource, None);
-                    break;
-                }
-                hub.suspend(operation, 1).unwrap().notified().await;
-            }
-            hub.close_all(Terminal::Closed);
-            hub.join_archive_jobs().await.unwrap();
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    loop {
+                        if let Some(result) = hub.observe_terminal(1, operation).unwrap() {
+                            assert_eq!(result.terminal, Terminal::Rejected);
+                            assert_eq!(result.resource, None);
+                            break;
+                        }
+                        hub.suspend(operation, 1).unwrap().notified().await;
+                    }
+                    hub.close_all(Terminal::Closed);
+                    hub.join_archive_jobs().await.unwrap();
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(hub.staging_budget.used(), 0);
         assert_eq!(hub.snapshot().live_resources, 0);
         assert_eq!(hub.snapshot().pending_operations, 0);
@@ -766,37 +796,53 @@ pub(crate) mod tests {
                 panic!("injected worker unwind")
             })
             .unwrap();
-        runtime.run_within(async {
-            assert_eq!(terminal(&hub, operation).await.terminal, Terminal::Rejected);
-            crate::async_engine::timeout(std::time::Duration::from_secs(5), async {
-                loop {
-                    if hub
-                        .archive_jobs
-                        .lock()
-                        .unwrap()
-                        .tasks
-                        .iter()
-                        .all(|task| task.is_finished())
-                    {
-                        break;
-                    }
-                    crate::async_engine::yield_now().await;
-                }
-            })
-            .await
-            .unwrap();
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    assert_eq!(terminal(&hub, operation).await.terminal, Terminal::Rejected);
+                    crate::async_engine::timeout(std::time::Duration::from_secs(5), async {
+                        loop {
+                            if hub
+                                .archive_jobs
+                                .lock()
+                                .unwrap()
+                                .tasks
+                                .iter()
+                                .all(|task| task.is_finished())
+                            {
+                                break;
+                            }
+                            crate::async_engine::yield_now().await;
+                        }
+                    })
+                    .await
+                    .unwrap();
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         let input = EncryptedInput::open(source(b"{}", 32), [0; 16], 1024).unwrap();
         let token = hub.grant_encrypted_input(1, input).unwrap();
         let operation = hub
             .submit_encrypted_authentication(runtime.handle(), 1, token, [0; 12])
             .unwrap();
         assert_eq!(
-            runtime.run_within(terminal(&hub, operation), std::time::Duration::from_secs(60)).expect("test runtime budget").terminal,
+            runtime
+                .run_within(
+                    terminal(&hub, operation),
+                    std::time::Duration::from_secs(60)
+                )
+                .expect("test runtime budget")
+                .terminal,
             Terminal::Rejected
         );
         hub.close_all(Terminal::Closed);
-        assert_eq!(runtime.run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60)).expect("test runtime budget"), Err(HubError::Closed));
+        assert_eq!(
+            runtime
+                .run_within(hub.join_archive_jobs(), std::time::Duration::from_secs(60))
+                .expect("test runtime budget"),
+            Err(HubError::Closed)
+        );
         assert_eq!(hub.staging_budget.used(), 0);
         assert_eq!(hub.snapshot().live_resources, 0);
         assert_eq!(hub.snapshot().pending_operations, 0);

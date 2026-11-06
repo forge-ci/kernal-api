@@ -80,7 +80,8 @@ impl Blake3Hasher {
         // The stream is private Component plumbing; the public facade remains
         // a bounded slice. Poll the import once to install its reader before
         // writing, then let the scalar final frame authorize the one commit.
-        let (mut writer, reader) = bindings::wit_stream::new::<bindings::kernal::hash_experiment::hashes::InputChunk>();
+        let (mut writer, reader) =
+            bindings::wit_stream::new::<bindings::kernal::hash_experiment::hashes::InputChunk>();
         let mut update = std::pin::pin!(self.inner.update(reader));
         if let Some(result) = std::future::poll_fn(|context| {
             std::task::Poll::Ready(match std::future::Future::poll(update.as_mut(), context) {

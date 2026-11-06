@@ -5,7 +5,6 @@
 //! their endpoint, product payload identifiers, and I/O policy; this module
 //! only translates the frozen envelope into facade-owned values.
 
-
 use running_process::frame_v1 as backend;
 
 /// Frozen outer framing byte for a v1 daemon frame.

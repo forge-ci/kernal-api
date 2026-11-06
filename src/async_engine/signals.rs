@@ -77,6 +77,8 @@ impl TerminationSignal {
 
 impl std::fmt::Debug for TerminationSignal {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("TerminationSignal").finish_non_exhaustive()
+        formatter
+            .debug_struct("TerminationSignal")
+            .finish_non_exhaustive()
     }
 }

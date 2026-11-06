@@ -58,27 +58,27 @@ use crate::async_engine::{self, OneshotReceiver, OneshotSender, RuntimeHandle};
 use crate::operations::{HubError, OpaqueToken, OperationHub, Terminal};
 
 pub(crate) mod capture;
+mod monitors;
 #[cfg(feature = "tauri-webview-test-support")]
 mod trace;
-mod monitors;
 mod window_control;
 mod window_options;
-pub use monitors::{WebviewLogicalRect, WebviewMonitor};
 pub use capture::{ViewportCaptureLimits, WebviewSnapshot, WebviewSnapshotChunk};
+pub use monitors::{WebviewLogicalRect, WebviewMonitor};
+#[cfg(feature = "tauri-webview-test-support")]
+pub use trace::WebviewTestTraceEvent;
+#[cfg(test)]
+use window_control::navigation_grant_target;
 #[cfg(feature = "tauri-webview-test-support")]
 pub(crate) use window_control::ExpectedPresentation;
 #[cfg(feature = "tauri-webview-test-support")]
 pub use window_control::WebviewTestPresentation;
-#[cfg(test)]
-use window_control::navigation_grant_target;
+use window_options::validate_app_id;
 #[cfg(test)]
 use window_options::MAX_APP_ID_BYTES;
-use window_options::validate_app_id;
 pub use window_options::{
     BestEffort, WebviewWindowOptions, WebviewWindowSupport, WindowOptionsError,
 };
-#[cfg(feature = "tauri-webview-test-support")]
-pub use trace::WebviewTestTraceEvent;
 
 static NEXT_LABEL: AtomicU64 = AtomicU64::new(1);
 static NEXT_WEBVIEW_STORE: AtomicU64 = AtomicU64::new(1);
@@ -384,7 +384,8 @@ impl NativeWebviewBackend {
                                 .with(|webviews| webviews.borrow_mut().remove(&native_id));
                             drop(removed);
                             let _ = window_for_ui.close();
-                            let _ = created_sender.send(Err(NativeWebviewError::HostFailure(error)));
+                            let _ =
+                                created_sender.send(Err(NativeWebviewError::HostFailure(error)));
                         }
                     }
                 }
@@ -1771,7 +1772,9 @@ mod tests {
         let same = WebviewUrlGrant::new("http://127.0.0.1:8080/runs/7").unwrap();
         let other = WebviewUrlGrant::new("http://127.0.0.1:9090/runs/7").unwrap();
         assert_eq!(
-            navigation_grant_target(&same, Some(&origin)).unwrap().as_str(),
+            navigation_grant_target(&same, Some(&origin))
+                .unwrap()
+                .as_str(),
             "http://127.0.0.1:8080/runs/7"
         );
         assert!(matches!(

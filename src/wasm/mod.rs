@@ -923,18 +923,11 @@ impl AdmittedSketch {
             .map_err(|_| SketchExecutionError::OutputGrantRejected)?;
         let operation_cleanup = Arc::clone(&operations);
         let initial_compiler = compiler
-            .map(
-                |RootCompilerGrant { spec, deadline }| {
-                    operations
-                        .grant_compiler_with_cache(
-                            0,
-                            spec,
-                            deadline,
-                            None,
-                        )
-                        .map(|token| token.wire())
-                },
-            )
+            .map(|RootCompilerGrant { spec, deadline }| {
+                operations
+                    .grant_compiler_with_cache(0, spec, deadline, None)
+                    .map(|token| token.wire())
+            })
             .transpose()
             .map_err(|_| SketchExecutionError::PrelinkFailed)?;
         #[cfg(all(test, feature = "archive-auth-test-support"))]
@@ -1563,9 +1556,7 @@ mod execution_ledger_tests {
                 .maximum_transfer_bytes(),
             24
         );
-        assert!(blobs
-            .with_progress_idle_timeout(Duration::ZERO)
-            .is_err());
+        assert!(blobs.with_progress_idle_timeout(Duration::ZERO).is_err());
         assert_eq!(
             blobs
                 .with_progress_idle_timeout(Duration::from_millis(7))
@@ -1860,7 +1851,7 @@ impl ThreadController {
             .workers
             .lock()
             .map_err(|_| SketchExecutionError::ChildPanicked)?;
-        let mut outcomes: Vec<_> = workers.outcomes.drain(..).collect();
+        let mut outcomes: Vec<_> = std::mem::take(&mut workers.outcomes);
         workers.accepted = 0;
         outcomes.sort_by_key(|(tid, _)| *tid);
         let report: Vec<_> = outcomes
@@ -1986,9 +1977,7 @@ fn read_blob_stream_chunk(
         let chunk = operations.read_blob_chunk(
             store_owner,
             crate::operations::OpaqueToken::from_wire(stream),
-            destination
-                .len()
-                .min(operations.maximum_blob_chunk_bytes()),
+            destination.len().min(operations.maximum_blob_chunk_bytes()),
             false,
         )?;
         let copied = chunk.len();
@@ -2067,9 +2056,11 @@ impl generated_v1::KernalApiV1Imports for ThreadStoreState {
     ) -> wasmtime::Result<generated_v1::StreamTransfer> {
         // The generated linker validates the entire guest destination before
         // reaching this method.
-        Ok(read_blob_stream_chunk(&self.operations, self.store_owner, stream, destination)
-            .map(generated_v1::StreamTransfer::Transferred)
-            .unwrap_or(generated_v1::StreamTransfer::Rejected))
+        Ok(
+            read_blob_stream_chunk(&self.operations, self.store_owner, stream, destination)
+                .map(generated_v1::StreamTransfer::Transferred)
+                .unwrap_or(generated_v1::StreamTransfer::Rejected),
+        )
     }
 
     fn stream_write(
@@ -2079,18 +2070,22 @@ impl generated_v1::KernalApiV1Imports for ThreadStoreState {
     ) -> wasmtime::Result<generated_v1::StreamTransfer> {
         // `source` is a bounded local copy made by the generated linker; no
         // guest pointer or guest-memory borrow reaches OperationHub.
-        Ok(write_blob_stream_chunk(&self.operations, self.store_owner, stream, source)
-            .map(generated_v1::StreamTransfer::Transferred)
-            .unwrap_or(generated_v1::StreamTransfer::Rejected))
+        Ok(
+            write_blob_stream_chunk(&self.operations, self.store_owner, stream, source)
+                .map(generated_v1::StreamTransfer::Transferred)
+                .unwrap_or(generated_v1::StreamTransfer::Rejected),
+        )
     }
 
     fn stream_close(&mut self, stream: u64) -> wasmtime::Result<i32> {
         // Closing follows the same atomic Store-scoped kind, owner, and
         // generation validation as the legacy Blob abandon opcode.
-        Ok(match self.operations.abandon_blob_wire(self.store_owner, stream) {
-            Ok(()) => 0,
-            Err(_) => 1,
-        })
+        Ok(
+            match self.operations.abandon_blob_wire(self.store_owner, stream) {
+                Ok(()) => 0,
+                Err(_) => 1,
+            },
+        )
     }
 
     fn resource_release_encrypted_archive(
@@ -2099,13 +2094,15 @@ impl generated_v1::KernalApiV1Imports for ThreadStoreState {
     ) -> wasmtime::Result<i32> {
         #[cfg(all(test, feature = "archive-auth-test-support"))]
         {
-            Ok(match self
-                .operations
-                .abandon_encrypted_input(self.store_owner, archive.0)
-            {
-                Ok(()) => 0,
-                Err(_) => 1,
-            })
+            Ok(
+                match self
+                    .operations
+                    .abandon_encrypted_input(self.store_owner, archive.0)
+                {
+                    Ok(()) => 0,
+                    Err(_) => 1,
+                },
+            )
         }
         #[cfg(not(all(test, feature = "archive-auth-test-support")))]
         {
@@ -2120,13 +2117,15 @@ impl generated_v1::KernalApiV1Imports for ThreadStoreState {
     ) -> wasmtime::Result<i32> {
         #[cfg(all(test, feature = "archive-auth-test-support"))]
         {
-            Ok(match self
-                .operations
-                .abandon_authenticated_archive(self.store_owner, archive.0)
-            {
-                Ok(()) => 0,
-                Err(_) => 1,
-            })
+            Ok(
+                match self
+                    .operations
+                    .abandon_authenticated_archive(self.store_owner, archive.0)
+                {
+                    Ok(()) => 0,
+                    Err(_) => 1,
+                },
+            )
         }
         #[cfg(not(all(test, feature = "archive-auth-test-support")))]
         {
@@ -2141,13 +2140,15 @@ impl generated_v1::KernalApiV1Imports for ThreadStoreState {
     ) -> wasmtime::Result<i32> {
         #[cfg(all(test, feature = "archive-auth-test-support"))]
         {
-            Ok(match self
-                .operations
-                .abandon_archive_entry(self.store_owner, entry.0)
-            {
-                Ok(()) => 0,
-                Err(_) => 1,
-            })
+            Ok(
+                match self
+                    .operations
+                    .abandon_archive_entry(self.store_owner, entry.0)
+                {
+                    Ok(()) => 0,
+                    Err(_) => 1,
+                },
+            )
         }
         #[cfg(not(all(test, feature = "archive-auth-test-support")))]
         {
@@ -2158,7 +2159,10 @@ impl generated_v1::KernalApiV1Imports for ThreadStoreState {
 
     #[cfg_attr(
         test,
-        expect(clippy::cognitive_complexity, reason = "Existing test dispatch complexity")
+        expect(
+            clippy::cognitive_complexity,
+            reason = "Existing test dispatch complexity"
+        )
     )]
     #[expect(clippy::too_many_lines, reason = "Existing dispatch line count")]
     fn operation_submit(&mut self, kind: u32, arg0: u64, arg1: u64) -> wasmtime::Result<u64> {
@@ -2878,71 +2882,78 @@ mod epoch_broker_tests {
             .enable_all()
             .build()
             .expect("runtime");
-        runtime.run_within(async {
-            let source = crate::async_engine::CancellationSource::new();
-            let root = compiler
-                .epoch_broker
-                .register_root(runtime.handle(), source.token())
-                .expect("root");
-            let child = compiler
-                .epoch_broker
-                .register_child(root.logical())
-                .expect("child");
-            assert_eq!(
-                compiler
-                    .execution_limits_snapshot()
-                    .active_epoch_registrations(),
-                2
-            );
-            assert!(matches!(
-                compiler.epoch_broker.register_child(root.logical()),
-                Err(SketchExecutionError::EpochRegistrationLimitExceeded)
-            ));
-            drop(child);
-            // Release is synchronous with the registration: the count drops
-            // inside `Drop`, without waiting on the ticker.
-            assert_eq!(
-                compiler
-                    .execution_limits_snapshot()
-                    .active_epoch_registrations(),
-                1
-            );
-            // A child Store's normal release must not publish logical
-            // completion. Wait for the exact broker tick that the assertion
-            // below is about rather than sleeping for the length of one.
-            let before = compiler.epoch_broker.ticks();
-            let tick_deadline = Instant::now() + Duration::from_secs(5);
-            while compiler.epoch_broker.ticks() == before && Instant::now() < tick_deadline {
-                crate::async_engine::sleep(compiler.epoch_broker.limits.tick_interval()).await;
-            }
-            assert!(
-                compiler.epoch_broker.ticks() > before,
-                "the broker must tick over the surviving root registration"
-            );
-            assert_eq!(root.logical().winner.load(Ordering::Acquire), EPOCH_PENDING);
-            let ticker = root.finish().expect("the last release returns its ticker");
-            // The final release is also synchronous: the ledger reads zero
-            // before the ticker task is joined, not because of it.
-            assert_eq!(
-                compiler
-                    .execution_limits_snapshot()
-                    .active_epoch_registrations(),
-                0
-            );
-            let _ = ticker.await;
-            assert_eq!(
-                compiler
-                    .execution_limits_snapshot()
-                    .active_epoch_registrations(),
-                0
-            );
-            let state = compiler.epoch_broker.state.lock().expect("broker state");
-            assert_eq!(
-                state.generation, 2,
-                "one start and one exact-once final removal"
-            );
-            assert!(state.ticker.is_none());
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let source = crate::async_engine::CancellationSource::new();
+                    let root = compiler
+                        .epoch_broker
+                        .register_root(runtime.handle(), source.token())
+                        .expect("root");
+                    let child = compiler
+                        .epoch_broker
+                        .register_child(root.logical())
+                        .expect("child");
+                    assert_eq!(
+                        compiler
+                            .execution_limits_snapshot()
+                            .active_epoch_registrations(),
+                        2
+                    );
+                    assert!(matches!(
+                        compiler.epoch_broker.register_child(root.logical()),
+                        Err(SketchExecutionError::EpochRegistrationLimitExceeded)
+                    ));
+                    drop(child);
+                    // Release is synchronous with the registration: the count drops
+                    // inside `Drop`, without waiting on the ticker.
+                    assert_eq!(
+                        compiler
+                            .execution_limits_snapshot()
+                            .active_epoch_registrations(),
+                        1
+                    );
+                    // A child Store's normal release must not publish logical
+                    // completion. Wait for the exact broker tick that the assertion
+                    // below is about rather than sleeping for the length of one.
+                    let before = compiler.epoch_broker.ticks();
+                    let tick_deadline = Instant::now() + Duration::from_secs(5);
+                    while compiler.epoch_broker.ticks() == before && Instant::now() < tick_deadline
+                    {
+                        crate::async_engine::sleep(compiler.epoch_broker.limits.tick_interval())
+                            .await;
+                    }
+                    assert!(
+                        compiler.epoch_broker.ticks() > before,
+                        "the broker must tick over the surviving root registration"
+                    );
+                    assert_eq!(root.logical().winner.load(Ordering::Acquire), EPOCH_PENDING);
+                    let ticker = root.finish().expect("the last release returns its ticker");
+                    // The final release is also synchronous: the ledger reads zero
+                    // before the ticker task is joined, not because of it.
+                    assert_eq!(
+                        compiler
+                            .execution_limits_snapshot()
+                            .active_epoch_registrations(),
+                        0
+                    );
+                    let _ = ticker.await;
+                    assert_eq!(
+                        compiler
+                            .execution_limits_snapshot()
+                            .active_epoch_registrations(),
+                        0
+                    );
+                    let state = compiler.epoch_broker.state.lock().expect("broker state");
+                    assert_eq!(
+                        state.generation, 2,
+                        "one start and one exact-once final removal"
+                    );
+                    assert!(state.ticker.is_none());
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -2957,20 +2968,25 @@ mod epoch_broker_tests {
             .build()
             .expect("second");
         let source = crate::async_engine::CancellationSource::new();
-        first.run_within(async {
-            let root = compiler
-                .epoch_broker
-                .register_root(first.handle(), source.token())
-                .expect("root");
-            let same = compiler
-                .epoch_broker
-                .register_child(root.logical())
-                .expect("same runtime");
-            drop(same);
-            if let Some(ticker) = root.finish() {
-                let _ = ticker.await;
-            }
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        first
+            .run_within(
+                async {
+                    let root = compiler
+                        .epoch_broker
+                        .register_root(first.handle(), source.token())
+                        .expect("root");
+                    let same = compiler
+                        .epoch_broker
+                        .register_child(root.logical())
+                        .expect("same runtime");
+                    drop(same);
+                    if let Some(ticker) = root.finish() {
+                        let _ = ticker.await;
+                    }
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert!(matches!(
             compiler
                 .epoch_broker
@@ -3006,11 +3022,16 @@ mod epoch_broker_tests {
                     epoch.winner.store(winner, Ordering::Release);
                     epoch.wake_interrupted_operations();
                 }
-                runtime.run_within(async {
-                    crate::async_engine::timeout(Duration::from_secs(1), wake.notified())
-                        .await
-                        .expect("interrupted host operation must wake");
-                }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+                runtime
+                    .run_within(
+                        async {
+                            crate::async_engine::timeout(Duration::from_secs(1), wake.notified())
+                                .await
+                                .expect("interrupted host operation must wake");
+                        },
+                        std::time::Duration::from_secs(60),
+                    )
+                    .expect("test runtime budget");
                 assert_eq!(hub.poll_wire(0, operation.wire()), status);
                 assert!(hub.submit(0, None, 0, 0).is_err());
                 assert_eq!(hub.snapshot().pending_operations, 0);
@@ -3057,9 +3078,14 @@ mod epoch_broker_tests {
                 .expect("runtime");
             // The fixture yields once to publish readiness, then enters a real
             // guest atomic.wait. The parent is the only process that kills it.
-            runtime.run_within(async {
-                let _ = sketch.execute_threaded_root(runtime.handle()).await;
-            }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+            runtime
+                .run_within(
+                    async {
+                        let _ = sketch.execute_threaded_root(runtime.handle()).await;
+                    },
+                    std::time::Duration::from_secs(60),
+                )
+                .expect("test runtime budget");
             return;
         }
         let executable = std::env::current_exe().expect("test executable");
@@ -3139,9 +3165,14 @@ mod epoch_broker_tests {
                 .build()
                 .expect("runtime");
             // The actual Wasm import callback writes readiness and parks.
-            runtime.run_within(async {
-                let _ = sketch.execute_threaded_root(runtime.handle()).await;
-            }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+            runtime
+                .run_within(
+                    async {
+                        let _ = sketch.execute_threaded_root(runtime.handle()).await;
+                    },
+                    std::time::Duration::from_secs(60),
+                )
+                .expect("test runtime budget");
             return;
         }
         let marker = std::env::temp_dir().join(format!(
@@ -3557,12 +3588,17 @@ mod threaded_root_observation_tests {
             .enable_all()
             .build()
             .expect("runtime");
-        runtime.run_within(async {
-            assert_eq!(
-                sketch.execute_threaded_root(runtime.handle()).await,
-                Ok(ThreadedRootOutcome::Started)
-            );
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    assert_eq!(
+                        sketch.execute_threaded_root(runtime.handle()).await,
+                        Ok(ThreadedRootOutcome::Started)
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(
             compiler
                 .execution_limits_snapshot()
@@ -3588,23 +3624,33 @@ mod threaded_root_observation_tests {
             .enable_all()
             .build()
             .expect("runtime");
-        runtime.run_within(async {
-            first
-                .execute_threaded_root(runtime.handle())
-                .await
-                .expect("first preparation");
-            assert_eq!(
-                second.execute_threaded_root(runtime.handle()).await,
-                Err(SketchExecutionError::SharedMemoryLimitExceeded),
-            );
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    first
+                        .execute_threaded_root(runtime.handle())
+                        .await
+                        .expect("first preparation");
+                    assert_eq!(
+                        second.execute_threaded_root(runtime.handle()).await,
+                        Err(SketchExecutionError::SharedMemoryLimitExceeded),
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         first.close_threaded_root().expect("close first");
-        runtime.run_within(async {
-            second
-                .execute_threaded_root(runtime.handle())
-                .await
-                .expect("released reservation admits second");
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    second
+                        .execute_threaded_root(runtime.handle())
+                        .await
+                        .expect("released reservation admits second");
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
     }
 
     #[test]
@@ -3727,16 +3773,21 @@ mod threaded_root_observation_tests {
             .build()
             .expect("runtime");
         let handle = runtime.handle();
-        runtime.run_within(async {
-            assert_eq!(
-                sketch.execute_threaded_root(handle.clone()).await,
-                Ok(ThreadedRootOutcome::Started)
-            );
-            assert_eq!(
-                sketch.execute_threaded_root(handle).await,
-                Ok(ThreadedRootOutcome::Started)
-            );
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    assert_eq!(
+                        sketch.execute_threaded_root(handle.clone()).await,
+                        Ok(ThreadedRootOutcome::Started)
+                    );
+                    assert_eq!(
+                        sketch.execute_threaded_root(handle).await,
+                        Ok(ThreadedRootOutcome::Started)
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(compiler.compiled_module_count(), 1);
         let observation = sketch
             .root_execution_observation_for_test()
@@ -3778,8 +3829,12 @@ mod threaded_root_observation_tests {
             .build()
             .expect("runtime");
         for expected_yields in [0, 0] {
-            let outcome =
-                runtime.run_within(async { sketch.execute_threaded_root(runtime.handle()).await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+            let outcome = runtime
+                .run_within(
+                    async { sketch.execute_threaded_root(runtime.handle()).await },
+                    std::time::Duration::from_secs(60),
+                )
+                .expect("test runtime budget");
             assert!(matches!(
                 outcome,
                 Ok(ThreadedRootOutcome::StartedWithThreadRejections(summary))
@@ -3841,7 +3896,12 @@ mod threaded_root_observation_tests {
             .enable_all()
             .build()
             .expect("runtime");
-        let outcome = runtime.run_within(async { sketch.execute_threaded_root(runtime.handle()).await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let outcome = runtime
+            .run_within(
+                async { sketch.execute_threaded_root(runtime.handle()).await },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         let observation = sketch
             .root_execution_observation_for_test()
             .expect("prepared observation after terminal result");
@@ -3913,7 +3973,12 @@ mod threaded_root_observation_tests {
             .build()
             .expect("runtime");
         assert_eq!(
-            runtime.run_within(async { sketch.execute_threaded_root(runtime.handle()).await }, std::time::Duration::from_secs(60)).expect("test runtime budget"),
+            runtime
+                .run_within(
+                    async { sketch.execute_threaded_root(runtime.handle()).await },
+                    std::time::Duration::from_secs(60)
+                )
+                .expect("test runtime budget"),
             Ok(ThreadedRootOutcome::Started)
         );
         let prepared = sketch
@@ -3930,7 +3995,12 @@ mod threaded_root_observation_tests {
             .expect("session")
             .next_fuel_generation = u64::MAX;
         assert_eq!(
-            runtime.run_within(async { sketch.execute_threaded_root(runtime.handle()).await }, std::time::Duration::from_secs(60)).expect("test runtime budget"),
+            runtime
+                .run_within(
+                    async { sketch.execute_threaded_root(runtime.handle()).await },
+                    std::time::Duration::from_secs(60)
+                )
+                .expect("test runtime budget"),
             Err(SketchExecutionError::SessionGenerationExhausted)
         );
         let session = prepared.controller.session.lock().expect("session");
@@ -3989,7 +4059,12 @@ mod threaded_root_observation_tests {
             .build()
             .expect("runtime");
         assert_eq!(
-            runtime.run_within(async { sketch.execute_threaded_root(runtime.handle()).await }, std::time::Duration::from_secs(60)).expect("test runtime budget"),
+            runtime
+                .run_within(
+                    async { sketch.execute_threaded_root(runtime.handle()).await },
+                    std::time::Duration::from_secs(60)
+                )
+                .expect("test runtime budget"),
             Ok(ThreadedRootOutcome::Started),
         );
         let observation = sketch
@@ -4064,7 +4139,12 @@ mod threaded_root_observation_tests {
                 .build()
                 .expect("runtime");
             assert_eq!(
-                runtime.run_within(async { sketch.execute_threaded_root(runtime.handle()).await }, std::time::Duration::from_secs(60)).expect("test runtime budget"),
+                runtime
+                    .run_within(
+                        async { sketch.execute_threaded_root(runtime.handle()).await },
+                        std::time::Duration::from_secs(60)
+                    )
+                    .expect("test runtime budget"),
                 Err(SketchExecutionError::DeadlineExceeded)
             );
             sketch.close_threaded_root().expect("close");
@@ -4087,7 +4167,12 @@ mod threaded_root_observation_tests {
         // the child after it begins running.  Both are the documented deadline result; which
         // store observes the tick is scheduler-dependent, so do not make the test depend on
         // that race.  The cleanup assertions below are the contract under test.
-        let result = runtime.run_within(async { sketch.execute_threaded_root(runtime.handle()).await }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let result = runtime
+            .run_within(
+                async { sketch.execute_threaded_root(runtime.handle()).await },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         match result {
             Err(SketchExecutionError::DeadlineExceeded) => {}
             Err(SketchExecutionError::ChildOutcomes { outcomes }) => assert_eq!(
@@ -4115,25 +4200,30 @@ mod threaded_root_observation_tests {
             .enable_all()
             .build()
             .expect("runtime");
-        runtime.run_within(async {
-            let source = crate::async_engine::CancellationSource::new();
-            let task = runtime.handle().launch({
-                let sketch = Arc::clone(&sketch);
-                let token = source.token();
-                let handle = runtime.handle();
-                async move {
-                    sketch
-                        .execute_threaded_root_cancellable(handle, token)
-                        .await
-                }
-            });
-            crate::async_engine::sleep(Duration::from_millis(1)).await;
-            source.cancel();
-            assert_eq!(
-                task.await.expect("join"),
-                Err(SketchExecutionError::Cancelled)
-            );
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let source = crate::async_engine::CancellationSource::new();
+                    let task = runtime.handle().launch({
+                        let sketch = Arc::clone(&sketch);
+                        let token = source.token();
+                        let handle = runtime.handle();
+                        async move {
+                            sketch
+                                .execute_threaded_root_cancellable(handle, token)
+                                .await
+                        }
+                    });
+                    crate::async_engine::sleep(Duration::from_millis(1)).await;
+                    source.cancel();
+                    assert_eq!(
+                        task.await.expect("join"),
+                        Err(SketchExecutionError::Cancelled)
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         sketch.close_threaded_root().expect("close");
         assert_eq!(
             compiler.execution_limits_snapshot(),
@@ -4146,8 +4236,7 @@ mod threaded_root_observation_tests {
         // Cancellation, not the deadline, must end the looping sketch. A 50ms
         // deadline raced the unrelated sketch's run on a slow hosted Intel Mac
         // and reported DeadlineExceeded before cancel was ever sent.
-        let compiler =
-            concurrent_epoch_compiler(Duration::from_secs(30), MAX_GUEST_THREADS_V1 + 1);
+        let compiler = concurrent_epoch_compiler(Duration::from_secs(30), MAX_GUEST_THREADS_V1 + 1);
         let looping = admit_epoch_fixture(&compiler, root_fuel_fixture());
         let normal = admit_epoch_fixture(&compiler, threaded_yield_fixture());
         let runtime = crate::async_engine::RuntimeBuilder::multi_thread()
@@ -4155,29 +4244,34 @@ mod threaded_root_observation_tests {
             .enable_all()
             .build()
             .expect("runtime");
-        runtime.run_within(async {
-            let source = crate::async_engine::CancellationSource::new();
-            let loop_task = runtime.handle().launch({
-                let sketch = Arc::clone(&looping);
-                let token = source.token();
-                let handle = runtime.handle();
-                async move {
-                    sketch
-                        .execute_threaded_root_cancellable(handle, token)
-                        .await
-                }
-            });
-            crate::async_engine::sleep(Duration::from_millis(1)).await;
-            assert_eq!(
-                normal.execute_threaded_root(runtime.handle()).await,
-                Ok(ThreadedRootOutcome::Started)
-            );
-            source.cancel();
-            assert_eq!(
-                loop_task.await.expect("join"),
-                Err(SketchExecutionError::Cancelled)
-            );
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        runtime
+            .run_within(
+                async {
+                    let source = crate::async_engine::CancellationSource::new();
+                    let loop_task = runtime.handle().launch({
+                        let sketch = Arc::clone(&looping);
+                        let token = source.token();
+                        let handle = runtime.handle();
+                        async move {
+                            sketch
+                                .execute_threaded_root_cancellable(handle, token)
+                                .await
+                        }
+                    });
+                    crate::async_engine::sleep(Duration::from_millis(1)).await;
+                    assert_eq!(
+                        normal.execute_threaded_root(runtime.handle()).await,
+                        Ok(ThreadedRootOutcome::Started)
+                    );
+                    source.cancel();
+                    assert_eq!(
+                        loop_task.await.expect("join"),
+                        Err(SketchExecutionError::Cancelled)
+                    );
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         looping.close_threaded_root().expect("close looping");
         normal.close_threaded_root().expect("close normal");
         assert_eq!(
@@ -4219,18 +4313,22 @@ mod threaded_root_observation_tests {
         replace_metadata_byte(&mut capability_skew, b"capabilities=0\n", b'1');
         let operation_skew = String::from_utf8(ABI_METADATA_VALUE.to_vec())
             .unwrap()
-            .replace("operation_protocol_revision=11\n", "operation_protocol_revision=12\n")
+            .replace(
+                "operation_protocol_revision=11\n",
+                "operation_protocol_revision=12\n",
+            )
             .into_bytes();
         let malformed = b"capabilities=0\nnot a TOML ABI contract".to_vec();
         let previous_operations = String::from_utf8(ABI_METADATA_VALUE.to_vec())
             .unwrap()
-            .replace("operation_protocol_revision=11\n", "operation_protocol_revision=10\n")
+            .replace(
+                "operation_protocol_revision=11\n",
+                "operation_protocol_revision=10\n",
+            )
             .into_bytes();
-        assert!(
-            previous_operations
-                .windows(b"operation_protocol_revision=10\n".len())
-                .any(|window| window == b"operation_protocol_revision=10\n")
-        );
+        assert!(previous_operations
+            .windows(b"operation_protocol_revision=10\n".len())
+            .any(|window| window == b"operation_protocol_revision=10\n"));
         let legacy_operations = String::from_utf8(ABI_METADATA_VALUE.to_vec())
             .unwrap()
             .replace("operation_protocol_revision=11\n", "");
@@ -4304,7 +4402,8 @@ mod threaded_root_observation_tests {
 
     #[test]
     #[expect(
-        clippy::cognitive_complexity, clippy::too_many_lines,
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
         reason = "Existing function complexity measured at ratchet adoption"
     )]
     fn supplied_threaded_artifact_admits_and_executes_the_public_profile() {
@@ -4369,15 +4468,20 @@ mod threaded_root_observation_tests {
         let output_directory = tempfile::tempdir().expect("output directory");
         let output_path = output_directory.path().join("exact-output");
         std::fs::write(&output_path, b"original").expect("existing output");
-        let outcome = runtime.run_within(async {
-            sketch
-                .execute_threaded_root_with_output(
-                    crate::async_engine::RuntimeHandle::current().expect("handle"),
-                    crate::async_engine::CancellationSource::new().token(),
-                    output_path.clone(),
-                )
-                .await
-        }, std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let outcome = runtime
+            .run_within(
+                async {
+                    sketch
+                        .execute_threaded_root_with_output(
+                            crate::async_engine::RuntimeHandle::current().expect("handle"),
+                            crate::async_engine::CancellationSource::new().token(),
+                            output_path.clone(),
+                        )
+                        .await
+                },
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(
             outcome,
             Ok(ThreadedRootOutcome::Started),
@@ -4490,7 +4594,7 @@ mod threaded_root_observation_tests {
                 2,
                 2,
                 14,
-                2,           // bounded streams completed by guest children
+                2, // bounded streams completed by guest children
             ]),
             "root and both children must publish the shared atomic result"
         );
@@ -4986,11 +5090,16 @@ mod threaded_root_observation_tests {
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("unchanged");
         std::fs::write(&destination, b"original").unwrap();
-        let result = runtime.run_within(sketch.execute_threaded_root_with_output(
-            runtime.handle(),
-            crate::async_engine::CancellationSource::new().token(),
-            destination.clone(),
-        ), std::time::Duration::from_secs(60)).expect("test runtime budget");
+        let result = runtime
+            .run_within(
+                sketch.execute_threaded_root_with_output(
+                    runtime.handle(),
+                    crate::async_engine::CancellationSource::new().token(),
+                    destination.clone(),
+                ),
+                std::time::Duration::from_secs(60),
+            )
+            .expect("test runtime budget");
         assert_eq!(result, Err(SketchExecutionError::Trapped));
         let prepared = sketch
             .prepared_root

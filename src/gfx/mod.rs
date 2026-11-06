@@ -20,7 +20,9 @@ mod window;
 pub use frame::Frame;
 pub use input::{Event, Key, Modifiers, PointerButton};
 pub use theme::{Color, Theme, ThemeMode};
-pub use window::{DockAlign, DockLength, Edge, Monitor, MonitorInfo, PanelOptions, Placement, WindowOptions};
+pub use window::{
+    DockAlign, DockLength, Edge, Monitor, MonitorInfo, PanelOptions, Placement, WindowOptions,
+};
 
 #[cfg(feature = "gfx-egui")]
 use crate::gfx_egui as backend;
@@ -39,7 +41,10 @@ mod backend {
     /// Uninhabited: no frame is ever produced without a backend.
     pub(crate) struct FrameImp<'a>(Infallible, PhantomData<&'a mut ()>);
 
-    #[allow(clippy::unused_self, reason = "uninhabited; mirrors the backend signatures")]
+    #[allow(
+        clippy::unused_self,
+        reason = "uninhabited; mirrors the backend signatures"
+    )]
     impl FrameImp<'_> {
         pub(crate) fn events(&self) -> &[Event] {
             match self.0 {}
@@ -322,7 +327,10 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    #[cfg_attr(not(feature = "gfx-egui"), allow(dead_code, reason = "built by a backend"))]
+    #[cfg_attr(
+        not(feature = "gfx-egui"),
+        allow(dead_code, reason = "built by a backend")
+    )]
     pub(crate) fn new(width: u32, height: u32, rgba: std::sync::Arc<[u8]>) -> Self {
         Self {
             width,

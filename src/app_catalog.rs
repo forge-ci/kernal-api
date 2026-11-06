@@ -52,7 +52,10 @@ fn check_uri(uri: &str) -> Result<(), LaunchError> {
     let allowed = ["http://", "https://", "file://", "mailto:"];
     if uri.len() > 8192
         || uri.chars().any(char::is_control)
-        || !allowed.iter().any(|p| uri.get(..p.len()).is_some_and(|s| s.eq_ignore_ascii_case(p)))
+        || !allowed.iter().any(|p| {
+            uri.get(..p.len())
+                .is_some_and(|s| s.eq_ignore_ascii_case(p))
+        })
     {
         return Err(LaunchError::InvalidInput);
     }
@@ -66,7 +69,11 @@ pub async fn open_uri(uri: &str) -> Result<(), LaunchError> {
 }
 
 /// Open the same URIs as [`open_uri`] with `app` instead of the default handler.
-pub async fn open_uri_with(app: &AppEntry, uri: &str, options: OpenOptions) -> Result<(), LaunchError> {
+pub async fn open_uri_with(
+    app: &AppEntry,
+    uri: &str,
+    options: OpenOptions,
+) -> Result<(), LaunchError> {
     check_uri(uri)?;
     native_app_catalog::open_uri_with(app, uri, options).await
 }
@@ -77,7 +84,13 @@ mod tests {
 
     #[tokio::test]
     async fn open_uri_rejects_other_schemes_before_touching_the_host() {
-        for bad in ["javascript:alert(1)", "/etc/passwd", "ftp://x", "https://a\nb", ""] {
+        for bad in [
+            "javascript:alert(1)",
+            "/etc/passwd",
+            "ftp://x",
+            "https://a\nb",
+            "",
+        ] {
             assert_eq!(open_uri(bad).await, Err(LaunchError::InvalidInput), "{bad}");
         }
     }
@@ -103,6 +116,8 @@ mod tests {
     #[tokio::test]
     async fn the_host_lists_applications() {
         let apps = list_apps().await;
-        assert!(apps.windows(2).all(|w| w[0].name.to_lowercase() <= w[1].name.to_lowercase()));
+        assert!(apps
+            .windows(2)
+            .all(|w| w[0].name.to_lowercase() <= w[1].name.to_lowercase()));
     }
 }

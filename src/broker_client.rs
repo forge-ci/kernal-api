@@ -276,7 +276,9 @@ fn client_error(error: backend::BrokerClientError, broker_endpoint: &str) -> Bro
             code,
             reason,
             retry_after_ms,
-        } => BrokerClientError::refused(RefusalCode::from_wire(code as i32), reason, retry_after_ms),
+        } => {
+            BrokerClientError::refused(RefusalCode::from_wire(code as i32), reason, retry_after_ms)
+        }
         other => BrokerClientError::Protocol {
             detail: other.to_string(),
         },
@@ -503,7 +505,10 @@ mod tests {
                 }
                 _ => false,
             };
-            assert!(agrees, "wire code {wire}: {expected_kind:?} vs {owned_kind:?}");
+            assert!(
+                agrees,
+                "wire code {wire}: {expected_kind:?} vs {owned_kind:?}"
+            );
         }
     }
 

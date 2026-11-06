@@ -119,7 +119,9 @@ fn logical_client_size(window: &WryWindowDispatcher<()>) -> Result<(f64, f64), W
     let ui_window = window.clone();
     window
         .run_on_main_thread(move || {
-            let _ = sender.send(crate::native_webview_window::client_logical_size(&ui_window));
+            let _ = sender.send(crate::native_webview_window::client_logical_size(
+                &ui_window,
+            ));
         })
         .map_err(|error| WebviewError::HostFailure(error.to_string()))?;
     let native = receiver
@@ -133,7 +135,10 @@ fn logical_client_size(window: &WryWindowDispatcher<()>) -> Result<(f64, f64), W
     let size = window
         .inner_size()
         .map_err(|error| WebviewError::HostFailure(error.to_string()))?;
-    Ok((f64::from(size.width) / scale, f64::from(size.height) / scale))
+    Ok((
+        f64::from(size.width) / scale,
+        f64::from(size.height) / scale,
+    ))
 }
 
 impl ExternalWebviewClient {
@@ -157,7 +162,9 @@ impl WebviewHandle {
             .native
             .lock()
             .map_err(|_| WebviewError::HostFailure("native backing table poisoned".into()))?;
-        let native = native.get(&self.resource).ok_or(WebviewError::WindowClosed)?;
+        let native = native
+            .get(&self.resource)
+            .ok_or(WebviewError::WindowClosed)?;
         Ok((native.window.clone(), native.native_id))
     }
 

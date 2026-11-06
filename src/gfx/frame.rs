@@ -3,7 +3,9 @@
 use std::ops::RangeInclusive;
 
 use super::backend::FrameImp;
-use super::{DockLength, Event, GfxError, Monitor, MonitorInfo, PanelOptions, PointerButton, Theme};
+use super::{
+    DockLength, Event, GfxError, Monitor, MonitorInfo, PanelOptions, PointerButton, Theme,
+};
 
 /// One frame of UI. Widgets are laid out top to bottom unless nested in
 /// [`Frame::horizontal`]. Each widget returns whether the user acted on it

@@ -41,7 +41,13 @@ mod error_message_tests {
 
     #[test]
     fn messages_remain_stable() {
-        assert_eq!(SimilarityError::InputTooLarge.to_string(), "similarity input exceeds the byte limit");
-        assert_eq!(SimilarityError::WorkLimitExceeded.to_string(), "similarity comparison exceeds the work limit");
+        assert_eq!(
+            SimilarityError::InputTooLarge.to_string(),
+            "similarity input exceeds the byte limit"
+        );
+        assert_eq!(
+            SimilarityError::WorkLimitExceeded.to_string(),
+            "similarity comparison exceeds the work limit"
+        );
     }
 }

@@ -61,15 +61,24 @@ impl HolderSlot {
             location,
             since: Instant::now(),
         };
-        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(holder);
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(holder);
     }
 
     fn clear(&self) {
-        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
     fn get(&self) -> Option<LockHolder> {
-        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 

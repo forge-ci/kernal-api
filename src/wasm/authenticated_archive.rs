@@ -429,7 +429,8 @@ fn authenticated_archive_registry_rejection_and_teardown_release_storage() {
 
 #[test]
 #[expect(
-    clippy::cognitive_complexity, clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    clippy::too_many_lines,
     reason = "Existing function complexity measured at ratchet adoption"
 )]
 fn authenticated_archive_registry_extracts_large_zip_with_bounded_transfers() {

@@ -7,7 +7,7 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Wake, Waker};
 
-use super::{Shared, apply_theme, draw, screenshot_event};
+use super::{apply_theme, draw, screenshot_event, Shared};
 use crate::gfx::{App, Event, GfxError, GfxErrorKind, Snapshot, WindowOptions};
 
 /// Frames laid out before painting: enough for egui's first-frame sizing
@@ -35,7 +35,9 @@ pub(crate) fn snapshot(options: &WindowOptions, app: &mut dyn App) -> Result<Sna
         };
         let mut shared = Shared::new(Vec::new());
         let mut full = ctx.run_ui(input, |ui| {
-            draw(ui, options.transparent, &mut shared, &mut |frame| app.frame(frame));
+            draw(ui, options.transparent, &mut shared, &mut |frame| {
+                app.frame(frame)
+            });
         });
         for (id, deltas) in &full.textures_delta.set {
             textures.extend(deltas.iter().map(|delta| (*id, delta.clone())));
@@ -69,7 +71,11 @@ pub(crate) fn snapshot(options: &WindowOptions, app: &mut dyn App) -> Result<Sna
 fn pixel_size((width, height): (f32, f32)) -> (u32, u32) {
     let clamp = |value: f32| {
         // Validated finite and positive by `WindowOptions::validate`.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped")]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped"
+        )]
         let pixels = value.round().clamp(1.0, 16384.0) as u32;
         pixels
     };
@@ -159,8 +165,8 @@ pub(crate) fn read_back(
 ) -> Result<egui::ColorImage, GfxError> {
     let (width, height) = (target.width(), target.height());
     let unpadded = width * 4;
-    let padded = unpadded.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-        * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded =
+        unpadded.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("gfx snapshot readback"),
         size: u64::from(padded) * u64::from(height),
@@ -196,13 +202,18 @@ pub(crate) fn read_back(
     let mapped = slice.get_mapped_range().map_err(backend_error)?;
     let mut pixels = Vec::with_capacity(width as usize * height as usize);
     for row in mapped.chunks(padded as usize) {
-        for px in row[..unpadded as usize].chunks_exact(4) {
-            pixels.push(egui::Color32::from_rgba_premultiplied(px[0], px[1], px[2], px[3]));
+        for px in row[..unpadded as usize].as_chunks::<4>().0 {
+            pixels.push(egui::Color32::from_rgba_premultiplied(
+                px[0], px[1], px[2], px[3],
+            ));
         }
     }
     drop(mapped);
     buffer.unmap();
-    Ok(egui::ColorImage::new([width as usize, height as usize], pixels))
+    Ok(egui::ColorImage::new(
+        [width as usize, height as usize],
+        pixels,
+    ))
 }
 
 /// Drive a future to completion on this thread. wgpu's native adapter and
@@ -259,7 +270,7 @@ mod tests {
         let first = &shot.rgba()[..4];
         assert_eq!(first[3], 255, "opaque panel");
         assert!(
-            shot.rgba().chunks_exact(4).any(|px| px != first),
+            shot.rgba().as_chunks::<4>().0.iter().any(|px| px != first),
             "text was drawn over the panel"
         );
     }
