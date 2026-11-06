@@ -179,13 +179,9 @@ impl Dir {
         if raw == INVALID_HANDLE_VALUE {
             // Last compatibility path; errors remain visible to the engine.
             for entry in std::fs::read_dir(&self.path)? {
-                match entry {
-                    Ok(e) => {
-                        if !visit(&e.file_name(), root(&e.path(), follow)) {
-                            break;
-                        }
-                    }
-                    Err(e) => return Err(e),
+                let e = entry?;
+                if !visit(&e.file_name(), root(&e.path(), follow)) {
+                    break;
                 }
             }
             return Ok(());
