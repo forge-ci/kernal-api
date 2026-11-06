@@ -1,6 +1,2 @@
 [target.wasm32-wasip1-threads]
-# `kernal-api-run` is the closed host ABI entry point. It is intentionally
-# explicit because Rust's release linker otherwise removes an entry point that
-# the guest's own `_start` does not call.
 linker = "rust-lld"
-rustflags = ["-C", "link-arg=--export=kernal-api-run"]
