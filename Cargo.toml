@@ -436,7 +436,7 @@ wasmtime = { version = "=45.0.0", default-features = false, features = [
   "threads",
 ], optional = true }
 wasmparser = { version = "=0.248.0", default-features = false, optional = true }
-zstd = { version = "=0.13.3", default-features = false, optional = true }
+zstd = { version = "=0.14.2", default-features = false, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.190"
