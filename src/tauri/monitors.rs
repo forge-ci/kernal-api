@@ -132,9 +132,17 @@ impl ExternalWebviewClient {
         wry.run_on_main_thread(move || {
             // The toolkit's monitor getters read event-loop state; they are
             // only sound on its own thread.
-            let monitors = ui_wry.available_monitors();
-            let primary = ui_wry.primary_monitor();
-            let _ = sender.send(convert(&monitors, primary.as_ref()));
+            let host_failure = |error: tauri_runtime::Error| {
+                WebviewError::HostFailure(format!("monitor query failed: {error}"))
+            };
+            let result = ui_wry
+                .available_monitors()
+                .map_err(host_failure)
+                .and_then(|monitors| {
+                    let primary = ui_wry.primary_monitor().map_err(host_failure)?;
+                    convert(&monitors, primary.as_ref())
+                });
+            let _ = sender.send(result);
         })
         .map_err(|error| WebviewError::HostFailure(error.to_string()))?;
         let monitors = receiver.await.map_err(|_| {

@@ -70,8 +70,8 @@ nix-shell -p pkg-config gtk3 webkitgtk_4_1 xorg-server xauth xvfb-run --run 'LD_
 
 ## Exact dependency boundary
 
-The current manifest pins Tauri 2.11.5, tauri-runtime 2.11.3,
-tauri-runtime-wry 2.11.4, tauri-utils 2.9.3, and Wry 0.57.0. Tauri packages
+The current manifest pins Tauri 2.12.5, tauri-runtime 2.12.2,
+tauri-runtime-wry 2.12.3, tauri-utils 2.10.2, and Wry 0.57.0. Tauri packages
 also resolve through the existing immutable Git patch at
 `4039372c9f75fc3e1c9f0fc98858c7c100880f8f`; that patch must be included when
 reporting the implementation version, not just the registry version numbers.
