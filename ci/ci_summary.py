@@ -74,8 +74,21 @@ def blocking_jobs(jobs: list[dict]) -> list[dict]:
     return [job for job in jobs if not job["name"].startswith(EXEMPT_PREFIXES) and job.get("conclusion") in BLOCKING]
 
 
+# Jobs that only judge other jobs of this run under `if: always()`. In a
+# cancelled run they see cancelled `needs` and conclude `failure` as a
+# consequence, not as independent evidence (observed on run 42372367018).
+# They are tolerated in the superseded case only; the green sibling at the same
+# SHA has already run its own copy of each to success.
+DERIVED_AGGREGATES = frozenset({"Full coverage"})
+
+
 def only_cancellations(blocked: list[dict]) -> bool:
-    return bool(blocked) and all(job.get("conclusion") == "cancelled" for job in blocked)
+    """True when the attempt's only non-success is its own cancellation."""
+    cancelled = [job for job in blocked if job.get("conclusion") == "cancelled"]
+    derived = [
+        job for job in blocked if job["name"] in DERIVED_AGGREGATES and job.get("conclusion") == "failure"
+    ]
+    return bool(cancelled) and len(cancelled) + len(derived) == len(blocked)
 
 
 def green_summary(jobs: list[dict]) -> dict | None:
