@@ -5,6 +5,16 @@ reusable-workflow job can end ``cancelled`` while its caller reports success,
 and a job added later is covered without editing this gate or the ruleset.
 Standard library only; the job-list call retries so a rate limit cannot turn a
 green run red.
+
+Superseded-run exception (kernal-api#600 incident): GitHub resolves a required
+context by the *latest* check run of that name at the head SHA, so a duplicate
+run that is cancelled after a sibling run already went green would otherwise
+post a later ``failure`` and block the PR forever. When -- and only when --
+every blocking job of this attempt concluded ``cancelled`` AND another run of
+this same workflow at the same head SHA already has a ``CI summary`` job that
+concluded ``success`` (read from the API, with retries), this gate passes and
+names the run it defers to. Any failure, timeout, startup failure or approval
+wait still fails, as does a cancellation with no green sibling.
 """
 
 from __future__ import annotations
@@ -64,14 +74,54 @@ def blocking_jobs(jobs: list[dict]) -> list[dict]:
     return [job for job in jobs if not job["name"].startswith(EXEMPT_PREFIXES) and job.get("conclusion") in BLOCKING]
 
 
+def only_cancellations(blocked: list[dict]) -> bool:
+    return bool(blocked) and all(job.get("conclusion") == "cancelled" for job in blocked)
+
+
+def green_summary(jobs: list[dict]) -> dict | None:
+    for job in jobs:
+        if job["name"].startswith(EXEMPT_PREFIXES) and job.get("conclusion") == "success":
+            return job
+    return None
+
+
+def superseding_run(repo: str, run_id: str, token: str) -> str | None:
+    """Return the URL of a sibling run at this head SHA whose CI summary already succeeded.
+
+    Siblings are runs of the same workflow file at the same head SHA. Creation
+    order is not used: duplicate runs can share a creation second (#600's two
+    runs were both created 08:20:44Z). What matters is that the sibling's gate
+    has already *concluded* success, so this run's later context is the one
+    that would otherwise win.
+    """
+    own = fetch(f"https://api.github.com/repos/{repo}/actions/runs/{run_id}", token)
+    url = (
+        f"https://api.github.com/repos/{repo}/actions/workflows/{own['workflow_id']}/runs"
+        f"?head_sha={own['head_sha']}&per_page=100"
+    )
+    for run in fetch(url, token).get("workflow_runs", []):
+        if str(run["id"]) == str(run_id) or run.get("head_sha") != own["head_sha"]:
+            continue
+        summary = green_summary(list_jobs(repo, str(run["id"]), str(run.get("run_attempt", 1)), token))
+        if summary is not None:
+            return f"{run.get('html_url', run['id'])} ({summary.get('html_url', '')})"
+    return None
+
+
 def main() -> int:
     repo = os.environ["GITHUB_REPOSITORY"]
     run_id = os.environ["GITHUB_RUN_ID"]
     attempt = os.environ["GITHUB_RUN_ATTEMPT"]
-    jobs = list_jobs(repo, run_id, attempt, os.environ["GITHUB_TOKEN"])
+    token = os.environ["GITHUB_TOKEN"]
+    jobs = list_jobs(repo, run_id, attempt, token)
     for job in jobs:
         print(f"{job.get('conclusion') or job.get('status'):>16}  {job['name']}")
     blocked = blocking_jobs(jobs)
+    if only_cancellations(blocked):
+        sibling = superseding_run(repo, run_id, token)
+        if sibling is not None:
+            print(f"\nCI summary: this run was cancelled, but it is superseded by green {sibling}; passing")
+            return 0
     if blocked:
         print(f"\nCI summary blocked by {len(blocked)} job(s):")
         for job in blocked:
