@@ -356,7 +356,7 @@ full = [
 [dependencies]
 cpal = { version = "=0.18.2", optional = true }
 # Portable decoding is opt-in for native screenshot proofs and window icons.
-png = { version = "=0.17.16", optional = true }
+png = { version = "=0.18.1", optional = true }
 reqwest = { version = "=0.12.28", default-features = false, optional = true }
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "backup"], optional = true }
 # Constrain reqwest's private parser for published consumers, not just this

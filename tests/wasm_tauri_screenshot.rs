@@ -1123,10 +1123,13 @@ fn validate_fixture_png(bytes: &[u8]) -> Result<(), &'static str> {
     {
         return Err("invalid viewport dimensions");
     }
-    if reader.output_buffer_size() > 16_000_000 {
+    let size = reader
+        .output_buffer_size()
+        .ok_or("decoded image exceeds proof limit")?;
+    if size > 16_000_000 {
         return Err("decoded image exceeds proof limit");
     }
-    let mut pixels = vec![0; reader.output_buffer_size()];
+    let mut pixels = vec![0; size];
     let frame = reader
         .next_frame(&mut pixels)
         .map_err(|_| "invalid PNG pixels")?;

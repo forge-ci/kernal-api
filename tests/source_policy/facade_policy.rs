@@ -1066,7 +1066,7 @@ fn window_icon_stays_an_opt_in_gui_capability() {
         "the window-icon feature must own both GUI backends"
     );
     for optional in [
-        r#"png = { version = "=0.17.16", optional = true }"#,
+        r#"png = { version = "=0.18.1", optional = true }"#,
         r#"x11rb = { version = "=0.13.2", optional = true }"#,
     ] {
         assert!(
