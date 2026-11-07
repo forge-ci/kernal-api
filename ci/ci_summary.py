@@ -85,9 +85,7 @@ DERIVED_AGGREGATES = frozenset({"Full coverage"})
 def only_cancellations(blocked: list[dict]) -> bool:
     """True when the attempt's only non-success is its own cancellation."""
     cancelled = [job for job in blocked if job.get("conclusion") == "cancelled"]
-    derived = [
-        job for job in blocked if job["name"] in DERIVED_AGGREGATES and job.get("conclusion") == "failure"
-    ]
+    derived = [job for job in blocked if job["name"] in DERIVED_AGGREGATES and job.get("conclusion") == "failure"]
     return bool(cancelled) and len(cancelled) + len(derived) == len(blocked)
 
 
