@@ -476,13 +476,13 @@ notify = { version = "=8.2.1", optional = true }
 # scoped ensures enabling its feature for a Wasm guest never resolves a web
 # runtime for that guest target.
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
-tauri = { version = "=2.11.5", default-features = false, optional = true }
-tauri-runtime = { version = "=2.11.3", optional = true }
-tauri-runtime-wry = { version = "=2.11.4", default-features = false, optional = true }
-tauri-utils = { version = "=2.9.3", optional = true }
-# 0.57 makes the no-handler Windows/macOS IPC bridge conditional. Published
-# Tauri runtime still uses private Wry 0.55 for its event-loop integration;
-# only this direct Wry creates the facade's isolated external webviews.
+tauri = { version = "=2.12.5", default-features = false, optional = true }
+tauri-runtime = { version = "=2.12.2", optional = true }
+tauri-runtime-wry = { version = "=2.12.3", default-features = false, optional = true }
+tauri-utils = { version = "=2.10.2", optional = true }
+# 0.57 makes the no-handler Windows/macOS IPC bridge conditional. The Tauri
+# runtime resolves this same Wry for its event-loop integration; only the
+# facade's direct use of it creates isolated external webviews.
 wry = { version = "=0.57.0", default-features = false, features = ["os-webview"], optional = true }
 # `gfx-egui` docks reach the native window behind eframe (a Wayland surface
 # on Linux, the HWND an AppBar registers on Windows, the NSView whose window
