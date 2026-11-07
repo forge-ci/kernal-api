@@ -165,12 +165,17 @@ fn decode_bytes(bytes: &[u8], path: Option<&Path>) -> Result<Rgba, IconError> {
 }
 
 fn decode_png(bytes: &[u8]) -> Result<Rgba, IconError> {
-    let decoder = png::Decoder::new(bytes);
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     let mut reader = decoder
         .read_info()
         .map_err(|e| IconError::Apply(std::io::Error::other(e.to_string())))?;
 
-    let mut buffer = vec![0; reader.output_buffer_size()];
+    // `read_info` already refused a size with no representation, with this error.
+    let size = reader
+        .output_buffer_size()
+        .ok_or(png::DecodingError::LimitsExceeded)
+        .map_err(|e| IconError::Apply(std::io::Error::other(e.to_string())))?;
+    let mut buffer = vec![0; size];
     let info = reader
         .next_frame(&mut buffer)
         .map_err(|e| IconError::Apply(std::io::Error::other(e.to_string())))?;
