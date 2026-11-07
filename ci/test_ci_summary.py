@@ -59,6 +59,13 @@ class SupersededRunTests(unittest.TestCase):
         for other in ("failure", "timed_out", "startup_failure", "action_required"):
             self.assertFalse(ci_summary.only_cancellations([job("a", "cancelled"), job("b", other)]))
 
+    def test_derived_aggregate_failure_rides_on_a_cancellation(self) -> None:
+        cancelled_run = [job("linux", "cancelled"), job("Full coverage", "failure")]
+        self.assertTrue(ci_summary.only_cancellations(cancelled_run))
+        self.assertFalse(ci_summary.only_cancellations([job("Full coverage", "failure")]))
+        self.assertFalse(ci_summary.only_cancellations([job("Full coverage", "timed_out"), job("linux", "cancelled")]))
+        self.assertFalse(ci_summary.only_cancellations([job("verify", "failure"), job("linux", "cancelled")]))
+
     def test_green_sibling_supersedes(self) -> None:
         self.assertIsNotNone(ci_summary.superseding_run("o/r", "1", "t"))
         self.assertIn("/runs/2/attempts/1/jobs", self.calls[-1])
