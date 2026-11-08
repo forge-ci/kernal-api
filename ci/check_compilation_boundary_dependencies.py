@@ -10,6 +10,8 @@ without making it part of a default consumer's compilation graph.
 
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -43,7 +45,6 @@ CASES = (
     ("archive-xz", "lzma-rust2"),
     ("archive-bzip2", "bzip2"),
     ("archive-auth-test-support", "openssl"),
-    ("tauri-webview", "tauri"),
     ("tauri-webview", "tauri-runtime-wry"),
     ("tauri-webview", "wry"),
     # The broker client adapter pulls running-process/client, whose CLI,
@@ -97,6 +98,126 @@ def verify_lock_sync() -> None:
     problems = lock_sync_failures()
     if problems:
         raise SystemExit("\n".join(problems))
+
+
+# The webview runtime crates carry exact pins in Cargo.toml instead of being
+# anchored by a direct `tauri` dependency. Those pins must be one set that
+# Tauri's own crates accept, or a lock refresh could pair incompatible releases.
+TAURI_RUNTIME_SET = ("tauri-runtime", "tauri-runtime-wry", "tauri-utils", "wry")
+
+
+def _version_key(text: str) -> tuple[int, int, int]:
+    match = re.fullmatch(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?", text.strip())
+    if not match:
+        raise SystemExit(f"tauri runtime coherence: cannot parse version {text!r}")
+    return tuple(int(part or 0) for part in match.groups())  # type: ignore[return-value]
+
+
+def _comparator_matches(comparator: str, version: str) -> bool:
+    """One Cargo comparator (`=`, `^`, `~`, `>=`, `>`, `<=`, `<` or bare caret)."""
+    match = re.fullmatch(r"(=|\^|~|>=|>|<=|<)?\s*(\S+)", comparator.strip())
+    if not match:
+        raise SystemExit(f"tauri runtime coherence: cannot parse requirement {comparator!r}")
+    op, bound_text = match.group(1) or "^", match.group(2)
+    precision = bound_text.split("-", 1)[0].count(".") + 1
+    bound, have = _version_key(bound_text), _version_key(version)
+    if op == "=":
+        return have[:precision] == bound[:precision]
+    if op in (">=", ">", "<=", "<"):
+        return {">=": have >= bound, ">": have > bound, "<=": have <= bound, "<": have < bound}[op]
+    if op == "~":
+        upper = (bound[0] + 1, 0, 0) if precision == 1 else (bound[0], bound[1] + 1, 0)
+        return bound <= have < upper
+    # Caret: the leftmost non-zero component (within the stated precision) is fixed.
+    if bound[0] or precision == 1:
+        upper = (bound[0] + 1, 0, 0)
+    elif bound[1] or precision == 2:
+        upper = (0, bound[1] + 1, 0)
+    else:
+        upper = (0, 0, bound[2] + 1)
+    return bound <= have < upper
+
+
+def requirement_matches(requirement: str, version: str) -> bool:
+    return all(_comparator_matches(part, version) for part in requirement.split(","))
+
+
+def tauri_runtime_set_failures(
+    pins: dict[str, str], resolved: dict[str, list[str]], requirements: dict[str, dict[str, str]]
+) -> list[str]:
+    """Pure check: every pin is exact and resolved, and members accept each other.
+
+    `pins` maps a set member to its Cargo.toml requirement, `resolved` to the
+    versions the lock resolves for it, and `requirements` maps a member to its
+    own declared requirements on other members.
+    """
+    failures = []
+    for name in TAURI_RUNTIME_SET:
+        pin = pins.get(name)
+        if pin is None or not pin.startswith("="):
+            failures.append(f"tauri runtime coherence: Cargo.toml must pin {name} exactly, found {pin!r}")
+            continue
+        versions = resolved.get(name, [])
+        if versions != [pin[1:].strip()]:
+            failures.append(f"tauri runtime coherence: lock resolves {name} {versions}; Cargo.toml pins {pin}")
+    for owner, needs in sorted(requirements.items()):
+        for name, requirement in sorted(needs.items()):
+            for version in resolved.get(name, []):
+                if not requirement_matches(requirement, version):
+                    failures.append(
+                        f"tauri runtime coherence: {owner} requires {name} {requirement}, lock resolves {version}"
+                    )
+    return failures
+
+
+def tauri_runtime_set_self_test() -> list[str]:
+    """RED -> GREEN on a fixture so a vacuous checker cannot pass silently."""
+    pins = {"tauri-runtime": "=2.12.2", "tauri-runtime-wry": "=2.12.3", "tauri-utils": "=2.10.2", "wry": "=0.57.0"}
+    resolved = {name: [pin[1:]] for name, pin in pins.items()}
+    needs = {"tauri-runtime-wry": {"tauri-runtime": "~2.12.2", "tauri-utils": "~2.10.2", "wry": "^0.57.0"}}
+    failures = []
+    if tauri_runtime_set_failures(pins, resolved, needs):
+        failures.append("tauri runtime coherence self-test: GREEN fixture reported a failure")
+    red_cases = {
+        "a requirement the lock does not meet": (pins, {**resolved, "wry": ["0.58.0"]}, needs),
+        "a lock that drifted from its pin": (pins, {**resolved, "tauri-utils": ["2.10.3"]}, {}),
+        "a non-exact pin": ({**pins, "tauri-runtime": "2.12.2"}, resolved, {}),
+        "a missing member": (pins, {k: v for k, v in resolved.items() if k != "tauri-runtime"}, {}),
+    }
+    for label, case in red_cases.items():
+        if not tauri_runtime_set_failures(*case):
+            failures.append(f"tauri runtime coherence self-test: RED fixture with {label} passed")
+    return failures
+
+
+def tauri_runtime_set_lock_failures() -> list[str]:
+    """Check the real manifest pins and locked `tauri-webview` graph."""
+    manifest = tomllib.loads(Path("Cargo.toml").read_text(encoding="utf-8"))
+    pins: dict[str, str] = {}
+    for table in [manifest.get("dependencies", {})] + [
+        target.get("dependencies", {}) for target in manifest.get("target", {}).values()
+    ]:
+        for name in TAURI_RUNTIME_SET:
+            if name in table:
+                entry = table[name]
+                pins[name] = entry if isinstance(entry, str) else entry.get("version", "")
+    command = [
+        "soldr", "cargo", "metadata", "--locked", "--format-version", "1",
+        "--no-default-features", "--features", "tauri-webview",
+    ]  # fmt: skip
+    metadata = json.loads(cargo_tree(command))
+    resolved_ids = {node["id"] for node in metadata["resolve"]["nodes"]}
+    resolved: dict[str, list[str]] = {}
+    requirements: dict[str, dict[str, str]] = {}
+    for package in metadata["packages"]:
+        if package["name"] not in TAURI_RUNTIME_SET or package["id"] not in resolved_ids:
+            continue
+        resolved.setdefault(package["name"], []).append(package["version"])
+        needs = requirements.setdefault(package["name"], {})
+        for dependency in package["dependencies"]:
+            if dependency["name"] in TAURI_RUNTIME_SET and dependency["kind"] is None:
+                needs[dependency["name"]] = dependency["req"]
+    return tauri_runtime_set_failures(pins, {k: sorted(v) for k, v in resolved.items()}, requirements)
 
 
 def cargo_tree(command: list[str]) -> str:
@@ -224,6 +345,8 @@ def main() -> int:  # noqa: C901 -- Existing dependency-boundary checks; ratchet
         failures.append(f"secure-random adds unrelated facilities: {', '.join(unexpected_entropy)}")
     failures.extend(build_resources_consumer_failures())
     failures.extend(rustls_client_failures())
+    failures.extend(tauri_runtime_set_self_test())
+    failures.extend(tauri_runtime_set_lock_failures())
     for feature, package in CASES:
         if package in default_graph:
             failures.append(f"RED failed: default graph unexpectedly contains {package}")
