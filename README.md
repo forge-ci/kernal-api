@@ -66,6 +66,12 @@ Optional features keep consumers from linking tooling they do not use:
   WinHTTP; the sidecar code is Windows-only. A consumer that wants it only on
   Windows can enable it under `[target.'cfg(windows)'.dependencies]`, so the
   other hosts skip its `pty`, `tar`, `zstd` and SHA-256 dependencies.
+  The download connects directly (no proxy, as before) under one overall
+  deadline. Compared with the earlier `ureq` client, TLS roots come from the
+  Windows certificate store instead of bundled roots, an HTTPS-to-HTTP
+  redirect is refused, a body over the 64 MiB cap is an error rather than a
+  truncation, and only HTTP 200 is accepted. Proxied or air-gapped hosts set
+  `KERNAL_API_CONPTY_OFFLINE` and pre-stage `conpty.dll`.
 - `fs` includes `platform::fs::read_private_regular_file_bounded` for small
   imported markers and credentials. Unix requires an effective-user-owned,
   mode-private regular file below an equally private parent. Windows requires
