@@ -121,6 +121,9 @@ class SupersededRunTests(unittest.TestCase):
 
 
 class MainTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.consulted = False
+
     def run_main(self, own_jobs: list[dict], sibling: str | None) -> int:
         env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_TOKEN": "t"}
         with (
