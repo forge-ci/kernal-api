@@ -1,6 +1,8 @@
 //! Bounded HTTP client operations on the caller's async runtime.
 //!
 //! Redirects are opt-in; credentials are never inferred.
+//! No proxy is ever used, including from the environment. URL hosts must be
+//! ASCII as written: IDNA and percent-encoded hosts are rejected, not converted.
 //! Response status interpretation and payload schemas belong to the caller.
 //! Bodies preserve content-encoded wire bytes; decoding belongs to the caller.
 //! HTTP/1 transport metadata has independent fixed parser ceilings. Caller
@@ -9,11 +11,102 @@
 use std::io;
 use std::time::Duration;
 
-// Native TLS fixtures: the self-signed identity is a CA used as its own leaf,
-// which rustls (`http-client-rustls` alone) rightly refuses.
-#[cfg(all(test, feature = "http-client"))]
+// Local TLS fixtures for whichever backend is selected. rustls must refuse the
+// self-signed CA used as its own leaf; both backends accept the CA-signed leaf.
+#[cfg(test)]
 #[path = "http_tls_tests.rs"]
 mod tls_tests;
+
+#[path = "http_url.rs"]
+mod url;
+
+use http_body_util::BodyExt;
+use url::Target;
+
+type HttpConnector = hyper_util::client::legacy::connect::HttpConnector;
+
+// Native TLS wins when both features are enabled.
+#[cfg(feature = "http-client")]
+type Connector = hyper_tls::HttpsConnector<HttpConnector>;
+#[cfg(all(feature = "http-client-rustls", not(feature = "http-client")))]
+type Connector = hyper_rustls::HttpsConnector<HttpConnector>;
+
+/// TCP only; the connector never consults proxy settings.
+fn tcp_connector() -> HttpConnector {
+    let mut http = HttpConnector::new();
+    http.enforce_http(false);
+    http.set_nodelay(true);
+    http
+}
+
+/// Platform TLS verified against the operating system's trust store.
+/// `extra_root` is a test-only PEM root added to one client.
+#[cfg(feature = "http-client")]
+fn connector(extra_root: Option<&[u8]>) -> io::Result<Connector> {
+    let mut builder = native_tls::TlsConnector::builder();
+    if let Some(pem) = extra_root {
+        builder.add_root_certificate(
+            native_tls::Certificate::from_pem(pem).map_err(io::Error::other)?,
+        );
+    }
+    let tls = builder.build().map_err(io::Error::other)?;
+    Ok(hyper_tls::HttpsConnector::from((
+        tcp_connector(),
+        tls.into(),
+    )))
+}
+
+/// rustls with the ring provider and only the bundled webpki roots: no
+/// OpenSSL, no platform verifier, no system trust store (#427).
+/// `extra_root` is a test-only PEM root added to one client.
+#[cfg(all(feature = "http-client-rustls", not(feature = "http-client")))]
+fn connector(extra_root: Option<&[u8]>) -> io::Result<Connector> {
+    use rustls::pki_types::pem::PemObject;
+    let mut roots = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    if let Some(pem) = extra_root {
+        for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(pem) {
+            roots
+                .add(certificate.map_err(io::Error::other)?)
+                .map_err(io::Error::other)?;
+        }
+    }
+    let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(io::Error::other)?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    Ok(hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(config)
+        .https_or_http()
+        .enable_http1()
+        .wrap_connector(tcp_connector()))
+}
+
+/// Aborts the spawned HTTP/1 connection task, closing its socket, on drop.
+struct Connection(tokio::task::JoinHandle<()>);
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+fn timed_out(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, message)
+}
+
+/// The smaller of `phase` and what remains of the total deadline.
+fn phase_budget(phase: Duration, deadline: std::time::Instant) -> io::Result<Duration> {
+    deadline
+        .checked_duration_since(std::time::Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .map(|remaining| remaining.min(phase))
+        .ok_or_else(|| timed_out("HTTP total deadline expired"))
+}
 
 /// Per-request ceilings. A client can be reused for requests with this policy.
 /// All timeouts must be nonzero and at most 365 days.
@@ -99,7 +192,7 @@ impl<'a> Request<'a> {
 /// Reusable HTTP transport; does not construct an executor or runtime.
 #[derive(Clone)]
 pub struct Client {
-    inner: reqwest::Client,
+    connector: Connector,
     limits: Limits,
 }
 
@@ -107,14 +200,9 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-fn transport(error: reqwest::Error) -> io::Error {
-    let kind = if error.is_timeout() {
-        io::ErrorKind::TimedOut
-    } else {
-        io::ErrorKind::Other
-    };
-    // URLs can contain application secrets; diagnostics must not echo them.
-    io::Error::new(kind, error.without_url())
+/// Transport failure. Backend errors never carry the request URL.
+fn transport(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> io::Error {
+    io::Error::other(error)
 }
 
 fn require_blocking_context() -> io::Result<()> {
@@ -208,10 +296,10 @@ impl io::Read for BlockingResponse<'_> {
 impl Client {
     /// Build a transport with finite, nonzero timeouts and verified TLS.
     pub fn new(limits: Limits) -> io::Result<Self> {
-        Self::with_builder(limits, reqwest::Client::builder())
+        Self::with_connector(limits, connector(None)?)
     }
 
-    fn with_builder(limits: Limits, builder: reqwest::ClientBuilder) -> io::Result<Self> {
+    fn with_connector(limits: Limits, connector: Connector) -> io::Result<Self> {
         if limits.max_redirects > 32 {
             return Err(invalid("HTTP redirect limit cannot exceed 32"));
         }
@@ -232,22 +320,7 @@ impl Client {
                 ));
             }
         }
-        let inner = builder
-            // Cargo unifies backend features across the consumer's graph.
-            // Preserve wire bytes even if another user enables auto-decoding.
-            .no_gzip()
-            .no_brotli()
-            .no_deflate()
-            .no_zstd()
-            .connect_timeout(limits.connect_timeout)
-            .timeout(limits.total_timeout)
-            .read_timeout(limits.read_timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .http1_only()
-            .pool_max_idle_per_host(0)
-            .build()
-            .map_err(transport)?;
-        Ok(Self { inner, limits })
+        Ok(Self { connector, limits })
     }
 
     /// Issue a GET, following redirects only when explicitly enabled in limits.
@@ -293,14 +366,13 @@ impl Client {
             }
             let location =
                 std::str::from_utf8(location).map_err(|_| invalid("invalid HTTP redirect URL"))?;
-            let previous = response.inner.url();
-            let next = previous
-                .join(location)
-                .map_err(|_| invalid("invalid HTTP redirect URL"))?;
-            if previous.scheme() == "https" && next.scheme() != "https" {
+            let previous = &response.target;
+            let joined = previous.join(location);
+            let next = Target::parse(&joined)?;
+            if previous.is_https() && !next.is_https() {
                 return Err(invalid("HTTP redirect would downgrade HTTPS"));
             }
-            if next.origin() != previous.origin() {
+            if !next.same_origin(previous) {
                 // A POST payload can contain credentials even when every
                 // application header has been discarded. Following redirects
                 // does not grant a second origin authority to receive it.
@@ -319,45 +391,29 @@ impl Client {
             }
             // Drop the intermediate body before the next hop. Every response
             // has already passed the same header/body-declaration limits.
-            url = std::borrow::Cow::Owned(next.into());
+            url = std::borrow::Cow::Owned(joined);
         }
         Err(invalid("HTTP redirect limit exceeded"))
     }
 
-    async fn execute_once(
+    fn build_request(
         &self,
-        request: Request<'_>,
-        deadline: std::time::Instant,
-    ) -> io::Result<Response> {
-        if request.url.len() > self.limits.max_url_bytes
-            || request.body.len() > self.limits.max_request_bytes
-            || request.headers.len() > self.limits.max_header_count
-        {
-            return Err(invalid("HTTP request exceeds limit"));
-        }
-        if request.method != Method::Post && !request.body.is_empty() {
-            return Err(invalid("only POST supports a request body"));
-        }
-        let url = reqwest::Url::parse(request.url).map_err(|_| invalid("invalid HTTP URL"))?;
-        if !matches!(url.scheme(), "http" | "https")
-            || !url.username().is_empty()
-            || url.password().is_some()
-        {
-            return Err(invalid("HTTP URL scheme or embedded credentials rejected"));
-        }
+        request: &Request<'_>,
+        target: &Target,
+    ) -> io::Result<hyper::Request<http_body_util::Full<bytes::Bytes>>> {
         let method = match request.method {
-            Method::Get => reqwest::Method::GET,
-            Method::Head => reqwest::Method::HEAD,
-            Method::Post => reqwest::Method::POST,
+            Method::Get => hyper::Method::GET,
+            Method::Head => hyper::Method::HEAD,
+            Method::Post => hyper::Method::POST,
         };
-        let mut builder = self.inner.request(method, url);
+        let mut headers = hyper::HeaderMap::new();
         let mut remaining_request_headers = self.limits.max_header_bytes;
         for (name, value) in request.headers {
             remaining_request_headers = remaining_request_headers
                 .checked_sub(name.len())
                 .and_then(|remaining| remaining.checked_sub(value.len()))
                 .ok_or_else(|| invalid("HTTP request headers exceed limit"))?;
-            let name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+            let name = hyper::header::HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| invalid("invalid HTTP request header name"))?;
             if matches!(
                 name.as_str(),
@@ -375,40 +431,115 @@ impl Client {
                     "HTTP framing and proxy headers are transport-owned",
                 ));
             }
-            let value = reqwest::header::HeaderValue::from_str(value)
+            let value = hyper::header::HeaderValue::from_str(value)
                 .map_err(|_| invalid("invalid HTTP request header value"))?;
-            builder = builder.header(name, value);
+            headers.append(name, value);
         }
-        if request.method == Method::Post {
-            builder = builder.body(request.body.to_vec());
+        headers
+            .entry(hyper::header::ACCEPT)
+            .or_insert(hyper::header::HeaderValue::from_static("*/*"));
+        headers.insert(
+            hyper::header::HOST,
+            hyper::header::HeaderValue::from_str(&target.host_header())
+                .map_err(|_| invalid("invalid HTTP URL"))?,
+        );
+        let body = if request.method == Method::Post {
+            bytes::Bytes::copy_from_slice(request.body)
+        } else {
+            bytes::Bytes::new()
+        };
+        let mut built = hyper::Request::new(http_body_util::Full::new(body));
+        *built.method_mut() = method;
+        *built.uri_mut() = target
+            .path_and_query()
+            .parse()
+            .map_err(|_| invalid("invalid HTTP URL"))?;
+        *built.headers_mut() = headers;
+        Ok(built)
+    }
+
+    /// Connect (TCP and TLS) and start a one-request HTTP/1 connection.
+    async fn connect(
+        &self,
+        target: &Target,
+        deadline: std::time::Instant,
+    ) -> io::Result<(
+        hyper::client::conn::http1::SendRequest<http_body_util::Full<bytes::Bytes>>,
+        Connection,
+    )> {
+        let endpoint = target.endpoint()?;
+        let mut connector = self.connector.clone();
+        let connecting = async {
+            std::future::poll_fn(|cx| tower_service::Service::poll_ready(&mut connector, cx))
+                .await
+                .map_err(transport)?;
+            let stream = tower_service::Service::call(&mut connector, endpoint)
+                .await
+                .map_err(transport)?;
+            hyper::client::conn::http1::Builder::new()
+                .handshake(stream)
+                .await
+                .map_err(transport)
+        };
+        let budget = phase_budget(self.limits.connect_timeout, deadline)?;
+        let (sender, connection) = tokio::time::timeout(budget, connecting)
+            .await
+            .map_err(|_| timed_out("HTTP connect timed out"))??;
+        let connection = Connection(tokio::spawn(async move {
+            // Request and body futures observe connection failures.
+            let _ = connection.await;
+        }));
+        Ok((sender, connection))
+    }
+
+    async fn execute_once(
+        &self,
+        request: Request<'_>,
+        deadline: std::time::Instant,
+    ) -> io::Result<Response> {
+        if request.url.len() > self.limits.max_url_bytes
+            || request.body.len() > self.limits.max_request_bytes
+            || request.headers.len() > self.limits.max_header_count
+        {
+            return Err(invalid("HTTP request exceeds limit"));
         }
-        let timeout = deadline
-            .checked_duration_since(std::time::Instant::now())
-            .filter(|duration| !duration.is_zero())
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::TimedOut, "HTTP total deadline expired")
-            })?;
-        let inner = builder.timeout(timeout).send().await.map_err(transport)?;
-        if inner.headers().len() > self.limits.max_header_count {
+        if request.method != Method::Post && !request.body.is_empty() {
+            return Err(invalid("only POST supports a request body"));
+        }
+        let target = Target::parse(request.url)?;
+        let built = self.build_request(&request, &target)?;
+        let (mut sender, connection) = self.connect(&target, deadline).await?;
+        let budget = phase_budget(self.limits.read_timeout, deadline)?;
+        let inner = tokio::time::timeout(budget, sender.send_request(built))
+            .await
+            .map_err(|_| timed_out("HTTP response headers timed out"))?
+            .map_err(transport)?;
+        let (parts, body) = inner.into_parts();
+        if parts.headers.len() > self.limits.max_header_count {
             return Err(invalid("HTTP response header count exceeds limit"));
         }
         let mut remaining_headers = self.limits.max_header_bytes;
-        for (name, value) in inner.headers() {
+        for (name, value) in &parts.headers {
             remaining_headers = remaining_headers
                 .checked_sub(name.as_str().len())
                 .and_then(|remaining| remaining.checked_sub(value.as_bytes().len()))
                 .ok_or_else(|| invalid("HTTP response headers exceed limit"))?;
         }
         if request.method != Method::Head
-            && inner
-                .content_length()
+            && hyper::body::Body::size_hint(&body)
+                .exact()
                 .is_some_and(|size| size > self.limits.max_body_bytes)
         {
             return Err(invalid("HTTP response body exceeds limit"));
         }
         Ok(Response {
             deadline,
-            inner,
+            read_timeout: self.limits.read_timeout,
+            status: parts.status.as_u16(),
+            headers: parts.headers,
+            body,
+            target,
+            _connection: connection,
             remaining: self.limits.max_body_bytes,
             pending: bytes::Bytes::new(),
             failed: false,
@@ -420,7 +551,12 @@ impl Client {
 /// Owned response, with backend resources released when dropped.
 pub struct Response {
     deadline: std::time::Instant,
-    inner: reqwest::Response,
+    read_timeout: Duration,
+    status: u16,
+    headers: hyper::HeaderMap,
+    body: hyper::body::Incoming,
+    target: Target,
+    _connection: Connection,
     remaining: u64,
     pending: bytes::Bytes,
     failed: bool,
@@ -431,12 +567,12 @@ impl Response {
     /// First response header value, looked up case-insensitively.
     /// Returned bytes are valid only while this response is borrowed.
     pub fn header(&self, name: &str) -> Option<&[u8]> {
-        self.inner.headers().get(name).map(|value| value.as_bytes())
+        self.headers.get(name).map(|value| value.as_bytes())
     }
 
     /// Numeric HTTP status. Non-success status is not a transport error.
     pub fn status(&self) -> u16 {
-        self.inner.status().as_u16()
+        self.status
     }
 
     /// Read at most the caller's buffer length, pulling only when needed.
@@ -454,31 +590,41 @@ impl Response {
         if !self.eof && std::time::Instant::now() >= self.deadline {
             self.failed = true;
             self.pending = bytes::Bytes::new();
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "HTTP total deadline expired",
-            ));
+            return Err(timed_out("HTTP total deadline expired"));
         }
         while self.pending.is_empty() && !self.eof {
-            match self.inner.chunk().await {
-                Ok(Some(chunk)) => {
-                    let Some(remaining) = self.remaining.checked_sub(chunk.len() as u64) else {
-                        self.failed = true;
-                        return Err(invalid("HTTP response body exceeds limit"));
-                    };
-                    self.remaining = remaining;
-                    self.pending = chunk;
-                }
-                Ok(None) => self.eof = true,
-                Err(error) => {
-                    self.failed = true;
-                    return Err(transport(error));
-                }
+            if let Err(error) = self.pull().await {
+                self.failed = true;
+                return Err(error);
             }
         }
         let n = buffer.len().min(self.pending.len());
         buffer[..n].copy_from_slice(&self.pending.split_to(n));
         Ok(n)
+    }
+
+    /// Wait for the next body frame under the read and total deadlines.
+    /// Trailers are parsed by the transport but not exposed.
+    async fn pull(&mut self) -> io::Result<()> {
+        let budget = phase_budget(self.read_timeout, self.deadline)?;
+        match tokio::time::timeout(budget, self.body.frame()).await {
+            Err(_) => Err(timed_out("HTTP response read timed out")),
+            Ok(None) => {
+                self.eof = true;
+                Ok(())
+            }
+            Ok(Some(Err(error))) => Err(transport(error)),
+            Ok(Some(Ok(frame))) => {
+                if let Ok(chunk) = frame.into_data() {
+                    self.remaining = self
+                        .remaining
+                        .checked_sub(chunk.len() as u64)
+                        .ok_or_else(|| invalid("HTTP response body exceeds limit"))?;
+                    self.pending = chunk;
+                }
+                Ok(())
+            }
+        }
     }
 
     /// Consume the unread part of a small response under its byte ceiling.

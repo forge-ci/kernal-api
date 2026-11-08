@@ -399,7 +399,7 @@ class NativeProofJobsTests(unittest.TestCase):
         linux = self.job("linux")
         commands = re.findall(r"soldr cargo (?:run|test|build|nextest run)\b[^\n]*(?:\n\s+--[^\n]*)*", linux)
         self.assertTrue(commands)
-        unification = ("serde_json/arbitrary_precision", "reqwest/gzip")
+        unification = ("serde_json/arbitrary_precision",)
         for command in commands:
             with self.subTest(command=command):
                 if command.startswith("soldr cargo test --locked --lib --"):

@@ -17,7 +17,7 @@ Enable exactly one of the two features; both expose the same `http` module.
   system trust store (#427). rustls refuses a CA certificate presented as a
   leaf, so the native-TLS fixture tests run only under `http-client`.
 
-Enabling both links both backends; reqwest then uses native TLS.
+Enabling both links both backends and selects native TLS.
 
 ## Metadata and buffering
 
@@ -37,7 +37,10 @@ application limits does not relax these:
   The caller buffer bounds each returned transfer, not every private allocation.
   Body bytes are counted cumulatively before a received chunk is accepted.
 
-Reqwest 0.12.28, Hyper 1.11.0 and Bytes 1.12.1 are exact optional private pins.
+The client is owned on Hyper 1.11.0's HTTP/1 connection API (hyper-util
+0.1.20 for the TCP connector, http-body-util 0.1.5 for body frames), with
+hyper-tls 0.6.0 or hyper-rustls 0.27.10 for TLS; these and Bytes 1.12.1 are
+exact optional private pins.
 The Hyper constraint is intentional even though the facade does not name its
 types: a library's lockfile alone does not constrain consumers' parser versions.
 Reaudit `proto/h1/io.rs`, `role.rs`, and `decode.rs` when updating it. Real socket
@@ -45,13 +48,50 @@ regressions send excessive heads, fields, trailers and extensions with relaxed
 application limits and require parser rejection, not a timeout. Those tests
 verify rejection behavior, not an exact allocator/RSS measurement.
 
+## URLs and proxies
+
+URLs are absolute `http` or `https` with a host and no embedded credentials;
+anything else is `InvalidData` before any lookup or connection. The fragment is
+never sent. Unencoded path and query bytes are percent-encoded as a WHATWG URL
+parser would, and dot segments are removed. The `Host` header carries the host
+as written (lowercased; IPv6 literals keep their brackets) plus the port only
+when it is not the scheme's default; TLS uses the same host, without brackets,
+for SNI and verification. Relative `Location` values resolve per RFC 3986 and
+the result is validated like any request URL.
+
+Hosts are used exactly as written. There is no IDNA mapping and no
+percent-decoding, so a host containing non-ASCII characters or a `%` escape
+(`http://bücher.example/`, `http://b%C3%BCcher.example/`, an IPv6 zone id) is
+rejected with `InvalidData` and the message `HTTP URL host must be ASCII; IDNA
+and percent-encoded hosts are not converted`. A caller that needs an
+internationalized name passes its ASCII `xn--` form, which is accepted as is.
+
+The client never uses a proxy. `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and
+`NO_PROXY` (and their lowercase forms) are ignored, and every request connects
+directly to the URL's host.
+
+### Behaviour changes from the reqwest-based client
+
+The facade replaced reqwest 0.12.28 with an owned client on Hyper; the public
+API did not change. Two behaviours did:
+
+- **No environment proxy.** reqwest picked up the proxy environment variables
+  above silently. A deployment that relied on that must now provide direct
+  egress; proxy support would be a new, explicit facade option.
+- **ASCII-only hosts.** reqwest IDNA-converted Unicode and percent-encoded
+  hosts. They are now rejected with `InvalidData`, for the initial URL and for
+  every redirect hop.
+
 ## Other safety defaults
 
 Requests and response bodies have byte ceilings; URLs and application headers
 are validated before copying. Connect, network-read and cumulative request/body
 deadlines are finite. Dropping an operation or response releases its transport.
-Automatic decompression is disabled even under downstream feature unification,
-so content-encoded bytes and their headers are preserved.
+No decompression layer is linked, so no downstream feature unification can
+enable one; content-encoded bytes and their headers are preserved. Each request
+uses its own connection (no pooling) and HTTP/1.1 only. The connect timeout
+covers DNS, TCP and the TLS handshake; the read timeout bounds the wait for the
+response head and for each body frame; the total deadline bounds all of them.
 
 Redirects default to zero and are capped at 32. Cross-origin hops discard all
 application headers. POST becomes GET for 301/302/303; 307/308 replay is allowed

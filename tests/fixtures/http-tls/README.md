@@ -40,3 +40,29 @@ Copy the resulting certificate and hex bytes into these fixtures and update the
 validity dates above. The legacy PKCS#12 envelope is for native importer
 compatibility, not a cryptographic recommendation; the RSA certificate and
 negotiated TLS connection use the platform's normal verification defaults.
+
+## CA-signed leaf (`chain-root.pem`, `chain-leaf.p12.hex`)
+
+rustls refuses a CA certificate presented as an end-entity certificate, so the
+self-signed fixture above can only prove that refusal under
+`http-client-rustls`. The chain fixture is what both backends accept:
+`chain-root.pem` is a test-only CA (`CN=kernal-http-test-only-root`) and
+`chain-leaf.p12.hex` is a PKCS#12 identity (password `fixture`) for a
+`CA:FALSE` leaf with only the `localhost` DNS name, bundled with that root.
+Both are valid from November 8, 2026 through February 5, 2029; keep the same
+820-day window. To regenerate:
+
+```sh
+openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 820 \
+  -subj /CN=kernal-http-test-only-root \
+  -addext basicConstraints=critical,CA:TRUE \
+  -addext keyUsage=critical,keyCertSign,cRLSign
+openssl req -newkey rsa:2048 -nodes -keyout leaf.key -out leaf.csr -subj /CN=localhost
+printf 'subjectAltName=DNS:localhost\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n' > ext.cnf
+openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial \
+  -out leaf.pem -days 820 -extfile ext.cnf
+openssl pkcs12 -export -inkey leaf.key -in leaf.pem -certfile ca.pem \
+  -out leaf.p12 -passout pass:fixture -keypbe PBE-SHA1-3DES \
+  -certpbe PBE-SHA1-3DES -macalg sha1
+od -An -v -tx1 leaf.p12
+```

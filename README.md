@@ -100,6 +100,14 @@ Optional features keep consumers from linking tooling they do not use:
   classification (created/modified/removed/renamed plus an explicit
   overflow-or-lost-watch rescan signal); debouncing, ignore-lists, and
   cache-invalidation policy stay with the application
+- `http-client` / `http-client-rustls` for a bounded HTTP/1 client (GET,
+  HEAD, POST, pull-based reads, a blocking adapter on the caller's runtime)
+  with native TLS or rustls; see [docs/http-client.md](docs/http-client.md).
+  **Behaviour change:** the client is now owned on Hyper rather than reqwest.
+  It never uses a proxy (reqwest honoured `HTTP_PROXY`/`HTTPS_PROXY`/
+  `ALL_PROXY`/`NO_PROXY` silently), and a URL or redirect whose host is
+  non-ASCII or percent-encoded is rejected with `InvalidData` instead of being
+  IDNA-converted; pass pre-encoded `xn--` hosts. The public API is unchanged
 - `snapshot` for cooperative thread capture and deferred unwinding
 - `crash` for the one native crash-handler and bounded crash spool
 - `profile` for bounded CPU profiles and checked-in pprof encoding
