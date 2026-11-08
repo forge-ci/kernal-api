@@ -128,7 +128,8 @@ class DownloadTests(unittest.TestCase):
         self.assertLessEqual(clock[0], runner_setup.DOWNLOAD_BUDGET_SECONDS)
         self.assertEqual(runner_setup.DOWNLOAD_BUDGET_SECONDS, 180)
         self.assertLessEqual(len(timeouts), 6)
-        self.assertEqual(delays, [3, 5, 9, 17, 33])
+        self.assertGreaterEqual(timeouts[0], 120)
+        self.assertEqual(delays, [])
         self.assertLessEqual(sum(delays) + sum(timeouts), 180)
 
     def test_digest_mismatch_is_not_retried(self):

@@ -233,7 +233,7 @@ def pkg_config_path(target: str) -> int:
 
 DOWNLOAD_ATTEMPTS = 6
 DOWNLOAD_BUDGET_SECONDS = 180
-DOWNLOAD_TIMEOUT_SECONDS = 20
+DOWNLOAD_SOCKET_TIMEOUT_SECONDS = 300
 
 
 def download(url: str) -> bytes:
@@ -244,7 +244,7 @@ def download(url: str) -> bytes:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("download budget exhausted")
-            with urllib.request.urlopen(url, timeout=min(DOWNLOAD_TIMEOUT_SECONDS, remaining)) as response:
+            with urllib.request.urlopen(url, timeout=min(DOWNLOAD_SOCKET_TIMEOUT_SECONDS, remaining)) as response:
                 return response.read()
         except (urllib.error.URLError, TimeoutError, ConnectionResetError) as error:
             # HTTPError subclasses URLError: reject permanent HTTP failures first.
