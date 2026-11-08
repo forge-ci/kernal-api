@@ -30,10 +30,10 @@ CASES = (
     ("allocator", "mimalloc-pprof"),
     ("fs-watch", "notify"),
     ("hash-sha256", "sha2"),
-    ("http-client", "reqwest"),
+    ("http-client", "hyper-tls"),
     ("http-client", "hyper"),
     ("http-client", "openssl-sys"),
-    ("http-client-rustls", "reqwest"),
+    ("http-client-rustls", "hyper-rustls"),
     ("http-client-rustls", "rustls"),
     ("http-server", "hyper"),
     ("http-server", "http-body-util"),
@@ -301,9 +301,25 @@ def build_resources_consumer_failures() -> list[str]:
 
 
 def rustls_client_failures() -> list[str]:
-    """`http-client-rustls` exists so a consumer can ship without OpenSSL (#427)."""
+    """`http-client-rustls` exists so a consumer can ship without OpenSSL (#427).
+
+    It also needs no system trust store and no second crypto provider: ring
+    and the bundled webpki roots only.
+    """
     graph = tree("http-client-rustls")
-    native = sorted(graph & {"openssl", "openssl-sys", "native-tls"})
+    native = sorted(
+        graph
+        & {
+            "openssl",
+            "openssl-sys",
+            "native-tls",
+            "aws-lc-rs",
+            "aws-lc-sys",
+            "rustls-platform-verifier",
+            "rustls-native-certs",
+            "reqwest",
+        }
+    )
     return [f"http-client-rustls graph contains {', '.join(native)}"] if native else []
 
 

@@ -8,7 +8,7 @@ fn http_parser_version_is_pinned_for_published_consumers() {
     assert!(manifest
         .contains("hyper = { version = \"=1.11.0\", default-features = false, optional = true }"));
     for feature in ["http-client", "http-client-rustls"] {
-        let prefix = format!("{feature} = [\"dep:reqwest\", \"dep:bytes\", \"dep:hyper\", ");
+        let prefix = format!("{feature} = [\"dep:bytes\", \"dep:hyper\", ");
         assert!(
             manifest.contains(&prefix),
             "{feature} must pin hyper's parser"

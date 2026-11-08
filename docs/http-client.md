@@ -17,7 +17,7 @@ Enable exactly one of the two features; both expose the same `http` module.
   system trust store (#427). rustls refuses a CA certificate presented as a
   leaf, so the native-TLS fixture tests run only under `http-client`.
 
-Enabling both links both backends; reqwest then uses native TLS.
+Enabling both links both backends and selects native TLS.
 
 ## Metadata and buffering
 
@@ -37,7 +37,10 @@ application limits does not relax these:
   The caller buffer bounds each returned transfer, not every private allocation.
   Body bytes are counted cumulatively before a received chunk is accepted.
 
-Reqwest 0.12.28, Hyper 1.11.0 and Bytes 1.12.1 are exact optional private pins.
+The client is owned on Hyper 1.11.0's HTTP/1 connection API (hyper-util
+0.1.20 for the TCP connector, http-body-util 0.1.5 for body frames), with
+hyper-tls 0.6.0 or hyper-rustls 0.27.10 for TLS; these and Bytes 1.12.1 are
+exact optional private pins.
 The Hyper constraint is intentional even though the facade does not name its
 types: a library's lockfile alone does not constrain consumers' parser versions.
 Reaudit `proto/h1/io.rs`, `role.rs`, and `decode.rs` when updating it. Real socket
@@ -50,8 +53,11 @@ verify rejection behavior, not an exact allocator/RSS measurement.
 Requests and response bodies have byte ceilings; URLs and application headers
 are validated before copying. Connect, network-read and cumulative request/body
 deadlines are finite. Dropping an operation or response releases its transport.
-Automatic decompression is disabled even under downstream feature unification,
-so content-encoded bytes and their headers are preserved.
+No decompression layer is linked, so no downstream feature unification can
+enable one; content-encoded bytes and their headers are preserved. Each request
+uses its own connection (no pooling) and HTTP/1.1 only. The connect timeout
+covers DNS, TCP and the TLS handshake; the read timeout bounds the wait for the
+response head and for each body frame; the total deadline bounds all of them.
 
 Redirects default to zero and are capped at 32. Cross-origin hops discard all
 application headers. POST becomes GET for 301/302/303; 307/308 replay is allowed

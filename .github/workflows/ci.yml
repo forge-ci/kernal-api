@@ -301,11 +301,6 @@ jobs:
         run: >-
           soldr cargo test --locked --no-default-features
           --features json,serde_json/arbitrary_precision --test data
-      - name: Verify HTTP wire semantics under backend feature unification
-        if: steps.mode.outputs.mode == 'full'
-        # Resolves a backend feature outside the production graph, so it may
-        # update the lockfile and cannot run `--locked`.
-        run: soldr cargo test --features http-client,reqwest/gzip --test net http_client::encoded_responses_preserve_wire_bytes_and_headers  # ci-lint: allow TOOL-002 resolves reqwest/gzip outside the production graph, so it cannot run --locked
       - name: Run real semantic webview lifecycle and capture proofs
         if: steps.mode.outputs.mode == 'full'
         # A unit test does not own process main on every harness, while Tauri

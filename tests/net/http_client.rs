@@ -52,8 +52,8 @@ async fn private_parser_bounds_metadata_even_when_acceptance_limits_are_relaxed(
 
 #[tokio::test]
 async fn encoded_responses_preserve_wire_bytes_and_headers() {
-    // gzip -n of "hello". Also run with reqwest/gzip enabled to exercise
-    // backend features unified by an unrelated downstream dependency.
+    // gzip -n of "hello". The owned client links no decompression layer, so
+    // no downstream feature unification can enable one.
     let encoded = [
         31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 72, 205, 201, 201, 7, 0, 134, 166, 16, 54, 5, 0, 0, 0,
     ];
@@ -972,7 +972,7 @@ async fn request_framing_declares_post_length_and_nothing_for_get() {
     let client = Client::new(Limits::default()).unwrap();
     for (method, body, framing) in [
         (Method::Post, b"ping".as_slice(), Some("content-length: 4")),
-        // An empty POST is sent without any framing header, as reqwest did.
+        // An empty POST is sent without any framing header.
         (Method::Post, b"".as_slice(), None),
         (Method::Get, b"".as_slice(), None),
         (Method::Head, b"".as_slice(), None),

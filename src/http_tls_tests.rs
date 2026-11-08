@@ -83,13 +83,7 @@ fn limits() -> Limits {
 }
 
 fn trusting_client(root: &[u8]) -> Client {
-    Client::with_builder(
-        limits(),
-        reqwest::Client::builder()
-            .no_proxy()
-            .add_root_certificate(reqwest::Certificate::from_pem(root).unwrap()),
-    )
-    .unwrap()
+    Client::with_connector(limits(), connector(Some(root)).unwrap()).unwrap()
 }
 
 async fn joined(worker: JoinHandle<bool>) -> bool {

@@ -268,12 +268,12 @@ archive-bzip2 = ["archive", "dep:bzip2"]
 # Test-only native authentication and guest-header experiment.
 archive-auth-test-support = ["archive", "dep:openssl", "dep:tempfile"]
 # One HTTP client, two TLS backends: `http-client` uses the platform's native
-# TLS (OpenSSL on Linux), `http-client-rustls` uses rustls with the bundled
-# webpki roots, so a consumer can ship without OpenSSL (#427). Either enables
-# the same `http` module; enabling both links both backends and reqwest keeps
-# native TLS as its default.
-http-client = ["dep:reqwest", "dep:bytes", "dep:hyper", "reqwest/default-tls"]
-http-client-rustls = ["dep:reqwest", "dep:bytes", "dep:hyper", "reqwest/rustls-tls"]
+# TLS (OpenSSL on Linux), `http-client-rustls` uses rustls (ring) with the
+# bundled webpki roots, so a consumer can ship without OpenSSL or a system
+# trust store (#427). Either enables the same `http` module, an owned HTTP/1
+# client on Hyper; enabling both links both backends and selects native TLS.
+http-client = ["dep:bytes", "dep:hyper", "hyper/client", "hyper/http1", "dep:hyper-util", "hyper-util/client-legacy", "hyper-util/http1", "dep:http-body-util", "dep:tower-service", "dep:hyper-tls", "dep:native-tls"]
+http-client-rustls = ["dep:bytes", "dep:hyper", "hyper/client", "hyper/http1", "dep:hyper-util", "hyper-util/client-legacy", "hyper-util/http1", "dep:http-body-util", "dep:tower-service", "dep:hyper-rustls", "dep:rustls", "dep:webpki-roots"]
 conpty-sidecar = [
   "pty",
   "hash-sha256",
@@ -362,11 +362,20 @@ full = [
 cpal = { version = "=0.18.2", optional = true }
 # Portable decoding is opt-in for native screenshot proofs and window icons.
 png = { version = "=0.18.1", optional = true }
-reqwest = { version = "=0.12.28", default-features = false, optional = true }
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled", "backup"], optional = true }
-# Constrain reqwest's private parser for published consumers, not just this
-# repository's lockfile. Its metadata bounds are audited in docs/http-client.md.
+# Constrain the HTTP client's and server's private parser for published
+# consumers, not just this repository's lockfile. Its metadata bounds are
+# audited in docs/http-client.md.
 hyper = { version = "=1.11.0", default-features = false, optional = true }
+# HTTP client connectors. Native TLS for `http-client`; rustls with only the
+# ring provider and bundled webpki roots for `http-client-rustls` -- no
+# aws-lc-rs, no platform verifier, no native certificate store.
+hyper-tls = { version = "=0.6.0", default-features = false, optional = true }
+native-tls = { version = "=0.2.18", optional = true }
+hyper-rustls = { version = "=0.27.10", default-features = false, features = ["http1", "ring", "tls12"], optional = true }
+rustls = { version = "=0.23.44", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+webpki-roots = { version = "=1.0.9", optional = true }
+tower-service = { version = "=0.3.3", optional = true }
 hyper-util = { version = "=0.1.20", default-features = false, features = ["tokio"], optional = true }
 http-body-util = { version = "=0.1.5", optional = true }
 bytes = { version = "=1.12.1", optional = true }
