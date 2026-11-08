@@ -94,19 +94,52 @@ pub(super) fn ensure_cached_sidecar() -> io::Result<PathBuf> {
 }
 
 /// Resolve the cache root, honoring the env-var override.
-/// Returns `dirs::cache_dir()` by default.
+/// Defaults to the Local AppData known folder, the same path
+/// `dirs::cache_dir()` returned before this module stopped using `dirs`.
 fn resolve_cache_root(override_dir: Option<std::ffi::OsString>) -> io::Result<PathBuf> {
     if let Some(p) = override_dir {
         if !p.is_empty() {
             return Ok(PathBuf::from(p));
         }
     }
-    dirs::cache_dir().ok_or_else(|| {
+    local_app_data_dir().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
             "no platform cache directory available",
         )
     })
+}
+
+/// `FOLDERID_LocalAppData` via `SHGetKnownFolderPath` with no flags and the
+/// current user's token: exactly what `dirs::cache_dir()` (dirs-sys) asks
+/// for on Windows, so the cache location is unchanged.
+fn local_app_data_dir() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{FOLDERID_LocalAppData, SHGetKnownFolderPath};
+
+    let mut raw: *mut u16 = std::ptr::null_mut();
+    // SAFETY: the GUID is a live static, flags 0 and a null token select the
+    // calling user's default path, and `raw` receives a CoTaskMem string.
+    let hr = unsafe { SHGetKnownFolderPath(&FOLDERID_LocalAppData, 0, std::ptr::null_mut(), &mut raw) };
+    let path = if hr == 0 && !raw.is_null() {
+        // SAFETY: on success `raw` is a NUL-terminated UTF-16 string owned by
+        // us until `CoTaskMemFree` below; the scan stops at its terminator.
+        let wide = unsafe {
+            let mut len = 0;
+            while *raw.add(len) != 0 {
+                len += 1;
+            }
+            std::slice::from_raw_parts(raw, len)
+        };
+        Some(PathBuf::from(std::ffi::OsString::from_wide(wide)))
+    } else {
+        None
+    };
+    // SAFETY: the API requires freeing `raw` on success and failure alike;
+    // `CoTaskMemFree` accepts null.
+    unsafe { CoTaskMemFree(raw.cast()) };
+    path
 }
 
 /// Stage the sidecar binaries into `cache_dir` (no-op if already
@@ -433,7 +466,11 @@ mod tests {
     #[test]
     fn empty_override_falls_through_to_platform() {
         let resolved = resolve_cache_root(Some(std::ffi::OsString::new())).unwrap();
-        assert_eq!(resolved, dirs::cache_dir().expect("platform cache dir"));
+        assert_eq!(resolved, local_app_data_dir().expect("platform cache dir"));
+        assert!(resolved.is_absolute(), "got {}", resolved.display());
+        if let Some(env) = std::env::var_os("LOCALAPPDATA") {
+            assert_eq!(resolved, PathBuf::from(env));
+        }
     }
 
     /// `arch_dir` is a compile-time constant matching the host arch.

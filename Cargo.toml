@@ -276,13 +276,14 @@ http-client = ["dep:reqwest", "dep:bytes", "dep:hyper", "reqwest/default-tls"]
 http-client-rustls = ["dep:reqwest", "dep:bytes", "dep:hyper", "reqwest/rustls-tls"]
 conpty-sidecar = [
   "pty",
-  "dep:dirs",
   "hash-sha256",
   "dep:tar",
   "dep:zstd",
   # The sidecar is only fetched on Windows, through WinHTTP, so Linux and
   # macOS no longer compile an HTTP/TLS client for it.
   "windows-sys/Win32_Networking_WinHttp",
+  # The cache root is the Local AppData known folder (what `dirs` returned).
+  "windows-sys/Win32_System_Com",
 ]
 snapshot = ["dep:framehop", "dep:object"]
 profile = [

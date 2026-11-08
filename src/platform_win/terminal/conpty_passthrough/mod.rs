@@ -56,7 +56,7 @@ use windows_sys::Win32::System::Threading::{
 pub(super) const PSEUDOCONSOLE_PASSTHROUGH_MODE: u32 = 0x8;
 
 pub(super) mod child;
-// The sidecar self-acquisition module pulls in `dirs`, `zstd`, `tar`,
+// The sidecar self-acquisition module pulls in `zstd`, `tar`,
 // `sha2` and the WinHTTP bindings — all gated by the `conpty-sidecar` feature.
 // Builds without it fall back to manual pre-stage + kernel32 on Win10.
 #[cfg(feature = "conpty-sidecar")]
