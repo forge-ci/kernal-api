@@ -21,7 +21,9 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
+// The only PDB parser: `pdb_addr2line` re-exports the `pdb2` fork it builds on.
 use pdb::FallibleIterator as _;
+use pdb_addr2line::pdb;
 
 use crate::discovery::{self, ResolveOutcome};
 use kernal_api::symbolize::wire::{DiscoveryConfig, DiscoverySource, ModuleRef};
@@ -553,11 +555,9 @@ pub fn resolve_lines(pdb_path: &Path, addresses: &[u64]) -> HashMap<u64, (String
     let Ok(file) = File::open(pdb_path) else {
         return resolved;
     };
-    // `pdb_addr2line::pdb` rather than this crate's own `pdb`: 0.12 parses
-    // through a different (newer) PDB crate, and the handle types are not
-    // interchangeable. Going through the re-export means the versions cannot
-    // drift apart behind our back.
-    let Ok(pdb) = pdb_addr2line::pdb::PDB::open(file) else {
+    // `pdb` is `pdb_addr2line`'s re-export (see the import above), so the
+    // handle types here and in the symbol table cannot drift apart.
+    let Ok(pdb) = pdb::PDB::open(file) else {
         return resolved;
     };
     let Ok(data) = pdb_addr2line::ContextPdbData::try_from_pdb(pdb) else {
