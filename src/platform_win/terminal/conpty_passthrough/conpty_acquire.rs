@@ -467,10 +467,10 @@ mod tests {
     fn empty_override_falls_through_to_platform() {
         let resolved = resolve_cache_root(Some(std::ffi::OsString::new())).unwrap();
         assert_eq!(resolved, local_app_data_dir().expect("platform cache dir"));
+        // No comparison with %LOCALAPPDATA%: hosts may redirect the variable
+        // independently of the known folder, and the known folder is the
+        // contract (it is what `dirs::cache_dir()` returned).
         assert!(resolved.is_absolute(), "got {}", resolved.display());
-        if let Some(env) = std::env::var_os("LOCALAPPDATA") {
-            assert_eq!(resolved, PathBuf::from(env));
-        }
     }
 
     /// `arch_dir` is a compile-time constant matching the host arch.
