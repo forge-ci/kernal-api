@@ -473,6 +473,25 @@ mod tests {
         assert!(resolved.is_absolute(), "got {}", resolved.display());
     }
 
+    /// Live end-to-end fetch of the pinned release asset for this crate
+    /// version: WinHTTP download, redirect to the CDN, SHA-256 pin,
+    /// extraction. Skipped under `KERNAL_API_CONPTY_OFFLINE`.
+    #[test]
+    fn fetch_and_extract_downloads_pinned_asset() {
+        if std::env::var_os("KERNAL_API_CONPTY_OFFLINE").is_some() {
+            eprintln!("skipping live sidecar fetch: KERNAL_API_CONPTY_OFFLINE is set");
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let cache_dir = tmp.path().join(arch_dir());
+        fetch_and_extract(&cache_dir).expect("live sidecar fetch must succeed");
+        for name in ["conpty.dll", "OpenConsole.exe"] {
+            let file = cache_dir.join(name);
+            let len = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+            assert!(len > 0, "missing or empty {}", file.display());
+        }
+    }
+
     /// `arch_dir` is a compile-time constant matching the host arch.
     #[test]
     fn arch_dir_matches_target() {
