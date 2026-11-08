@@ -24,7 +24,19 @@ OUTPUT = Path("nextest-output.txt")
 MARKERS = {"Linux": "platform_linux::", "macOS": "platform_macos::", "Windows": "platform_win::"}
 
 
+# Set, this makes the live ConPTY sidecar test skip, so CI must never set it:
+# the host jobs are the only place that download path runs.
+OFFLINE_VAR = "KERNAL_API_CONPTY_OFFLINE"
+
+
+def check_offline_guard(env: dict[str, str] | os._Environ[str]) -> None:
+    """Fail when CI would silently skip the live sidecar download test."""
+    if env.get("CI") and OFFLINE_VAR in env:
+        raise gha.StepError(f"{OFFLINE_VAR} must not be set in CI: it skips the live ConPTY sidecar fetch test")
+
+
 def run_tests(target: str) -> int:
+    check_offline_guard(os.environ)
     # The filter expression is one argument: `not binary(...)` must reach
     # nextest whole. Source-inspection tests read the Linux builder's tree.
     nextest_filter = ["-E", "not binary(source_policy)"] if os.environ.get("RUNNER_OS") != "Linux" else []
