@@ -26,7 +26,7 @@
 #![cfg(windows)]
 
 use std::fs;
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -275,19 +275,9 @@ fn sidecar_fetch_timeout() -> std::time::Duration {
 }
 
 fn http_get(url: &str) -> Result<Vec<u8>, String> {
-    // `ureq`'s request-level `.timeout()` bounds the entire call including the
-    // body read below, so `into_reader().read_to_end()` cannot trickle past
-    // the deadline.
-    let resp = ureq::get(url)
-        .timeout(sidecar_fetch_timeout())
-        .call()
-        .map_err(|e| e.to_string())?;
-    let mut out = Vec::with_capacity(8 * 1024 * 1024);
-    resp.into_reader()
-        .take(64 * 1024 * 1024) // hard cap: 64 MB ceiling, ~10x typical asset
-        .read_to_end(&mut out)
-        .map_err(|e| e.to_string())?;
-    Ok(out)
+    // One deadline bounds the whole call, body read included, so a trickling
+    // mirror cannot stall past it; see `winhttp_get` for the parity contract.
+    super::winhttp_get::https_get(url, sidecar_fetch_timeout())
 }
 
 fn extract_tar_zst(bytes: &[u8], dest: &Path) -> Result<(), String> {

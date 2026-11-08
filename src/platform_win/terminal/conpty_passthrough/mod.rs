@@ -56,8 +56,8 @@ use windows_sys::Win32::System::Threading::{
 pub(super) const PSEUDOCONSOLE_PASSTHROUGH_MODE: u32 = 0x8;
 
 pub(super) mod child;
-// The sidecar self-acquisition module pulls in `dirs`, `ureq`, `zstd`,
-// `tar`, and `sha2` — all gated by the `conpty-sidecar` feature.
+// The sidecar self-acquisition module pulls in `dirs`, `zstd`, `tar`,
+// `sha2` and the WinHTTP bindings — all gated by the `conpty-sidecar` feature.
 // Builds without it fall back to manual pre-stage + kernel32 on Win10.
 #[cfg(feature = "conpty-sidecar")]
 pub(super) mod conpty_acquire;
@@ -66,6 +66,8 @@ pub(super) mod conpty_api;
 // Gated to match `conpty_acquire`.
 #[cfg(feature = "conpty-sidecar")]
 pub(super) mod conpty_sidecar_hashes;
+#[cfg(feature = "conpty-sidecar")]
+pub(super) mod winhttp_get;
 pub(super) mod pipes;
 pub(super) mod proc_thread_attr;
 pub(super) mod pseudoconsole;

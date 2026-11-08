@@ -279,8 +279,10 @@ conpty-sidecar = [
   "dep:dirs",
   "hash-sha256",
   "dep:tar",
-  "dep:ureq",
   "dep:zstd",
+  # The sidecar is only fetched on Windows, through WinHTTP, so Linux and
+  # macOS no longer compile an HTTP/TLS client for it.
+  "windows-sys/Win32_Networking_WinHttp",
 ]
 snapshot = ["dep:framehop", "dep:object"]
 profile = [
