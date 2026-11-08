@@ -164,7 +164,7 @@ impl<W: Write + Seek> ZipWriter<W> {
         let options = self.options(mode);
         self.inner
             .start_file(archive_path, options)
-            .map_err(io::Error::other)
+            .map_err(super::zip_error)
     }
 
     /// Append a regular file read from disk. Its mode is normalized to
@@ -195,7 +195,7 @@ impl<W: Write + Seek> ZipWriter<W> {
         let options = self.options(DIR_MODE);
         self.inner
             .add_directory(archive_path, options)
-            .map_err(io::Error::other)
+            .map_err(super::zip_error)
     }
 
     /// Append a symbolic link to `target`, stored verbatim.
@@ -203,7 +203,7 @@ impl<W: Write + Seek> ZipWriter<W> {
         let options = self.options(0o777);
         self.inner
             .add_symlink(archive_path, target, options)
-            .map_err(io::Error::other)
+            .map_err(super::zip_error)
     }
 
     /// Append `source` recursively under `archive_prefix` (empty for the
@@ -226,7 +226,7 @@ impl<W: Write + Seek> ZipWriter<W> {
 
     /// Write the central directory and return the inner writer.
     pub fn finish(self) -> io::Result<W> {
-        self.inner.finish().map_err(io::Error::other)
+        self.inner.finish().map_err(super::zip_error)
     }
 }
 

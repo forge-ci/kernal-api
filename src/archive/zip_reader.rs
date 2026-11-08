@@ -35,11 +35,11 @@ impl Reader {
         if index >= self.archive.len() {
             return Ok(None);
         }
-        let entry = self.archive.by_index(index).map_err(io::Error::other)?;
+        let entry = self.archive.by_index(index).map_err(super::zip_error)?;
         validate_entry(&entry, self.limits)?;
         // Name length is bounded before the guest-facing record is allocated.
         Ok(Some(Entry {
-            name: entry.name().map_err(io::Error::other)?.into_owned(),
+            name: entry.name().map_err(super::zip_error)?.into_owned(),
             bytes: entry.size(),
         }))
     }
@@ -54,7 +54,7 @@ impl Reader {
         // partially successful write_all need not debit its partial bytes.
         // Fail closed rather than allowing a retry with reusable accounting.
         self.poisoned = true;
-        let mut entry = self.archive.by_index(index).map_err(io::Error::other)?;
+        let mut entry = self.archive.by_index(index).map_err(super::zip_error)?;
         validate_entry(&entry, self.limits)?;
         if entry.size() > self.remaining {
             return Err(invalid("archive output exceeds byte limit"));
@@ -90,7 +90,7 @@ fn validate_entry<R: io::Read + ?Sized>(
         return Err(invalid("ZIP entry exceeds byte limit"));
     }
     relative_path(
-        &entry.name().map_err(io::Error::other)?,
+        &entry.name().map_err(super::zip_error)?,
         limits.max_path_bytes,
     )?;
     Ok(())
