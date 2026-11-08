@@ -15,6 +15,20 @@ this same workflow at the same head SHA already has a ``CI summary`` job that
 concluded ``success`` (read from the API, with retries), this gate passes and
 names the run it defers to. Any failure, timeout, startup failure or approval
 wait still fails, as does a cancellation with no green sibling.
+
+Live-sibling exception (pull_request only): ``gh pr create --label`` fires
+``opened`` and ``labeled`` seconds apart, so concurrency cancels one run while
+its sibling is still queued or running and has no gate conclusion yet. For a
+``pull_request`` run whose only non-success is cancellation, a same-SHA sibling
+of this workflow that is ``queued`` or ``in_progress`` also counts: it posts its
+own later ``CI summary``, which then wins, so a red sibling still blocks. It is
+not extended to ``merge_group`` or ``push``: the merge queue merges on the
+first green required context, so an early pass there could merge a commit
+before the sibling's verdict exists.
+
+A sibling run that completed with any conclusion other than ``success`` never
+counts, even if its gate passed: that gate may itself have deferred to this run,
+and two cancelled runs must not vouch for each other.
 """
 
 from __future__ import annotations
@@ -34,6 +48,8 @@ BLOCKING = frozenset({"failure", "cancelled", "timed_out", "startup_failure", "a
 # queued here and has no conclusion to judge; it is not hidden by name either.
 EXEMPT_PREFIXES = ("CI summary",)
 ATTEMPTS = 6
+LIVE_STATUSES = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
+LIVE_SIBLING_EVENTS = frozenset({"pull_request"})
 
 
 def fetch(url: str, token: str) -> dict:
@@ -97,15 +113,17 @@ def green_summary(jobs: list[dict]) -> dict | None:
 
 
 def superseding_run(repo: str, run_id: str, token: str) -> str | None:
-    """Return the URL of a sibling run at this head SHA whose CI summary already succeeded.
+    """Return a description of the sibling run at this head SHA that this cancelled run defers to.
 
     Siblings are runs of the same workflow file at the same head SHA. Creation
     order is not used: duplicate runs can share a creation second (#600's two
-    runs were both created 08:20:44Z). What matters is that the sibling's gate
-    has already *concluded* success, so this run's later context is the one
-    that would otherwise win.
+    runs were both created 08:20:44Z). A sibling qualifies when its gate has
+    already concluded success, or (pull_request only) when it is still live and
+    will publish its own, later, ``CI summary``. A completed sibling that did
+    not conclude ``success`` never qualifies.
     """
     own = fetch(f"https://api.github.com/repos/{repo}/actions/runs/{run_id}", token)
+    allow_live = own.get("event") in LIVE_SIBLING_EVENTS
     url = (
         f"https://api.github.com/repos/{repo}/actions/workflows/{own['workflow_id']}/runs"
         f"?head_sha={own['head_sha']}&per_page=100"
@@ -113,9 +131,15 @@ def superseding_run(repo: str, run_id: str, token: str) -> str | None:
     for run in fetch(url, token).get("workflow_runs", []):
         if str(run["id"]) == str(run_id) or run.get("head_sha") != own["head_sha"]:
             continue
+        status = run.get("status")
+        if status == "completed" and run.get("conclusion") != "success":
+            continue
+        link = run.get("html_url", run["id"])
         summary = green_summary(list_jobs(repo, str(run["id"]), str(run.get("run_attempt", 1)), token))
         if summary is not None:
-            return f"{run.get('html_url', run['id'])} ({summary.get('html_url', '')})"
+            return f"green {link} ({summary.get('html_url', '')})"
+        if allow_live and status in LIVE_STATUSES:
+            return f"live ({status}) run {run['id']} {link}, whose own CI summary will follow"
     return None
 
 
@@ -131,7 +155,7 @@ def main() -> int:
     if only_cancellations(blocked):
         sibling = superseding_run(repo, run_id, token)
         if sibling is not None:
-            print(f"\nCI summary: this run was cancelled, but it is superseded by green {sibling}; passing")
+            print(f"\nCI summary: this run was cancelled, but it is superseded by {sibling}; passing")
             return 0
     if blocked:
         print(f"\nCI summary blocked by {len(blocked)} job(s):")
