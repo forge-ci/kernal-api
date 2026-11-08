@@ -72,7 +72,9 @@ pub(super) fn parse_https_url(url: &str) -> Result<HttpsTarget, String> {
     let rest = url
         .strip_prefix("https://")
         .ok_or_else(|| format!("refusing non-HTTPS URL {url}"))?;
-    let (authority, path) = match rest.find(['/', '?', '#']) {
+    // A fragment is client-side only and must never reach the request line.
+    let rest = rest.split_once('#').map_or(rest, |(before, _)| before);
+    let (authority, path) = match rest.find(['/', '?']) {
         Some(i) => (&rest[..i], &rest[i..]),
         None => (rest, "/"),
     };
@@ -114,6 +116,21 @@ pub(super) fn check_final_url(final_url: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("redirect left HTTPS: {final_url}"))
+    }
+}
+
+/// Interpret the size probe for `WINHTTP_OPTION_URL`. It must fail with
+/// `ERROR_INSUFFICIENT_BUFFER`; a success means there is no fresh error to
+/// report, so it gets a fixed message rather than a stale last error.
+pub(super) fn check_url_size_probe(succeeded: bool, last_error: u32) -> Result<(), String> {
+    const OP: &str = "WinHttpQueryOption(URL)";
+    if succeeded {
+        return Err(format!("{OP}: size probe unexpectedly succeeded"));
+    }
+    if last_error == ERROR_INSUFFICIENT_BUFFER {
+        Ok(())
+    } else {
+        Err(describe_error(OP, last_error))
     }
 }
 
@@ -248,9 +265,7 @@ impl WinHttpHandle {
         // ERROR_INSUFFICIENT_BUFFER.
         let probe = unsafe { WinHttpQueryOption(self.raw(), WINHTTP_OPTION_URL, null_mut(), &mut len) };
         // SAFETY: reads the calling thread's error slot.
-        if probe != 0 || unsafe { GetLastError() } != ERROR_INSUFFICIENT_BUFFER {
-            return Err(last_error("WinHttpQueryOption(URL)"));
-        }
+        check_url_size_probe(probe != 0, unsafe { GetLastError() })?;
         let mut buf = vec![0u16; (len as usize).div_ceil(2)];
         let mut len_bytes = u32::try_from(buf.len() * 2).map_err(|_| "URL too long".to_string())?;
         // SAFETY: `buf` is live and `len_bytes` is its size in bytes.
@@ -390,6 +405,28 @@ mod tests {
         assert_eq!((t.host.as_str(), t.port, t.path.as_str()), ("example.com", 8443, "/"));
         let t = parse_https_url("https://example.com?x=1").unwrap();
         assert_eq!(t.path, "/?x=1");
+    }
+
+    #[test]
+    fn strips_fragment_from_request_path() {
+        let t = parse_https_url("https://example.com/a/b?x=1#frag").unwrap();
+        assert_eq!(t.path, "/a/b?x=1");
+        let t = parse_https_url("https://example.com#frag").unwrap();
+        assert_eq!((t.host.as_str(), t.path.as_str()), ("example.com", "/"));
+        let t = parse_https_url("https://example.com:8443/#").unwrap();
+        assert_eq!((t.port, t.path.as_str()), (8443, "/"));
+    }
+
+    #[test]
+    fn url_size_probe_requires_insufficient_buffer() {
+        check_url_size_probe(false, ERROR_INSUFFICIENT_BUFFER).unwrap();
+        let err = check_url_size_probe(true, ERROR_INSUFFICIENT_BUFFER).unwrap_err();
+        assert!(err.contains("unexpectedly succeeded"), "{err}");
+        // A success must not surface whatever stale error is in the slot.
+        let err = check_url_size_probe(true, 12029).unwrap_err();
+        assert!(!err.contains("12029"), "{err}");
+        let err = check_url_size_probe(false, 12029).unwrap_err();
+        assert!(err.contains("WinHTTP error 12029"), "{err}");
     }
 
     #[test]
