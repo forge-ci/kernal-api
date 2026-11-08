@@ -9,6 +9,10 @@
 //! `archive-bzip2` add the [`ArchiveFormat::TarXz`] and
 //! [`ArchiveFormat::TarBzip2`] decoders; without them those formats fail with
 //! [`std::io::ErrorKind::Unsupported`].
+//! ZIP reading supports only the Stored and Deflated methods, the two that
+//! [`ZipWriter`] emits. An entry using any other method (bzip2, LZMA, XZ,
+//! zstd, PPMd, Deflate64) or AES encryption fails extraction with
+//! [`std::io::ErrorKind::Unsupported`]; no feature enables more ZIP codecs.
 //! Symbolic targets retain their relative spelling on Unix; Windows converts
 //! archive `/` separators to native `\` separators for usable relative links.
 
@@ -275,6 +279,23 @@ impl Default for ExtractionLimits {
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+// Translate a backend ZIP error into a facade io::Error that carries only a
+// kind and a message, so no backend type is reachable through the result.
+fn zip_error(error: zip::result::ZipError) -> io::Error {
+    use zip::result::ZipError;
+    let kind = match &error {
+        ZipError::Io(inner) => return io::Error::new(inner.kind(), inner.to_string()),
+        ZipError::InvalidArchive(_) => io::ErrorKind::InvalidData,
+        ZipError::FileNotFound => io::ErrorKind::NotFound,
+        ZipError::InvalidPassword => io::ErrorKind::PermissionDenied,
+        ZipError::UnsupportedArchive(_) | ZipError::CompressionMethodNotSupported(_) => {
+            io::ErrorKind::Unsupported
+        }
+        _ => io::ErrorKind::Other,
+    };
+    io::Error::new(kind, error.to_string())
 }
 
 fn relative_path(name: &str, limit: usize) -> io::Result<PathBuf> {
@@ -664,7 +685,7 @@ fn open_zip(
     let config = zip::read::Config {
         archive_offset: zip::read::ArchiveOffset::Known(0),
     };
-    let archive = zip::ZipArchive::with_config(config, reader).map_err(io::Error::other)?;
+    let archive = zip::ZipArchive::with_config(config, reader).map_err(zip_error)?;
     // Metadata parsing is complete. File data is bounded by compressed file
     // size and the independent decompressed-output counter below.
     budget.store(u64::MAX, Ordering::Relaxed);
@@ -681,11 +702,11 @@ fn extract_zip(file: File, dest: &Path, limits: ExtractionLimits) -> io::Result<
     let mut link_bytes = limits.max_metadata_bytes;
     let mut links = BTreeMap::new();
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(io::Error::other)?;
+        let mut entry = archive.by_index(index).map_err(zip_error)?;
         if entry.size() > limits.max_entry_bytes {
             return Err(invalid("ZIP entry exceeds byte limit"));
         }
-        let name = entry.name().map_err(io::Error::other)?;
+        let name = entry.name().map_err(zip_error)?;
         let relative = relative_path(&name, limits.max_path_bytes)?;
         let output = root.join(&relative);
         if entry.is_symlink() {
