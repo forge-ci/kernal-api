@@ -20,10 +20,13 @@
 //! - The body is capped at [`MAX_BODY_BYTES`]. A larger body is an error
 //!   rather than a silent truncation; either way nothing past the SHA-256
 //!   check is touched.
-//! - Proxy: `ureq` was built without `proxy-from-env`, so it always
-//!   connected directly. WinHTTP uses `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`
-//!   (Windows 8.1+): the system / WPAD proxy configuration when present,
-//!   direct otherwise.
+//! - Proxy: none, exactly as before. `ureq` was built without
+//!   `proxy-from-env`, so it always connected directly; WinHTTP is opened
+//!   with `WINHTTP_ACCESS_TYPE_NO_PROXY`. Automatic (WPAD) proxy discovery is
+//!   deliberately not used: it runs inside `WinHttpSendRequest` and is not
+//!   bounded by `WinHttpSetTimeouts`, which would break the single-deadline
+//!   guarantee above (#433). Hosts that need a proxy use
+//!   `KERNAL_API_CONPTY_OFFLINE` plus a pre-staged sidecar, as before.
 //! - TLS roots come from the Windows certificate store instead of bundled
 //!   webpki roots. The compile-time SHA-256 pin remains the trust root for
 //!   the bytes.
@@ -42,7 +45,7 @@ use windows_sys::Win32::Networking::WinHttp::{
     WinHttpCloseHandle, WinHttpConnect, WinHttpOpen, WinHttpOpenRequest, WinHttpQueryHeaders,
     WinHttpQueryOption, WinHttpReadData, WinHttpReceiveResponse, WinHttpSendRequest,
     WinHttpSetOption, WinHttpSetTimeouts, ERROR_WINHTTP_REDIRECT_FAILED, ERROR_WINHTTP_TIMEOUT,
-    WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_FLAG_SECURE,
+    WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_FLAG_SECURE,
     WINHTTP_OPTION_MAX_HTTP_AUTOMATIC_REDIRECTS, WINHTTP_OPTION_REDIRECT_POLICY,
     WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP, WINHTTP_OPTION_URL,
     WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_QUERY_STATUS_CODE,
@@ -300,9 +303,9 @@ pub(super) fn https_get(url: &str, timeout: Duration) -> Result<Vec<u8>, String>
     let verb = wide("GET");
 
     // SAFETY: `agent` is a live NUL-terminated UTF-16 string; null proxy and
-    // bypass lists are what the automatic access type requires.
+    // bypass lists are what the no-proxy access type requires.
     let session = WinHttpHandle::new(
-        unsafe { WinHttpOpen(agent.as_ptr(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, null(), null(), 0) },
+        unsafe { WinHttpOpen(agent.as_ptr(), WINHTTP_ACCESS_TYPE_NO_PROXY, null(), null(), 0) },
         "WinHttpOpen",
     )?;
     session.arm(&deadline)?;
