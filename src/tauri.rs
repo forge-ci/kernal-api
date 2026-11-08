@@ -112,12 +112,6 @@ impl HasWindowHandle for NativeWindowHandle {
     }
 }
 
-// This binds the raw runtime implementation to the exact high-level Tauri
-// release selected in Cargo.toml without constructing its application manager
-// (whose external-page builder installs IPC).
-#[allow(dead_code)] // Compile-time exact-release binding; no application manager is constructed.
-type PinnedTauriEventLoopMessage = tauri::EventLoopMessage;
-
 /// Why native navigation could not continue.  This remains private until the
 /// generated operation layer maps it to facade-owned semantic errors.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]

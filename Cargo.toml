@@ -207,11 +207,13 @@ window-icon = ["dep:png", "dep:x11rb"]
 # Untrusted external web content is an explicit, heavyweight native capability.
 # The private implementation uses tauri-runtime-wry directly because Tauri's
 # high-level WebviewWindowBuilder installs an IPC bridge even for an external
-# URL.  Keep the exact Tauri release in the resolved feature graph while the
-# runtime supplies the canonical event loop, while Wry's builder is attached
-# directly to its plain native window without an IPC handler.
+# URL, so the high-level `tauri` crate is not a dependency at all. The runtime
+# supplies the canonical event loop and Wry's builder is attached directly to
+# its plain native window without an IPC handler. tauri-runtime,
+# tauri-runtime-wry, tauri-utils and wry carry exact pins that must form one
+# coherent set; ci/check_compilation_boundary_dependencies.py checks the lock
+# against those pins and tauri-runtime-wry's own requirements.
 tauri-webview = [
-  "dep:tauri",
   "dep:tauri-runtime",
   "dep:tauri-runtime-wry",
   "dep:tauri-utils",
@@ -476,9 +478,10 @@ notify = { version = "=8.2.1", optional = true }
 # scoped ensures enabling its feature for a Wasm guest never resolves a web
 # runtime for that guest target.
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
-tauri = { version = "=2.12.5", default-features = false, optional = true }
 tauri-runtime = { version = "=2.12.2", optional = true }
 tauri-runtime-wry = { version = "=2.12.3", default-features = false, optional = true }
+# Not named in code: pinned so a fresh consumer resolve selects the tauri-utils
+# that tauri-runtime-wry was tested with (checked for lock coherence in CI).
 tauri-utils = { version = "=2.10.2", optional = true }
 # 0.57 makes the no-handler Windows/macOS IPC bridge conditional. The Tauri
 # runtime resolves this same Wry for its event-loop integration; only the
