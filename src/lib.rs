@@ -1944,15 +1944,18 @@ mod tests {
     fn bounded_command_timeout_cancels_readers_held_by_an_escaped_descendant() {
         let started = Instant::now();
         let error = run_bounded_command(
-            shell_spec("setsid sh -c 'sleep 3' & sleep 30"),
+            shell_spec("setsid sh -c 'sleep 60' & sleep 30"),
             Duration::from_millis(100),
             1024,
         )
         .expect_err("outer process must time out");
 
+        // The escaped descendant holds the capture pipes for 60 s. Returning
+        // within 10 s proves the readers were cancelled rather than drained to
+        // EOF, with a margin that host load cannot consume.
         assert!(matches!(error, BoundedProcessError::TimedOut));
         assert!(
-            started.elapsed() < Duration::from_secs(1),
+            started.elapsed() < Duration::from_secs(10),
             "escaped descendant retained bounded-capture readers for {:?}",
             started.elapsed()
         );
@@ -1963,18 +1966,22 @@ mod tests {
     fn bounded_command_overflow_cancels_readers_held_by_an_escaped_descendant() {
         let started = Instant::now();
         let error = run_bounded_command(
-            shell_spec("setsid sh -c 'sleep 3' & yes x"),
-            Duration::from_secs(2),
+            shell_spec("setsid sh -c 'sleep 60' & yes x"),
+            Duration::from_secs(30),
             16,
         )
         .expect_err("overflowing parent must not wait for an escaped pipe holder");
 
+        // The escaped descendant holds the capture pipes for 60 s and the
+        // deadline is 30 s. An overflow error returned within 10 s proves the
+        // overflow path cancelled the readers itself, without the deadline or
+        // the descendant's exit doing it.
         assert!(matches!(
             error,
             BoundedProcessError::OutputLimitExceeded { limit: 16 }
         ));
         assert!(
-            started.elapsed() < Duration::from_secs(1),
+            started.elapsed() < Duration::from_secs(10),
             "escaped descendant retained bounded-capture readers for {:?}",
             started.elapsed()
         );
@@ -2089,29 +2096,33 @@ mod tests {
             .build()
             .expect("current-thread runtime");
         runtime.run_within(async {
-            let started = Instant::now();
-            let ticker_at = Arc::new(Mutex::new(None));
-            let ticker_at_for_task = Arc::clone(&ticker_at);
+            // A task on the same current-thread runtime counts timer ticks
+            // while the command runs. If the bounded command blocked the
+            // runtime thread, this task could not be polled until the await
+            // below returned, and no tick could be observed when it does.
+            let ticks = Arc::new(Mutex::new(0_u32));
+            let ticks_for_task = Arc::clone(&ticks);
             let _ticker = crate::async_engine::launch(async move {
-                crate::async_engine::sleep(Duration::from_millis(20)).await;
-                *ticker_at_for_task.lock().expect("ticker lock") = Some(started.elapsed());
+                loop {
+                    crate::async_engine::sleep(Duration::from_millis(10)).await;
+                    *ticks_for_task.lock().expect("ticker lock") += 1;
+                }
             });
 
-            let error = run_bounded_command_async(slow_command(), Duration::from_millis(100), 1024)
+            let error = run_bounded_command_async(slow_command(), Duration::from_secs(2), 1024)
                 .await
                 .expect_err("slow command must time out through the blocking lane");
 
+            // Read before yielding again: every tick counted here happened
+            // while the command was still in flight.
+            let observed = *ticks.lock().expect("ticker lock");
             assert!(matches!(
                 error,
                 BoundedProcessAsyncError::Bounded(BoundedProcessError::TimedOut)
             ));
-            let tick = ticker_at
-                .lock()
-                .expect("ticker lock")
-                .expect("current-thread runtime must keep driving the ticker");
             assert!(
-                tick < Duration::from_millis(80),
-                "blocking command occupied the current-thread runtime for {tick:?}"
+                observed >= 2,
+                "current-thread runtime made no timer progress while the command ran: {observed} ticks"
             );
         }, std::time::Duration::from_secs(60)).expect("test runtime budget");
     }
