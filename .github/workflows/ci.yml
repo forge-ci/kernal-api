@@ -276,16 +276,6 @@ jobs:
         # --no-default-features --features system-tray --lib system_tray, then
         # --no-default-features --features system-tray --test terminal system_tray
         run: python3 ci/linux_steps.py desktop-status
-      - name: Test the full Linux desktop status facade
-        if: steps.mode.outputs.mode == 'full'
-        # --all-features --lib system_tray, then --all-features --test terminal system_tray
-        run: python3 ci/linux_steps.py desktop-status --full
-      - name: Check the compilation boundary
-        if: steps.mode.outputs.mode != 'minimal'
-        run: uv run --no-project ci/linux_steps.py dependency-boundary
-      - name: Check the release tooling
-        if: steps.mode.outputs.mode == 'full'
-        run: python3 ci/linux_steps.py release-tooling
       - name: Test the Python package
         if: steps.mode.outputs.mode == 'full'
         # Python 3.10 only: it is the floor AGENTS.md supports, and the
@@ -316,9 +306,6 @@ jobs:
         # Resolves a backend feature outside the production graph, so it may
         # update the lockfile and cannot run `--locked`.
         run: soldr cargo test --features http-client,reqwest/gzip --test net http_client::encoded_responses_preserve_wire_bytes_and_headers  # ci-lint: allow TOOL-002 resolves reqwest/gzip outside the production graph, so it cannot run --locked
-      - name: Check the external facade consumers
-        if: steps.mode.outputs.mode == 'full'
-        run: python3 ci/linux_steps.py external-consumers
       - name: Run real semantic webview lifecycle and capture proofs
         if: steps.mode.outputs.mode == 'full'
         # A unit test does not own process main on every harness, while Tauri
@@ -425,6 +412,209 @@ jobs:
       # starts only when all of them finish, which is too late to cancel
       # anything. Pull requests only: on main a cancelled run would erase the
       # record of which job failed.
+      - name: Cancel the run (this job failed)
+        if: failure() && github.event_name == 'pull_request' && steps.mode.outputs.mode != 'full'
+        run: gh run cancel ${{ github.run_id }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+  # `--locked` resolution of every manifest (compilation boundary, external facade consumers) and the release tooling (`cargo tree --locked`). Runs 41989719729, 41770081641.
+  lockfiles:
+    name: Lockfiles and release tooling
+    # Attested head only (GATE-002); reads nothing from verify (like `fast`).
+    needs: verify
+    # merge_group, push, dispatch and `ci-test` PRs, re-derived from the event
+    # (ci/test_ci_modes.py pins it to ci_mode.select). A cheap deterministic
+    # gate the merge queue must see (ci/queue_gates.py). A `ci-full` PR is
+    # left to the queue: naming that label here trips GEN-031.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci-test')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Checkout candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          save-cache: false
+          cache-suffix: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || '' }}
+      - name: Select CI mode and verify the checked-out commit
+        id: mode
+        run: uv run --no-project --python 3.12 ci/ci_mode.py
+      - name: Verify selected source SHA
+        run: uv run --no-project --python 3.12 ci/verify_source_sha.py "${{ steps.mode.outputs.sha }}"
+      - name: Checkout pinned ci-lint
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: zackees/ci.yml
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
+          path: .ci-lint
+          persist-credentials: false
+      - name: Plan this run with the pinned ci-lint
+        id: plan
+        env:
+          PYTHONPATH: .ci-lint
+        run: >-
+          uv run --no-project python -m ci_lint plan --repo .
+          --event-name "${GITHUB_EVENT_NAME}" --sha "${{ steps.mode.outputs.sha }}" --github-output
+      - name: Set up soldr
+        uses: ./.github/actions/soldr # the one setup-soldr call site
+        with:
+          save-cache: "false"
+          cache-key-pr: ${{ steps.plan.outputs.cache_key_pr }}
+          ci-tests: true
+          cache-key-suffix: linux
+          prebuild-deps-flags: ""
+          cargo-registry-cache: false
+      - name: Restore native pkg-config search path
+        run: uv run --no-project ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
+      - name: Check locked graphs, the external consumers and the release tooling
+        run: uv run --no-project ci/queue_gates.py lockfiles
+      - name: Cancel the run (this job failed)
+        if: failure() && github.event_name == 'pull_request' && steps.mode.outputs.mode != 'full'
+        run: gh run cancel ${{ github.run_id }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+  # The wasm32-wasip1-threads / wasm32-unknown-unknown guest build. Run 42301454109. In full mode `linux` builds them again as the artifact the native proofs and `test` consume.
+  wasm-guests:
+    name: Build Wasm guests
+    # Attested head only (GATE-002); reads nothing from verify (like `fast`).
+    needs: verify
+    # merge_group, push, dispatch and `ci-test` PRs, re-derived from the event
+    # (ci/test_ci_modes.py pins it to ci_mode.select). A cheap deterministic
+    # gate the merge queue must see (ci/queue_gates.py). A `ci-full` PR is
+    # left to the queue: naming that label here trips GEN-031.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci-test')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Checkout candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          save-cache: false
+          cache-suffix: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || '' }}
+      - name: Select CI mode and verify the checked-out commit
+        id: mode
+        run: uv run --no-project --python 3.12 ci/ci_mode.py
+      - name: Verify selected source SHA
+        run: uv run --no-project --python 3.12 ci/verify_source_sha.py "${{ steps.mode.outputs.sha }}"
+      - name: Checkout pinned ci-lint
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: zackees/ci.yml
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
+          path: .ci-lint
+          persist-credentials: false
+      - name: Plan this run with the pinned ci-lint
+        id: plan
+        env:
+          PYTHONPATH: .ci-lint
+        run: >-
+          uv run --no-project python -m ci_lint plan --repo .
+          --event-name "${GITHUB_EVENT_NAME}" --sha "${{ steps.mode.outputs.sha }}" --github-output
+      - name: Set up soldr
+        uses: ./.github/actions/soldr # the one setup-soldr call site
+        with:
+          save-cache: "false"
+          cache-key-pr: ${{ steps.plan.outputs.cache_key_pr }}
+          ci-tests: true
+          cache-key-suffix: linux
+          prebuild-deps-flags: ""
+          cargo-registry-cache: false
+      - name: Restore native pkg-config search path
+        run: uv run --no-project ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
+      - name: Build the target-independent Wasm guests
+        run: uv run --no-project ci/queue_gates.py wasm-guests --out "${{ runner.temp }}/native-proof-guests" --work "${{ runner.temp }}/native-proof-guest-build"
+      - name: Cancel the run (this job failed)
+        if: failure() && github.event_name == 'pull_request' && steps.mode.outputs.mode != 'full'
+        run: gh run cancel ${{ github.run_id }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+  # `--all-features` system_tray lib and `--test terminal` tests. Run 42005878882.
+  desktop-status:
+    name: Desktop status (all features)
+    # Attested head only (GATE-002); reads nothing from verify (like `fast`).
+    needs: verify
+    # merge_group, push, dispatch and `ci-test` PRs, re-derived from the event
+    # (ci/test_ci_modes.py pins it to ci_mode.select). A cheap deterministic
+    # gate the merge queue must see (ci/queue_gates.py). A `ci-full` PR is
+    # left to the queue: naming that label here trips GEN-031.
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci-test')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: write
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Checkout candidate source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          save-cache: false
+          cache-suffix: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || '' }}
+      - name: Select CI mode and verify the checked-out commit
+        id: mode
+        run: uv run --no-project --python 3.12 ci/ci_mode.py
+      - name: Verify selected source SHA
+        run: uv run --no-project --python 3.12 ci/verify_source_sha.py "${{ steps.mode.outputs.sha }}"
+      - name: Checkout pinned ci-lint
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: zackees/ci.yml
+          ref: 54cec7ad3ac5c7b9866a1798b863c21e68936d60
+          path: .ci-lint
+          persist-credentials: false
+      - name: Plan this run with the pinned ci-lint
+        id: plan
+        env:
+          PYTHONPATH: .ci-lint
+        run: >-
+          uv run --no-project python -m ci_lint plan --repo .
+          --event-name "${GITHUB_EVENT_NAME}" --sha "${{ steps.mode.outputs.sha }}" --github-output
+      - name: Install native webview packages and a virtual display
+        run: uv run --no-project ci/runner_setup.py apt-install dbus-x11 jq libasound2-dev libgtk-3-dev libwebkit2gtk-4.1-dev xvfb xdotool
+      - name: Set up soldr
+        uses: ./.github/actions/soldr # the one setup-soldr call site
+        with:
+          save-cache: "false"
+          cache-key-pr: ${{ steps.plan.outputs.cache_key_pr }}
+          ci-tests: true
+          cache-key-suffix: linux
+          prebuild-deps-flags: ""
+          cargo-registry-cache: false
+      - name: Restore native pkg-config search path
+        run: uv run --no-project ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
+      - name: Test the full Linux desktop status facade
+        run: uv run --no-project ci/queue_gates.py desktop-status
       - name: Cancel the run (this job failed)
         if: failure() && github.event_name == 'pull_request' && steps.mode.outputs.mode != 'full'
         run: gh run cancel ${{ github.run_id }}
@@ -1029,7 +1219,7 @@ jobs:
   # shows only as the run's conclusion.
   ci-summary:
     name: CI summary
-    needs: [verify, fast, linux, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer, cache-retention]
+    needs: [verify, fast, linux, lockfiles, wasm-guests, desktop-status, build, test, dylints, full-coverage, linux-cache-writer, dylint-cache-writer, cache-retention]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -1098,7 +1288,7 @@ jobs:
   # sweep at a time across runs.
   cache-janitor:
     name: Cache janitor
-    needs: [verify, fast, linux, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary]
+    needs: [verify, fast, linux, lockfiles, wasm-guests, desktop-status, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary]
     if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
