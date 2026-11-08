@@ -35,6 +35,11 @@ EXPECTED_JOBS = {
     "build",
     "test",
     "dylints",
+    # Queue-tier gates (ci/queue_gates.py): cheap deterministic checks the
+    # merge queue must see as real jobs, not skipped full-only steps.
+    "lockfiles",
+    "wasm-guests",
+    "desktop-status",
     # GEN-022 step 5 (forge-ci/ci.yml#432): push-only, build-only cache writers.
     "linux-cache-writer",
     "dylint-cache-writer",
@@ -413,15 +418,16 @@ class NativeProofJobsTests(unittest.TestCase):
 
     def test_desktop_status_preserves_minimal_and_full_feature_graphs(self):
         minimal = self.step("linux", "Test the Linux desktop status facade")
-        full = self.step("linux", "Test the full Linux desktop status facade")
+        full = self.step("desktop-status", "Test the full Linux desktop status facade")
         self.assertIn(
             "if: steps.mode.outputs.mode != 'full'",
             minimal,
         )
-        self.assertIn("if: steps.mode.outputs.mode == 'full'", full)
+        self.assertNotIn("if:", full)
+        self.assertIn("ci/queue_gates.py desktop-status", full)
         for selector in ("--lib system_tray", "--test terminal system_tray"):
             self.assertIn(f"--features system-tray {selector}", minimal)
-            self.assertIn(f"--all-features {selector}", full)
+        self.assertIn("return linux_steps.desktop_status(full=True)", self.script("queue_gates.py"))
         self.assertIn("--no-default-features", minimal)
         self.assertNotIn("--all-features", minimal)
 

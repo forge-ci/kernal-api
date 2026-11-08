@@ -6,29 +6,63 @@ from pathlib import Path
 
 from ci import ci_mode, full_coverage
 
+QUEUE_TIER_IF = "github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci-test')"
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
 
 
 class ModeTests(unittest.TestCase):
-    def test_dependency_boundary_runs_before_merge_without_expensive_checks(self):
-        from unittest.mock import patch
+    def test_queue_tier_gates_are_jobs_not_skipped_steps(self):
+        """Cheap deterministic gates run pre-merge as their own jobs (runs 41989719729,
+        41770081641, 42301454109, 42005878882 landed through the queue)."""
+        from unittest.mock import call, patch
 
-        from ci import linux_steps
+        from ci import linux_steps, queue_gates
 
         text = WORKFLOW.read_text(encoding="utf-8")
         linux = re.search(r"(?ms)^  linux:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
-        self.assertIn(
-            "if: github.event_name == 'merge_group' || needs.verify.outputs.skip_linux != 'true'",
-            linux,
-        )
-        step = text.split("- name: Check the compilation boundary\n", 1)[1].split("\n      - ", 1)[0]
-        self.assertIn("if: steps.mode.outputs.mode != 'minimal'", step)
-        self.assertIn("run: uv run --no-project ci/linux_steps.py dependency-boundary", step)
-        release = text.split("- name: Check the release tooling\n", 1)[1].split("\n      - ", 1)[0]
-        self.assertIn("if: steps.mode.outputs.mode == 'full'", release)
+        for moved in ("dependency-boundary", "release-tooling", "external-consumers", "desktop-status --full"):
+            self.assertNotIn(f"linux_steps.py {moved}", linux)
+        summary = re.search(r"(?ms)^  ci-summary:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
+        for key, command in (
+            ("lockfiles", "lockfiles"),
+            ("wasm-guests", "wasm-guests"),
+            ("desktop-status", "desktop-status"),
+        ):
+            job = re.search(rf"(?ms)^  {key}:\n(.*?)(?=^  [\w-]+:|\Z)", text).group(1)
+            self.assertIn(f"if: {QUEUE_TIER_IF}\n", job)
+            self.assertIn("needs: verify\n", job.split("steps:", 1)[0])
+            self.assertIn(f"run: uv run --no-project ci/queue_gates.py {command}", job)
+            self.assertNotIn("steps.mode.outputs.mode == 'full'", job.split("Cancel the run")[0])
+            self.assertIn(key, summary.split("needs:", 1)[1].split("\n", 1)[0])
         with patch.object(linux_steps.gha, "run") as run:
-            self.assertEqual(linux_steps.COMMANDS["dependency-boundary"](), 0)
-        run.assert_called_once_with([*linux_steps.UV, "ci/check_compilation_boundary_dependencies.py"])
+            self.assertEqual(queue_gates.lockfiles(), 0)
+        self.assertEqual(
+            run.call_args_list[0], call([*linux_steps.UV, "ci/check_compilation_boundary_dependencies.py"])
+        )
+        self.assertTrue(any("tests/build-resources-consumer/Cargo.toml" in c.args[0] for c in run.call_args_list))
+        with patch.object(linux_steps.gha, "run") as run:
+            self.assertEqual(queue_gates.desktop_status(), 0)
+        self.assertIn("--all-features", run.call_args_list[1].args[0])
+        self.assertEqual(ci_mode.select("merge_group", {}, "c" * 40)[0], "test")
+
+    def test_queue_tier_if_matches_ci_mode(self):
+        """The job-level expression selects every non-minimal tier except a `ci-full` PR."""
+        sha = "d" * 40
+
+        def expression(event_name, labels):
+            # Mirrors QUEUE_TIER_IF term by term.
+            return event_name != "pull_request" or "ci-test" in labels
+
+        for event_name in ("merge_group", "push", "workflow_dispatch", "pull_request"):
+            for labels in ([], ["ci-test"], ["ci-full"], ["other"]):
+                event = {
+                    "inputs": {"candidate_sha": sha},
+                    "pull_request": {"head": {"sha": sha}, "labels": [{"name": n} for n in labels]},
+                }
+                mode, _ = ci_mode.select(event_name, event, sha)
+                with self.subTest(event=event_name, labels=labels):
+                    expected = mode != "minimal" and not (event_name == "pull_request" and mode == "full")
+                    self.assertEqual(expression(event_name, labels), expected)
 
     def test_event_selection(self):
         sha = "a" * 40

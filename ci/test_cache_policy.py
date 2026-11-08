@@ -44,6 +44,11 @@ SETUP_SOLDR = re.compile(r"^(?P<indent> *)(?P<marker>- )?uses: \./\.github/actio
 # carry `${{ matrix.target }}` in their suffix, one distinct target per entry.
 COOK_SHAPES = {
     ("ci.yml", "linux"): ("x86_64-unknown-linux-gnu", "dev"),
+    # Queue-tier gate jobs (ci/queue_gates.py): restore-only readers of the
+    # `linux` cook base, so they add no cache generation.
+    ("ci.yml", "lockfiles"): ("x86_64-unknown-linux-gnu", "dev"),
+    ("ci.yml", "wasm-guests"): ("x86_64-unknown-linux-gnu", "dev"),
+    ("ci.yml", "desktop-status"): ("x86_64-unknown-linux-gnu", "dev"),
     # These five target builds use the independent target-specific build-cache,
     # prepared toolchain, registry, and toolchain layers; their full cook bases
     # had 0 compile-cache hits in exact-main full run 36281990983.
@@ -77,7 +82,13 @@ PUSH_ONLY_SAVE_POLICIES = {
 # `linux` and `dylints` restore only: on a main push they run beside
 # `linux-cache-writer` / `dylint-cache-writer`, the single writer of each key
 # (CACHE-038).
-RESTORE_ONLY_JOBS = {("ci.yml", "linux"), ("ci.yml", "dylints")}
+RESTORE_ONLY_JOBS = {
+    ("ci.yml", "linux"),
+    ("ci.yml", "dylints"),
+    ("ci.yml", "lockfiles"),
+    ("ci.yml", "wasm-guests"),
+    ("ci.yml", "desktop-status"),
+}
 
 # The first setup-soldr release whose main action honors `cook-delta`
 # (zackees/setup-soldr#528). Older pins always write the delta layer.
@@ -200,7 +211,7 @@ def saves_on_pull_request(step):
 class CachePolicyTests(unittest.TestCase):
     def test_remote_plan_does_not_globally_disable_local_ci_saves(self):
         steps = [step for step in self.steps() if step["workflow"] == "ci.yml"]
-        self.assertEqual(len(steps), 5)
+        self.assertEqual(len(steps), 8)
         for step in steps:
             with self.subTest(job=step["job"]):
                 if (step["workflow"], step["job"]) in RESTORE_ONLY_JOBS:
@@ -339,7 +350,7 @@ class CachePolicyTests(unittest.TestCase):
     def test_ci_writers_save_only_on_main_push(self):
         """PR and arbitrary-SHA dispatch runs must not write main-scoped keys."""
         steps = [step for step in self.steps() if step["workflow"] == "ci.yml"]
-        self.assertEqual(len(steps), 5)
+        self.assertEqual(len(steps), 8)
         for step in steps:
             with self.subTest(job=step["job"]):
                 if (step["workflow"], step["job"]) in RESTORE_ONLY_JOBS:
