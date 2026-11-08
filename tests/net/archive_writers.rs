@@ -447,3 +447,44 @@ fn disabled_codecs_report_unsupported() {
         .expect_err("codec feature is disabled");
     assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
 }
+
+// Rewrite every local and central header's method field. Only Stored and
+// Deflated are readable, so a bzip2-labelled entry must fail cleanly.
+fn relabel_zip_method(archive: &mut [u8], method: u16) {
+    for index in 0..archive.len().saturating_sub(12) {
+        let field = match &archive[index..index + 4] {
+            b"PK\x03\x04" => index + 8,
+            b"PK\x01\x02" => index + 10,
+            _ => continue,
+        };
+        archive[field..field + 2].copy_from_slice(&method.to_le_bytes());
+    }
+}
+
+#[test]
+fn zip_entry_with_unsupported_method_fails_with_a_facade_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()), ZipCompression::Stored);
+    writer
+        .append_bytes("payload.txt", b"payload", 0o644)
+        .unwrap();
+    let mut archive = writer.finish().unwrap().into_inner();
+    relabel_zip_method(&mut archive, 12);
+    let path = temp.path().join("bzip2.zip");
+    fs::write(&path, &archive).unwrap();
+    let error = extract(
+        &path,
+        &temp.path().join("out"),
+        ArchiveFormat::Zip,
+        ExtractionLimits::default(),
+    )
+    .expect_err("bzip2 ZIP entries are unsupported");
+    assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+    let debug = format!("{error:?}");
+    assert!(
+        !debug.contains("ZipError") && !debug.contains("CompressionMethodNotSupported"),
+        "backend error leaked: {debug}"
+    );
+    let inner = error.into_inner().expect("facade error carries a message");
+    assert!(inner.source().is_none(), "backend error leaked as a source");
+}

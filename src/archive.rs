@@ -9,6 +9,10 @@
 //! `archive-bzip2` add the [`ArchiveFormat::TarXz`] and
 //! [`ArchiveFormat::TarBzip2`] decoders; without them those formats fail with
 //! [`std::io::ErrorKind::Unsupported`].
+//! ZIP reading supports only the Stored and Deflated methods, the two that
+//! [`ZipWriter`] emits. An entry using any other method (bzip2, LZMA, XZ,
+//! zstd, PPMd, Deflate64) or AES encryption fails extraction with
+//! [`std::io::ErrorKind::Unsupported`]; no feature enables more ZIP codecs.
 //! Symbolic targets retain their relative spelling on Unix; Windows converts
 //! archive `/` separators to native `\` separators for usable relative links.
 
