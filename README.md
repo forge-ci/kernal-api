@@ -62,6 +62,10 @@ Optional features keep consumers from linking tooling they do not use:
   backup mechanics; applications retain schema and SQL. See [SQLite facade](docs/sqlite.md).
 
 - `fs`, `ipc`, `ipc-async`, `session-relay`, `pty`, `conpty-sidecar`
+- `conpty-sidecar` fetches the verified Windows 10 ConPTY sidecar through
+  WinHTTP; the sidecar code is Windows-only. A consumer that wants it only on
+  Windows can enable it under `[target.'cfg(windows)'.dependencies]`, so the
+  other hosts skip its `pty`, `tar`, `zstd` and SHA-256 dependencies.
 - `fs` includes `platform::fs::read_private_regular_file_bounded` for small
   imported markers and credentials. Unix requires an effective-user-owned,
   mode-private regular file below an equally private parent. Windows requires
