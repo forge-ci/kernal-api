@@ -134,10 +134,11 @@ pub(super) fn check_url_size_probe(succeeded: bool, last_error: u32) -> Result<(
     }
 }
 
-/// Only a 2xx response carries the asset. `ureq` failed on 4xx/5xx and on a
-/// 3xx it could not follow; WinHTTP hands back an unfollowed 3xx as-is.
+/// Only `200 OK` carries the whole asset: the request is a plain GET, so a
+/// 206 or any other 2xx is not the archive. `ureq` failed on 4xx/5xx and on
+/// a 3xx it could not follow; WinHTTP hands back an unfollowed 3xx as-is.
 pub(super) fn check_status(status: u32) -> Result<(), String> {
-    if (200..300).contains(&status) {
+    if status == 200 {
         Ok(())
     } else {
         Err(format!("status code {status}"))
@@ -456,10 +457,9 @@ mod tests {
     }
 
     #[test]
-    fn only_2xx_status_is_accepted() {
+    fn only_status_200_is_accepted() {
         check_status(200).unwrap();
-        check_status(206).unwrap();
-        for status in [0, 199, 301, 302, 304, 404, 500] {
+        for status in [0, 199, 201, 204, 206, 299, 301, 302, 304, 404, 500] {
             let err = check_status(status).unwrap_err();
             assert_eq!(err, format!("status code {status}"));
         }
