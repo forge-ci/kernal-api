@@ -24,10 +24,12 @@ import argparse
 import hashlib
 import io
 import os
+import random
 import subprocess
 import sys
 import tarfile
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -229,9 +231,37 @@ def pkg_config_path(target: str) -> int:
     return 0
 
 
+DOWNLOAD_ATTEMPTS = 6
+DOWNLOAD_BUDGET_SECONDS = 180
+DOWNLOAD_SOCKET_TIMEOUT_SECONDS = 300
+
+
 def download(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=300) as response:
-        return response.read()
+    """Retry transient CDN failures, bounding attempts, backoff and socket waits."""
+    deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("download budget exhausted")
+            with urllib.request.urlopen(url, timeout=min(DOWNLOAD_SOCKET_TIMEOUT_SECONDS, remaining)) as response:
+                return response.read()
+        except (urllib.error.URLError, TimeoutError, ConnectionResetError) as error:
+            # HTTPError subclasses URLError: reject permanent HTTP failures first.
+            status = getattr(error, "code", None)
+            if isinstance(error, urllib.error.HTTPError) and not 500 <= status < 600:
+                raise
+            remaining = deadline - time.monotonic()
+            delay = min(2**attempt + random.uniform(0, 1), max(0, remaining))
+            if attempt == DOWNLOAD_ATTEMPTS or delay >= remaining:
+                raise gha.StepError(f"download {url} failed after {attempt} attempts: {error}") from error
+            print(
+                f"##[warning]download {url} attempt {attempt}/{DOWNLOAD_ATTEMPTS} failed: "
+                f"{error!r}; retrying in {delay:.2f}s",
+                flush=True,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable")
 
 
 def nextest_install() -> int:
