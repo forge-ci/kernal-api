@@ -44,6 +44,7 @@ CI_GUARD_MODULES = (
     "ci.test_prune_obsolete_cook_caches",
     "ci.test_build_guest",
     "ci.test_workflow_steps",
+    "ci.test_host_steps",
 )
 # Every feature checked in isolation.
 ISOLATED_FEATURES = (

@@ -26,7 +26,7 @@
 #![cfg(windows)]
 
 use std::fs;
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -94,19 +94,52 @@ pub(super) fn ensure_cached_sidecar() -> io::Result<PathBuf> {
 }
 
 /// Resolve the cache root, honoring the env-var override.
-/// Returns `dirs::cache_dir()` by default.
+/// Defaults to the Local AppData known folder, the same path
+/// `dirs::cache_dir()` returned before this module stopped using `dirs`.
 fn resolve_cache_root(override_dir: Option<std::ffi::OsString>) -> io::Result<PathBuf> {
     if let Some(p) = override_dir {
         if !p.is_empty() {
             return Ok(PathBuf::from(p));
         }
     }
-    dirs::cache_dir().ok_or_else(|| {
+    local_app_data_dir().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
             "no platform cache directory available",
         )
     })
+}
+
+/// `FOLDERID_LocalAppData` via `SHGetKnownFolderPath` with no flags and the
+/// current user's token: exactly what `dirs::cache_dir()` (dirs-sys) asks
+/// for on Windows, so the cache location is unchanged.
+fn local_app_data_dir() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{FOLDERID_LocalAppData, SHGetKnownFolderPath};
+
+    let mut raw: *mut u16 = std::ptr::null_mut();
+    // SAFETY: the GUID is a live static, flags 0 and a null token select the
+    // calling user's default path, and `raw` receives a CoTaskMem string.
+    let hr = unsafe { SHGetKnownFolderPath(&FOLDERID_LocalAppData, 0, std::ptr::null_mut(), &mut raw) };
+    let path = if hr == 0 && !raw.is_null() {
+        // SAFETY: on success `raw` is a NUL-terminated UTF-16 string owned by
+        // us until `CoTaskMemFree` below; the scan stops at its terminator.
+        let wide = unsafe {
+            let mut len = 0;
+            while *raw.add(len) != 0 {
+                len += 1;
+            }
+            std::slice::from_raw_parts(raw, len)
+        };
+        Some(PathBuf::from(std::ffi::OsString::from_wide(wide)))
+    } else {
+        None
+    };
+    // SAFETY: the API requires freeing `raw` on success and failure alike;
+    // `CoTaskMemFree` accepts null.
+    unsafe { CoTaskMemFree(raw.cast()) };
+    path
 }
 
 /// Stage the sidecar binaries into `cache_dir` (no-op if already
@@ -132,7 +165,7 @@ pub(super) fn ensure_in_dir(cache_dir: &Path) -> io::Result<()> {
 }
 
 fn fetch_and_extract(cache_dir: &Path) -> io::Result<()> {
-    if super::conpty_sidecar_hashes::expected_for_current_arch().is_none() {
+    let Some(expected) = super::conpty_sidecar_hashes::expected_for_current_arch() else {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!(
@@ -140,8 +173,18 @@ fn fetch_and_extract(cache_dir: &Path) -> io::Result<()> {
                 arch_dir()
             ),
         ));
-    }
-    let url = asset_url();
+    };
+    fetch_and_extract_from(&asset_url(), expected, cache_dir)
+}
+
+/// Download `url`, verify it against `expected`, and extract it into
+/// `cache_dir`. Production passes [`asset_url`] and the compile-time pin;
+/// the live test passes a published release and that release's manifest.
+fn fetch_and_extract_from(
+    url: &str,
+    expected: &super::conpty_sidecar_hashes::ExpectedAsset,
+    cache_dir: &Path,
+) -> io::Result<()> {
     diag(|| {
         format!(
             "ConPTY sidecar cache miss; fetching {} → {}",
@@ -150,14 +193,14 @@ fn fetch_and_extract(cache_dir: &Path) -> io::Result<()> {
         )
     });
 
-    let bytes = http_get(&url)
+    let bytes = http_get(url)
         .map_err(|e| io::Error::other(format!("conpty sidecar fetch from {url} failed: {e}")))?;
 
     // #447: SHA-256 verify the downloaded bytes against the compile-time
     // baseline before we touch them further. A mismatch discards the
     // fetch and falls through to the kernel32 path with a one-line
     // diagnostic; no decompression on bad bytes.
-    if let Some(expected) = super::conpty_sidecar_hashes::expected_for_current_arch() {
+    {
         let actual_hex = sha256_hex(&bytes);
         if !ct_eq(&actual_hex, expected.sha256_hex) {
             diag(|| {
@@ -190,13 +233,6 @@ fn fetch_and_extract(cache_dir: &Path) -> io::Result<()> {
                 )
             });
         }
-    } else {
-        diag(|| {
-            format!(
-                "no expected sha for arch {}; downloading without verification",
-                arch_dir()
-            )
-        });
     }
 
     let parent = cache_dir
@@ -275,19 +311,9 @@ fn sidecar_fetch_timeout() -> std::time::Duration {
 }
 
 fn http_get(url: &str) -> Result<Vec<u8>, String> {
-    // `ureq`'s request-level `.timeout()` bounds the entire call including the
-    // body read below, so `into_reader().read_to_end()` cannot trickle past
-    // the deadline.
-    let resp = ureq::get(url)
-        .timeout(sidecar_fetch_timeout())
-        .call()
-        .map_err(|e| e.to_string())?;
-    let mut out = Vec::with_capacity(8 * 1024 * 1024);
-    resp.into_reader()
-        .take(64 * 1024 * 1024) // hard cap: 64 MB ceiling, ~10x typical asset
-        .read_to_end(&mut out)
-        .map_err(|e| e.to_string())?;
-    Ok(out)
+    // One deadline bounds the whole call, body read included, so a trickling
+    // mirror cannot stall past it; see `winhttp_get` for the parity contract.
+    super::winhttp_get::https_get(url, sidecar_fetch_timeout())
 }
 
 fn extract_tar_zst(bytes: &[u8], dest: &Path) -> Result<(), String> {
@@ -443,7 +469,116 @@ mod tests {
     #[test]
     fn empty_override_falls_through_to_platform() {
         let resolved = resolve_cache_root(Some(std::ffi::OsString::new())).unwrap();
-        assert_eq!(resolved, dirs::cache_dir().expect("platform cache dir"));
+        assert_eq!(resolved, local_app_data_dir().expect("platform cache dir"));
+        // No comparison with %LOCALAPPDATA%: hosts may redirect the variable
+        // independently of the known folder, and the known folder is the
+        // contract (it is what `dirs::cache_dir()` returned).
+        assert!(resolved.is_absolute(), "got {}", resolved.display());
+    }
+
+    /// Last published release whose sidecar assets the live test fetches.
+    /// The crate's own `v{CARGO_PKG_VERSION}` assets are uploaded only after
+    /// full CI passes on the release candidate, so the test cannot fetch
+    /// them. Its hashes are copied from that release's published
+    /// `conpty-sidecar.sha256.toml`, not from the source tree: the asset
+    /// build is not byte-reproducible, so the tree's compiled-in pin matches
+    /// no published asset (see the conpty-sidecar asset-reproducibility
+    /// issue). Bump both after a release that changes
+    /// `WINDOWS_CONPTY_VERSION.txt`.
+    const PINNED_PUBLISHED: &str = "0.1.40";
+
+    fn pinned_published_asset() -> Option<super::super::conpty_sidecar_hashes::ExpectedAsset> {
+        use super::super::conpty_sidecar_hashes::ExpectedAsset;
+        let (sha256_hex, size_bytes) = match arch_dir() {
+            "x64" => ("606fbdd35edfa76df3221e5d2df25c6a150fcdae4fa681d8310213d7f4871594", 505_888),
+            "arm64" => ("6045eb23021848e845b7aee4f98e08e457300ae43c051cd68a7e9cc15829a8f8", 470_883),
+            "x86" => ("19c8aab5829715261fb8106792f796d10a7077e82a38da6a6bb1655e5bf24e13", 457_236),
+            _ => return None,
+        };
+        Some(ExpectedAsset { sha256_hex, size_bytes })
+    }
+
+    fn pinned_published_url() -> String {
+        format!(
+            "https://github.com/zackees/kernal-api/releases/download/v{PINNED_PUBLISHED}/conpty-sidecar-{}.tar.zst",
+            arch_dir()
+        )
+    }
+
+    /// A transient upstream failure worth retrying: a GitHub 502/503/504 or
+    /// a timeout while sending the request (which includes the connect).
+    /// A 404 or a hash mismatch is never retried.
+    fn is_transient_upstream(message: &str) -> bool {
+        ["status code 502", "status code 503", "status code 504"]
+            .iter()
+            .any(|s| message.contains(s))
+            || message.contains("WinHttpSendRequest: timed out")
+    }
+
+    #[test]
+    fn transient_upstream_classification() {
+        for msg in [
+            "conpty sidecar fetch from u failed: status code 502",
+            "conpty sidecar fetch from u failed: status code 503",
+            "conpty sidecar fetch from u failed: status code 504",
+            "conpty sidecar fetch from u failed: WinHttpSendRequest: timed out",
+        ] {
+            assert!(is_transient_upstream(msg), "{msg}");
+        }
+        for msg in [
+            "conpty sidecar fetch from u failed: status code 404",
+            "conpty sidecar fetch from u failed: status code 500",
+            "conpty sidecar hash mismatch: expected a, got b",
+            "conpty sidecar fetch from u failed: WinHttpReadData: timed out",
+        ] {
+            assert!(!is_transient_upstream(msg), "{msg}");
+        }
+    }
+
+    /// Live end-to-end fetch of a published, pinned release asset: WinHTTP
+    /// download, redirect to the CDN, SHA-256 check, extraction.
+    #[test]
+    fn fetch_and_extract_downloads_pinned_asset() {
+        if std::env::var_os("KERNAL_API_CONPTY_OFFLINE").is_some() {
+            eprintln!(
+                "SKIPPED (offline): KERNAL_API_CONPTY_OFFLINE is set; \
+                 live sidecar fetch of v{PINNED_PUBLISHED} not run"
+            );
+            return;
+        }
+        let expected = pinned_published_asset().unwrap_or_else(|| {
+            panic!("no published sidecar pin for arch {} in v{PINNED_PUBLISHED}", arch_dir())
+        });
+        let url = pinned_published_url();
+        let tmp = tempfile::tempdir().unwrap();
+        const ATTEMPTS: u32 = 3;
+        let mut last = String::new();
+        for attempt in 1..=ATTEMPTS {
+            let cache_dir = tmp.path().join(format!("attempt-{attempt}")).join(arch_dir());
+            match fetch_and_extract_from(&url, &expected, &cache_dir) {
+                Ok(()) => {
+                    for name in ["conpty.dll", "OpenConsole.exe"] {
+                        let file = cache_dir.join(name);
+                        let len = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+                        assert!(len > 0, "missing or empty {}", file.display());
+                    }
+                    return;
+                }
+                Err(e) if is_transient_upstream(&e.to_string()) => {
+                    last = e.to_string();
+                    if attempt < ATTEMPTS {
+                        std::thread::sleep(std::time::Duration::from_secs(2u64.pow(attempt)));
+                    }
+                }
+                Err(e) => panic!(
+                    "live fetch of pinned sidecar v{PINNED_PUBLISHED} ({url}) failed: {e}. \
+                     If this is a 404 or a hash mismatch, PINNED_PUBLISHED and its \
+                     hashes need bumping to the latest release after \
+                     WINDOWS_CONPTY_VERSION.txt changed."
+                ),
+            }
+        }
+        panic!("upstream GitHub 5xx after {ATTEMPTS} attempts fetching {url}: {last}");
     }
 
     /// `arch_dir` is a compile-time constant matching the host arch.
