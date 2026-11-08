@@ -829,3 +829,303 @@ async fn stalled_headers_and_body_hit_read_deadline() {
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
     }
 }
+
+/// Accept one connection per canned response, in order, and return each
+/// request head (plus a declared body) as received on the wire.
+fn serve(
+    listener: std::net::TcpListener,
+    responses: Vec<Vec<u8>>,
+) -> std::thread::JoinHandle<Vec<String>> {
+    std::thread::spawn(move || {
+        responses
+            .into_iter()
+            .map(|response| {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                    .unwrap();
+                let mut wire = Vec::new();
+                while !wire.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    socket.read_exact(&mut byte).unwrap();
+                    wire.push(byte[0]);
+                    assert!(wire.len() < 8192);
+                }
+                let head = String::from_utf8(wire).unwrap();
+                let length = head
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                let mut body = vec![0; length];
+                socket.read_exact(&mut body).unwrap();
+                socket.write_all(&response).unwrap();
+                head + &String::from_utf8(body).unwrap()
+            })
+            .collect()
+    })
+}
+
+fn redirect_to(location: &str) -> Vec<u8> {
+    format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes()
+}
+
+const EMPTY_OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+fn local_listener() -> (std::net::TcpListener, std::net::SocketAddr) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    (listener, address)
+}
+
+#[tokio::test]
+async fn relative_locations_resolve_against_the_current_request_url() {
+    let client = Client::new(Limits {
+        max_redirects: 1,
+        ..Limits::default()
+    })
+    .unwrap();
+    for (location, expected) in [
+        ("next", "/a/b/next"),
+        ("../up", "/a/up"),
+        ("./same?y=2", "/a/b/same?y=2"),
+        ("?only=q", "/a/b/start?only=q"),
+        ("/abs/./p/../q", "/abs/q"),
+        ("../../../../x", "/x"),
+        ("next#fragment", "/a/b/next"),
+        ("", "/a/b/start?x=1"),
+        ("//{authority}/network", "/network"),
+        ("http://{authority}/absolute", "/absolute"),
+    ] {
+        let (listener, address) = local_listener();
+        let location = location.replace("{authority}", &address.to_string());
+        let worker = serve(listener, vec![redirect_to(&location), EMPTY_OK.to_vec()]);
+        let response = client
+            .get(&format!("http://{address}/a/b/start?x=1"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "Location {location:?}");
+        let wire = worker.join().unwrap();
+        assert!(
+            wire[1].starts_with(&format!("GET {expected} HTTP/1.1\r\n")),
+            "Location {location:?} sent {:?}",
+            wire[1]
+        );
+    }
+}
+
+#[tokio::test]
+async fn request_target_omits_fragments_and_host_names_the_authority() {
+    let client = Client::new(Limits::default()).unwrap();
+    for (url, target) in [
+        ("http://{authority}/p?q=1#fragment", "/p?q=1"),
+        ("http://{authority}", "/"),
+        ("HTTP://{authority}/Case", "/Case"),
+    ] {
+        let (listener, address) = local_listener();
+        let worker = serve(listener, vec![EMPTY_OK.to_vec()]);
+        let url = url.replace("{authority}", &address.to_string());
+        client.get(&url).await.unwrap();
+        let wire = worker.join().unwrap().remove(0).to_ascii_lowercase();
+        let target = target.to_ascii_lowercase();
+        assert!(
+            wire.starts_with(&format!("get {target} http/1.1\r\n")),
+            "{wire:?}"
+        );
+        assert!(
+            wire.contains(&format!("\r\nhost: {address}\r\n")),
+            "{wire:?}"
+        );
+        assert!(wire.contains("\r\naccept: */*\r\n"), "{wire:?}");
+        assert!(!wire.contains("proxy"), "{wire:?}");
+    }
+}
+
+#[tokio::test]
+async fn ipv6_literal_authority_is_bracketed_in_host() {
+    let listener = match std::net::TcpListener::bind("[::1]:0") {
+        Ok(listener) => listener,
+        // Some containers have no IPv6 loopback; nothing to characterize there.
+        Err(error) if error.kind() == std::io::ErrorKind::AddrNotAvailable => return,
+        Err(error) => panic!("bind [::1]: {error}"),
+    };
+    let port = listener.local_addr().unwrap().port();
+    let worker = serve(listener, vec![EMPTY_OK.to_vec()]);
+    Client::new(Limits::default())
+        .unwrap()
+        .get(&format!("http://[::1]:{port}/v6"))
+        .await
+        .unwrap();
+    let wire = worker.join().unwrap().remove(0).to_ascii_lowercase();
+    assert!(wire.starts_with("get /v6 http/1.1\r\n"), "{wire:?}");
+    assert!(
+        wire.contains(&format!("\r\nhost: [::1]:{port}\r\n")),
+        "{wire:?}"
+    );
+}
+
+#[tokio::test]
+async fn request_framing_declares_post_length_and_nothing_for_get() {
+    let client = Client::new(Limits::default()).unwrap();
+    for (method, body, framing) in [
+        (Method::Post, b"ping".as_slice(), Some("content-length: 4")),
+        // An empty POST is sent without any framing header, as reqwest did.
+        (Method::Post, b"".as_slice(), None),
+        (Method::Get, b"".as_slice(), None),
+        (Method::Head, b"".as_slice(), None),
+    ] {
+        let (listener, address) = local_listener();
+        let worker = serve(listener, vec![EMPTY_OK.to_vec()]);
+        client
+            .execute(Request {
+                method,
+                body,
+                ..Request::get(&format!("http://{address}/"))
+            })
+            .await
+            .unwrap();
+        let wire = worker.join().unwrap().remove(0).to_ascii_lowercase();
+        assert!(!wire.contains("transfer-encoding"), "{wire:?}");
+        match framing {
+            Some(framing) => assert!(wire.contains(&format!("\r\n{framing}\r\n")), "{wire:?}"),
+            None => assert!(!wire.contains("content-length"), "{wire:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn malformed_or_credentialed_urls_are_rejected_as_invalid_data() {
+    let client = Client::new(Limits::default()).unwrap();
+    for url in [
+        "http://",
+        "https://:80/",
+        "http://user@127.0.0.1:1/",
+        "http://:secret@127.0.0.1:1/",
+        "mailto:someone@example.com",
+        "//127.0.0.1:1/relative",
+        "/relative",
+        "",
+    ] {
+        let error = client.get(url).await.err().expect(url);
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{url:?}");
+    }
+}
+
+#[tokio::test]
+async fn transport_errors_are_not_invalid_data_and_never_echo_the_url() {
+    let (listener, address) = local_listener();
+    drop(listener);
+    let error = Client::new(Limits::default())
+        .unwrap()
+        .get(&format!("http://{address}/token-SECRET?key=SECRET"))
+        .await
+        .err()
+        .unwrap();
+    assert_ne!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_ne!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(!error.to_string().contains("SECRET"), "{error}");
+    assert!(!format!("{error:?}").contains("SECRET"), "{error:?}");
+}
+
+#[tokio::test]
+async fn connect_timeout_covers_the_tls_handshake() {
+    // The kernel completes the TCP handshake from the backlog; nobody ever
+    // answers the ClientHello.
+    let (_listener, address) = local_listener();
+    let started = std::time::Instant::now();
+    let error = Client::new(Limits {
+        connect_timeout: std::time::Duration::from_millis(200),
+        read_timeout: std::time::Duration::from_secs(30),
+        total_timeout: std::time::Duration::from_secs(30),
+        ..Limits::default()
+    })
+    .unwrap()
+    .get(&format!("https://{address}/"))
+    .await
+    .err()
+    .unwrap();
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+}
+
+#[tokio::test]
+async fn total_timeout_bounds_stalled_headers_and_bodies() {
+    for headers in [
+        b"".as_slice(),
+        b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n".as_slice(),
+    ] {
+        let (listener, address) = local_listener();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let worker = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let _ = socket.read(&mut [0; 4096]).unwrap();
+            socket.write_all(headers).unwrap();
+            let _ = held.recv_timeout(std::time::Duration::from_secs(10));
+        });
+        let started = std::time::Instant::now();
+        let client = Client::new(Limits {
+            read_timeout: std::time::Duration::from_secs(30),
+            total_timeout: std::time::Duration::from_millis(300),
+            ..Limits::default()
+        })
+        .unwrap();
+        let result = match client.get(&format!("http://{address}/")).await {
+            Ok(response) => response.into_bytes().await.map(|_| ()),
+            Err(error) => Err(error),
+        };
+        let elapsed = started.elapsed();
+        let _ = release.send(());
+        worker.join().unwrap();
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        assert!(elapsed < std::time::Duration::from_secs(10));
+    }
+}
+
+#[tokio::test]
+async fn read_timeout_resets_on_body_progress() {
+    let (listener, address) = local_listener();
+    let worker = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        let _ = socket.read(&mut [0; 4096]).unwrap();
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n")
+            .unwrap();
+        for byte in b"abcde" {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            socket.write_all(&[*byte]).unwrap();
+        }
+    });
+    // Each gap is under the read timeout; their sum (750 ms) exceeds it.
+    let body = Client::new(Limits {
+        read_timeout: std::time::Duration::from_millis(500),
+        ..Limits::default()
+    })
+    .unwrap()
+    .get(&format!("http://{address}/"))
+    .await
+    .unwrap()
+    .into_bytes()
+    .await
+    .unwrap();
+    worker.join().unwrap();
+    assert_eq!(body, b"abcde");
+}
+
+#[tokio::test]
+async fn unencoded_request_targets_are_sent_percent_encoded() {
+    let (listener, address) = local_listener();
+    let worker = serve(listener, vec![EMPTY_OK.to_vec()]);
+    Client::new(Limits::default())
+        .unwrap()
+        .get(&format!("http://{address}/b\u{fc}cher/a b?q=c d&k='v'"))
+        .await
+        .unwrap();
+    let wire = worker.join().unwrap().remove(0);
+    assert!(
+        wire.starts_with("GET /b%C3%BCcher/a%20b?q=c%20d&k=%27v%27 HTTP/1.1\r\n"),
+        "{wire:?}"
+    );
+}

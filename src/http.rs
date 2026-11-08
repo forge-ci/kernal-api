@@ -9,9 +9,9 @@
 use std::io;
 use std::time::Duration;
 
-// Native TLS fixtures: the self-signed identity is a CA used as its own leaf,
-// which rustls (`http-client-rustls` alone) rightly refuses.
-#[cfg(all(test, feature = "http-client"))]
+// Local TLS fixtures for whichever backend is selected. rustls must refuse the
+// self-signed CA used as its own leaf; both backends accept the CA-signed leaf.
+#[cfg(test)]
 #[path = "http_tls_tests.rs"]
 mod tls_tests;
 

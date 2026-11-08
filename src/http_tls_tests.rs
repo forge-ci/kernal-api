@@ -1,17 +1,22 @@
-//! Local TLS mechanism tests. The fixture key is public test data, never a
+//! Local TLS mechanism tests. The fixture keys are public test data, never a
 //! production identity. Trust is added to one test client, not the OS store.
+//!
+//! Two fixtures: a CA-signed `localhost` leaf (`chain-*`), which both TLS
+//! backends must accept once its root is trusted, and a self-signed CA used as
+//! its own leaf (`cert.pem`), which native TLS accepts and rustls must refuse.
 
 use super::*;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread::JoinHandle;
 
-const CERT: &[u8] = include_bytes!("../tests/fixtures/http-tls/cert.pem");
+const SELF_SIGNED_CA: &[u8] = include_bytes!("../tests/fixtures/http-tls/cert.pem");
+const SELF_SIGNED_IDENTITY: &str = include_str!("../tests/fixtures/http-tls/identity.p12.hex");
+const CHAIN_ROOT: &[u8] = include_bytes!("../tests/fixtures/http-tls/chain-root.pem");
+const CHAIN_IDENTITY: &str = include_str!("../tests/fixtures/http-tls/chain-leaf.p12.hex");
 
-fn fixture(response: Vec<u8>) -> (u16, JoinHandle<bool>) {
-    let hex: String = include_str!("../tests/fixtures/http-tls/identity.p12.hex")
-        .split_whitespace()
-        .collect();
+fn fixture(identity_hex: &str, response: Vec<u8>) -> (u16, JoinHandle<bool>) {
+    let hex: String = identity_hex.split_whitespace().collect();
     let identity: Vec<u8> = (0..hex.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
@@ -77,12 +82,12 @@ fn limits() -> Limits {
     }
 }
 
-fn trusting_client() -> Client {
+fn trusting_client(root: &[u8]) -> Client {
     Client::with_builder(
         limits(),
         reqwest::Client::builder()
             .no_proxy()
-            .add_root_certificate(reqwest::Certificate::from_pem(CERT).unwrap()),
+            .add_root_certificate(reqwest::Certificate::from_pem(root).unwrap()),
     )
     .unwrap()
 }
@@ -99,8 +104,8 @@ fn ok_response() -> Vec<u8> {
 
 #[tokio::test]
 async fn trusted_local_tls_preserves_body() {
-    let (port, worker) = fixture(ok_response());
-    let response = trusting_client()
+    let (port, worker) = fixture(CHAIN_IDENTITY, ok_response());
+    let response = trusting_client(CHAIN_ROOT)
         .get(&format!("https://localhost:{port}/"))
         .await
         .unwrap();
@@ -111,7 +116,7 @@ async fn trusted_local_tls_preserves_body() {
 
 #[tokio::test]
 async fn untrusted_local_certificate_never_receives_http_request() {
-    let (port, worker) = fixture(ok_response());
+    let (port, worker) = fixture(CHAIN_IDENTITY, ok_response());
     let result = Client::new(limits())
         .unwrap()
         .get(&format!("https://localhost:{port}/"))
@@ -123,8 +128,8 @@ async fn untrusted_local_certificate_never_receives_http_request() {
 #[tokio::test]
 async fn trusted_certificate_with_wrong_hostname_never_receives_http_request() {
     // The certificate has DNS:localhost only, not an IP address SAN.
-    let (port, worker) = fixture(ok_response());
-    let result = trusting_client()
+    let (port, worker) = fixture(CHAIN_IDENTITY, ok_response());
+    let result = trusting_client(CHAIN_ROOT)
         .get(&format!("https://127.0.0.1:{port}/"))
         .await;
     assert!(result.is_err(), "wrong certificate hostname accepted");
@@ -139,8 +144,8 @@ async fn trusted_https_downgrade_is_rejected_before_plaintext_connection() {
         "HTTP/1.1 302 Found\r\nLocation: http://{}/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         plaintext.local_addr().unwrap()
     );
-    let (port, worker) = fixture(response.into_bytes());
-    let result = trusting_client()
+    let (port, worker) = fixture(CHAIN_IDENTITY, response.into_bytes());
+    let result = trusting_client(CHAIN_ROOT)
         .get(&format!("https://localhost:{port}/"))
         .await;
     assert!(
@@ -152,4 +157,31 @@ async fn trusted_https_downgrade_is_rejected_before_plaintext_connection() {
         plaintext.accept().unwrap_err().kind(),
         io::ErrorKind::WouldBlock
     );
+}
+
+/// Native TLS (selected whenever `http-client` is enabled) accepts a trusted
+/// self-signed CA presented as its own leaf.
+#[cfg(feature = "http-client")]
+#[tokio::test]
+async fn native_tls_accepts_trusted_ca_presented_as_leaf() {
+    let (port, worker) = fixture(SELF_SIGNED_IDENTITY, ok_response());
+    let response = trusting_client(SELF_SIGNED_CA)
+        .get(&format!("https://localhost:{port}/"))
+        .await
+        .unwrap();
+    assert_eq!(response.into_bytes().await.unwrap(), b"ok");
+    assert!(joined(worker).await);
+}
+
+/// rustls (`http-client-rustls` alone) refuses a CA certificate presented as
+/// an end-entity certificate, even when that same certificate is a trusted root.
+#[cfg(not(feature = "http-client"))]
+#[tokio::test]
+async fn rustls_refuses_trusted_ca_presented_as_leaf() {
+    let (port, worker) = fixture(SELF_SIGNED_IDENTITY, ok_response());
+    let result = trusting_client(SELF_SIGNED_CA)
+        .get(&format!("https://localhost:{port}/"))
+        .await;
+    assert!(result.is_err(), "rustls accepted a CA presented as a leaf");
+    assert!(!joined(worker).await);
 }
