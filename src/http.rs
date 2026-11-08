@@ -1,6 +1,8 @@
 //! Bounded HTTP client operations on the caller's async runtime.
 //!
 //! Redirects are opt-in; credentials are never inferred.
+//! No proxy is ever used, including from the environment. URL hosts must be
+//! ASCII as written: IDNA and percent-encoded hosts are rejected, not converted.
 //! Response status interpretation and payload schemas belong to the caller.
 //! Bodies preserve content-encoded wire bytes; decoding belongs to the caller.
 //! HTTP/1 transport metadata has independent fixed parser ceilings. Caller

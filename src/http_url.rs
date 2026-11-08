@@ -21,6 +21,7 @@ impl Target {
     pub(super) fn parse(url: &str) -> io::Result<Self> {
         // The fragment is client-side only and never sent.
         let url = url.split_once('#').map_or(url, |(url, _)| url);
+        reject_unconverted_host(url)?;
         let url = percent_encode_target(url);
         let uri: hyper::Uri = url.parse().map_err(|_| invalid("invalid HTTP URL"))?;
         let https = match uri.scheme_str() {
@@ -121,6 +122,26 @@ impl Target {
             }
         }
     }
+}
+
+/// Hosts are used exactly as written: there is no IDNA mapping and no
+/// percent-decoding, so a host that would need either is rejected rather than
+/// sent somewhere other than the caller meant. Pre-encoded `xn--` labels are
+/// plain ASCII and accepted.
+fn reject_unconverted_host(url: &str) -> io::Result<()> {
+    let Some((_, rest)) = url.split_once("://") else {
+        return Ok(());
+    };
+    let authority = rest.split(['/', '?']).next().unwrap_or_default();
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    if host.is_ascii() && !host.contains('%') {
+        return Ok(());
+    }
+    Err(invalid(
+        "HTTP URL host must be ASCII; IDNA and percent-encoded hosts are not converted",
+    ))
 }
 
 /// Percent-encode the path and query the way the WHATWG URL parser does for
@@ -286,6 +307,23 @@ mod tests {
             });
             assert_eq!(normalized, expected, "{reference:?}");
         }
+    }
+
+    #[test]
+    fn non_ascii_and_percent_encoded_hosts_are_rejected_not_converted() {
+        for url in [
+            "http://b\u{fc}cher.example/",
+            "https://\u{4f8b}\u{3048}.jp:8443/path",
+            "http://user@b\u{fc}cher.example/",
+            "http://b%C3%BCcher.example/",
+            "http://[fe80::1%25eth0]/",
+        ] {
+            let error = Target::parse(url).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{url:?}");
+            assert!(error.to_string().contains("ASCII"), "{url:?}: {error}");
+        }
+        let punycode = Target::parse("http://xn--bcher-kva.example/").unwrap();
+        assert_eq!(punycode.host_header(), "xn--bcher-kva.example");
     }
 
     #[test]

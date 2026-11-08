@@ -1129,3 +1129,29 @@ async fn unencoded_request_targets_are_sent_percent_encoded() {
         "{wire:?}"
     );
 }
+
+#[tokio::test]
+async fn non_ascii_hosts_are_rejected_before_any_lookup() {
+    let client = Client::new(Limits {
+        max_redirects: 1,
+        ..Limits::default()
+    })
+    .unwrap();
+    for url in ["http://b\u{fc}cher.example/", "http://b%C3%BCcher.example/"] {
+        let error = client.get(url).await.err().expect(url);
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{url:?}");
+        assert!(error.to_string().contains("ASCII"), "{url:?}: {error}");
+    }
+    // A redirect hop is held to the same rule.
+    let (listener, _) = local_listener();
+    let address = listener.local_addr().unwrap();
+    let worker = serve(listener, vec![redirect_to("http://b%C3%BCcher.example/")]);
+    let error = client
+        .get(&format!("http://{address}/"))
+        .await
+        .err()
+        .unwrap();
+    worker.join().unwrap();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("ASCII"), "{error}");
+}
