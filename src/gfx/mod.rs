@@ -64,6 +64,12 @@ mod backend {
         pub(crate) fn text_field(&mut self, _: &mut String) -> bool {
             match self.0 {}
         }
+        pub(crate) fn clear_keyboard_focus(&mut self) {
+            match self.0 {}
+        }
+        pub(crate) fn secret_field(&mut self, _: &mut String, _: bool) -> bool {
+            match self.0 {}
+        }
         pub(crate) fn text_area(&mut self, _: &mut String, _: usize) -> bool {
             match self.0 {}
         }

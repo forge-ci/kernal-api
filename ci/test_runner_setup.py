@@ -1,6 +1,7 @@
 """The background webview apt install stays bounded and retried."""
 
 import io
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -36,11 +37,41 @@ class AptBackgroundPlanTests(unittest.TestCase):
         self.assertEqual(self.finish[0][3:], ["dpkg", "--configure", "-a"])
         self.assertEqual(self.finish[1][-3:], ["install", "--yes", "libgtk-3-dev"])
 
-    def test_a_retry_moves_off_the_azure_mirror_and_refreshes(self):
+    def test_a_retry_changes_the_mirror_and_refreshes(self):
         fallback = self.downloads[1]
         self.assertIn(runner_setup.APT_FALLBACK_MIRROR, " ".join(fallback[0]))
-        self.assertIn("azure.archive.ubuntu.com", " ".join(fallback[0]))
         self.assertIn("update", fallback[1])
+
+    def test_retry_rewrites_primary_security_and_azure_sources_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "sources.list.d" / "ubuntu.sources"
+            source.parent.mkdir()
+            source.write_text(
+                "URIs: http://archive.ubuntu.com/ubuntu\n"
+                "URIs: https://security.ubuntu.com/ubuntu\n"
+                "URIs: http://azure.archive.ubuntu.com/ubuntu\n"
+                "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n",
+                encoding="utf-8",
+            )
+            other = root / "other.list"
+            other.write_text("deb https://packages.microsoft.com/ubuntu noble main\n", encoding="utf-8")
+            legacy = root / "sources.list"
+            legacy.write_text("deb http://archive.ubuntu.com/ubuntu noble main\n", encoding="utf-8")
+            command = self.downloads[1][0][3:]
+            subprocess.run([*command[:-1], str(root)], check=True)
+            rewritten = source.read_text(encoding="utf-8")
+            self.assertNotIn("archive.ubuntu.com", rewritten)
+            self.assertNotIn("security.ubuntu.com", rewritten)
+            self.assertEqual(rewritten.count(f"https://{runner_setup.APT_FALLBACK_MIRROR}/ubuntu"), 3)
+            self.assertIn("Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg", rewritten)
+            self.assertEqual(
+                legacy.read_text(encoding="utf-8"),
+                f"deb https://{runner_setup.APT_FALLBACK_MIRROR}/ubuntu noble main\n",
+            )
+            self.assertEqual(
+                other.read_text(encoding="utf-8"), "deb https://packages.microsoft.com/ubuntu noble main\n"
+            )
 
     def test_fixed_caps_leave_the_install_a_budget_inside_the_deadline(self):
         fixed = sum(int(command[2]) for command in self.commands() if command[2] != runner_setup.APT_REMAINING)

@@ -3419,7 +3419,7 @@ dependencies = [
 
 [[package]]
 name = "kernal-api"
-version = "0.1.40"
+version = "0.1.41"
 dependencies = [
  "addr2line",
  "blake3",
@@ -3523,6 +3523,7 @@ dependencies = [
  "x11rb",
  "xkbcommon-dl",
  "zbus",
+ "zeroize",
  "zip",
  "zstd",
 ]
