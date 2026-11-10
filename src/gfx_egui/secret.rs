@@ -2,7 +2,7 @@
 use crate::gfx::Event;
 use zeroize::{Zeroize, Zeroizing};
 
-const LIMIT: usize = 65536;
+const LIMIT: usize = 65_536;
 
 pub(super) fn field(
     ui: &mut egui::Ui,
@@ -10,6 +10,7 @@ pub(super) fn field(
     value: &mut String,
     multiline: bool,
 ) -> bool {
+    prepare(value);
     let masked: String = value
         .chars()
         .map(|c| if c == '\n' { '\n' } else { '•' })
@@ -38,10 +39,6 @@ pub(super) fn field(
                 | egui::Event::Paste(text)
                 | egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
                     if focused && value.len() + text.len() <= LIMIT {
-                        // Avoid reallocating a buffer that already contains a secret.
-                        if value.is_empty() {
-                            value.reserve(LIMIT);
-                        }
                         for c in text
                             .chars()
                             .filter(|c| !c.is_control() || (*c == '\n' && multiline))
@@ -70,9 +67,6 @@ pub(super) fn field(
                     pressed: true,
                     ..
                 } if focused && multiline && value.len() < LIMIT => {
-                    if value.is_empty() {
-                        value.reserve(LIMIT);
-                    }
                     value.push('\n');
                     changed = true;
                 }
@@ -95,13 +89,28 @@ pub(super) fn field(
             });
         }
     });
+    scrub_facade(events);
+    if changed {
+        ui.ctx().request_repaint();
+    }
+    changed
+}
+
+// Move the old allocation into a zeroizing owner before growing a prefilled field.
+fn prepare(value: &mut String) {
+    if value.capacity() < LIMIT {
+        let old = Zeroizing::new(std::mem::replace(value, String::with_capacity(LIMIT)));
+        value.push_str(&old);
+    }
+}
+
+fn scrub_facade(events: &mut Vec<Event>) {
     for event in events.iter_mut() {
         if let Event::Text(text) = event {
             text.zeroize();
         }
     }
     events.retain(|e| !matches!(e, Event::Text(_)));
-    changed
 }
 
 fn scrub(event: &mut egui::Event) {

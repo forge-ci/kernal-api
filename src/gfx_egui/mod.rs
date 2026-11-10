@@ -876,6 +876,17 @@ mod tests {
     }
 
     #[test]
+    fn secret_field_reserves_without_abandoning_a_prefilled_buffer() {
+        let ctx = egui::Context::default();
+        let mut value = String::from("prefilled");
+        frame(&ctx, Vec::new(), |f| {
+            f.secret_field(&mut value, false);
+        });
+        assert!(value.capacity() >= 65_536);
+        assert_eq!(value, "prefilled");
+    }
+
+    #[test]
     fn secret_field_masks_and_consumes_text_without_undo() {
         let ctx = egui::Context::default();
         let mut value = String::with_capacity(65536);
