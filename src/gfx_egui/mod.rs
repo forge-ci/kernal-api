@@ -3,6 +3,7 @@
 
 pub(crate) mod input;
 pub(crate) mod offscreen;
+mod secret;
 pub(crate) mod window_dock;
 
 pub(crate) use offscreen::snapshot;
@@ -413,6 +414,18 @@ impl FrameImp<'_> {
         response.changed()
     }
 
+    pub(crate) fn clear_keyboard_focus(&mut self) {
+        self.ui.ctx().memory_mut(|memory| {
+            if let Some(id) = memory.focused() {
+                memory.surrender_focus(id);
+            }
+        });
+    }
+
+    pub(crate) fn secret_field(&mut self, value: &mut String, multiline: bool) -> bool {
+        secret::field(self.ui, &mut self.shared.events, value, multiline)
+    }
+
     pub(crate) fn text_area(&mut self, value: &mut String, rows: usize) -> bool {
         let edit = egui::TextEdit::multiline(value)
             .code_editor()
@@ -636,7 +649,9 @@ mod tests {
             ..egui::RawInput::default()
         };
         let mut output = ctx.run_ui(input, |ui| {
-            let mut shared = Shared::new(Vec::new());
+            let mut events = Vec::new();
+            ctx.input(|input| input::translate(&input.events, &mut events));
+            let mut shared = Shared::new(events);
             let mut frame = crate::gfx::Frame {
                 imp: FrameImp {
                     ui,
@@ -730,6 +745,11 @@ mod tests {
         assert_eq!(kind, Some(GfxErrorKind::Unsupported));
 
         let mut asked = None;
+        ctx.input(|input| {
+            assert!(input.events.iter().chain(&input.raw.events).all(|e| {
+                !matches!(e, egui::Event::Text(t) | egui::Event::Paste(t) if !t.is_empty())
+            }));
+        });
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let mut shared = Shared::new(Vec::new());
             shared.panels = true;
@@ -853,6 +873,92 @@ mod tests {
             clicked.iter().all(|&(_, second)| !second),
             "second row untouched: {clicked:?}"
         );
+    }
+
+    #[test]
+    fn secret_field_masks_and_consumes_text_without_undo() {
+        let ctx = egui::Context::default();
+        let mut value = String::with_capacity(65536);
+        frame(&ctx, Vec::new(), |f| {
+            f.secret_field(&mut value, false);
+        });
+        frame(&ctx, vec![egui::Event::Text("pri".into())], |f| {
+            assert!(f.secret_field(&mut value, false));
+            assert!(f.events().iter().all(|e| !matches!(e, Event::Text(_))));
+        });
+        frame(&ctx, vec![egui::Event::Paste("vate".into())], |f| {
+            assert!(f.secret_field(&mut value, false));
+        });
+        assert_eq!(value, "private");
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut shared = Shared::new(Vec::new());
+            let mut f = crate::gfx::Frame {
+                imp: FrameImp {
+                    ui,
+                    shared: &mut shared,
+                },
+            };
+            f.secret_field(&mut value, false);
+        });
+        assert!(!format!("{:?}", output.shapes).contains("private"));
+        output.textures_delta.clear();
+
+        frame(
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Z,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            }],
+            |f| {
+                f.secret_field(&mut value, false);
+            },
+        );
+        assert_eq!(value, "private");
+    }
+
+    #[test]
+    fn secret_field_filters_bounds_erases_and_recovers_focus() {
+        let ctx = egui::Context::default();
+        let mut value = String::with_capacity(65536);
+        frame(&ctx, Vec::new(), |f| {
+            f.secret_field(&mut value, false);
+        });
+        frame(&ctx, vec![egui::Event::Text("é\n\tX".into())], |f| {
+            f.secret_field(&mut value, false);
+        });
+        assert_eq!(value, "éX");
+        let key = |key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(&ctx, vec![key(egui::Key::Backspace)], |f| {
+            f.secret_field(&mut value, false);
+        });
+        assert_eq!(value, "é");
+        frame(&ctx, vec![key(egui::Key::Enter)], |f| {
+            f.secret_field(&mut value, true);
+        });
+        assert_eq!(value, "é\n");
+        frame(&ctx, vec![egui::Event::Paste("x".repeat(65536))], |f| {
+            f.secret_field(&mut value, true);
+        });
+        assert_eq!(value, "é\n");
+        value.clear(); // Simulate a rejected submission; production callers zeroize.
+        ctx.memory_mut(|m| m.request_focus(egui::Id::unique("store")));
+        frame(&ctx, Vec::new(), |f| {
+            f.clear_keyboard_focus();
+            f.secret_field(&mut value, false);
+        });
+        frame(&ctx, vec![egui::Event::Text("retry".into())], |f| {
+            f.secret_field(&mut value, false);
+        });
+        assert_eq!(value, "retry");
     }
 
     #[test]

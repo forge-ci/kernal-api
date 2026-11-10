@@ -58,6 +58,23 @@ impl Frame<'_> {
         self.imp.text_field(value)
     }
 
+    /// A masked append-only credential field with no copy, reveal or undo history.
+    ///
+    /// Takes focus when no widget holds it. Accepts text, paste and committed
+    /// IME input; Backspace erases the last character. Enter inserts a newline
+    /// only in multiline mode. The limit is 65536 UTF-8 bytes. Plaintext input
+    /// events are scrubbed, including unfocused input; draw before other interactive
+    /// widgets and inspect events afterwards. The caller owns and must erase `value`.
+    /// Returns whether the value changed. No plaintext enters a text widget.
+    pub fn secret_field(&mut self, value: &mut String, multiline: bool) -> bool {
+        self.imp.secret_field(value, multiline)
+    }
+
+    /// Release the focused widget. The next text or secret field drawn takes focus.
+    pub fn clear_keyboard_focus(&mut self) {
+        self.imp.clear_keyboard_focus();
+    }
+
     /// A multi-line, monospace text area bound to `value`, as wide as the
     /// space left and at least `rows` lines tall; `true` when edited. Enter
     /// inserts a newline (the app decides when to save), and it takes

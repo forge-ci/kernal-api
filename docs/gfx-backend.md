@@ -238,6 +238,18 @@ cache them across theme or size changes.
 
 ## Provisional widget set
 
+`Frame::secret_field(&mut String, multiline)` is an append-only credential
+editor. It renders only bullets (and multiline line breaks), accepts paste and
+committed IME text, and erases Backspace bytes without retaining undo history.
+There is no copy, reveal or accessibility plaintext. It takes focus when none
+exists, limits input to 65536 UTF-8 bytes, consumes field-owned keyboard keys,
+and zeroizes text in both backend and facade events, even when unfocused.
+`Frame::clear_keyboard_focus()` lets a rejected submission return focus to the
+next drawn field. Draw the field before other interactive widgets and read events afterwards.
+Callers must zeroize
+their own buffer when the request completes or is cancelled. This is not a
+promise to erase OS clipboard contents or input-method memory.
+
 Added for result lists (the talos-bar search popover is the first consumer):
 
 - `Frame::scroll(height, |f| ..)`: a vertical region `height` logical pixels
