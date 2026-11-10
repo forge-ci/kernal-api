@@ -123,9 +123,9 @@ APT_CONFIGURE_SECONDS = 10
 APT_TOTAL_SECONDS = 530
 # Stands in for the install's timeout until the child knows what is left.
 APT_REMAINING = "{remaining}"
-# GitHub's Azure Ubuntu mirror has trickled the 25 MB webkit .deb past every
-# capped attempt (runs 40368020419, 40374990547); the retry uses the primary.
-APT_FALLBACK_MIRROR = "archive.ubuntu.com"
+# Both Azure and the primary archive can trickle downloads past the caps.
+# Retry through an independent Ubuntu mirror; apt still verifies Ubuntu's keys.
+APT_FALLBACK_MIRROR = "mirrors.edge.kernel.org"
 
 
 def capped(seconds: int, command: list[str]) -> list[str]:
@@ -135,20 +135,28 @@ def capped(seconds: int, command: list[str]) -> list[str]:
 def apt_background_plan(packages: list[str]) -> tuple[list[list[list[str]]], list[list[str]]]:
     """apt-start's child: download attempts until one succeeds, then the install.
 
-    The first download attempt updates and fetches. The second moves the
-    sources off the Azure mirror and updates again before fetching.
+    The first download attempt updates and fetches. The second moves Ubuntu
+    archive/security sources to an independent mirror before refreshing them.
     """
     update, install = apt_commands(packages, APT_RESILIENCE)
     fetch = capped(APT_DOWNLOAD_SECONDS, [*install, "--download-only"])
     capped_update = capped(APT_UPDATE_SECONDS, update)
+    ubuntu_uri = r"https?://((azure\.)?archive|security)\.ubuntu\.com/ubuntu"
     switch_mirror = [
         "sudo",
         "timeout",
         str(APT_MIRROR_SECONDS),
-        "sh",
+        sys.executable,
         "-c",
-        "grep -rl azure.archive.ubuntu.com /etc/apt"
-        f" | xargs -r sed -i 's/azure\\.archive\\.ubuntu\\.com/{APT_FALLBACK_MIRROR}/g'",
+        "import pathlib, re, sys\n"
+        "for path in pathlib.Path(sys.argv[1]).rglob('*'):\n"
+        "    if not path.is_file() or path.suffix not in ('.list', '.sources'):\n"
+        "        continue\n"
+        "    source = path.read_text(encoding='utf-8')\n"
+        f"    updated = re.sub({ubuntu_uri!r}, 'https://{APT_FALLBACK_MIRROR}/ubuntu', source)\n"
+        "    if updated != source:\n"
+        "        path.write_text(updated, encoding='utf-8')\n",
+        "/etc/apt",
     ]
     downloads = [
         [capped_update, fetch],
