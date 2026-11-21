@@ -13,6 +13,10 @@ on:
         description: Exact 40-character commit SHA to validate with the complete matrix
         required: true
         type: string
+      forge_pool:
+        description: "RUN-005 canary: use the forge pool even while FORGE_POOL_LABELS is unset"
+        type: boolean
+        default: false
   push:
     branches: [main]
   # GEN-022 (forge-ci/ci.yml#405): main merges through a merge queue, which
@@ -121,18 +125,51 @@ jobs:
   # `supported-targets` compiled the same all-feature graph `build` archives,
   # so only its ABI-generator cross-check survived, as a `build` step.
 
+  # Forge pool (forge-ci/gh-runner docs/pool.md): picks the self-hosted Dell
+  # pool for the `linux` job when the repo variable FORGE_POOL_LABELS is set
+  # and the pool has an idle runner, else hosted. pool-select keeps fork PRs
+  # and pull_request_target hosted (trusted-only, the default). Unset
+  # FORGE_POOL_LABELS to send the job back to hosted at once.
+  pool:
+    name: Select runner
+    needs: verify
+    # Always runs (no `if:`) so the local-gate replay proves it; with routing
+    # off it answers hosted at once, without a network call.
+    # forge-quick through the kill switch (RUN-004).
+    runs-on: ${{ vars.FORGE_QUICK_LABELS != '' && fromJSON(vars.FORGE_QUICK_LABELS) || 'ubuntu-24.04' }}
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      runs-on: ${{ steps.select.outputs.runs-on || '"ubuntu-24.04"' }}
+    steps:
+      # No step continue-on-error (WF-003): pool-select's own steps already
+      # fall back to hosted on any error, and the output default covers a
+      # selector that never ran.
+      - name: Select pool or hosted
+        id: select
+        uses: forge-ci/ci.yml/actions/pool-select@a36bc81ad6ada5fb17398e3e7ba38435cc67a951 # ci.yml#550, tokenless signal source
+        with:
+          # The variable is the kill switch; a manual `forge_pool` dispatch
+          # proves one real job on the pool before the variable is set.
+          labels: ${{ vars.FORGE_POOL_LABELS || (inputs.forge_pool && '["self-hosted","forge-pool"]' || '') }}
+          fallback: ubuntu-24.04
+
   # Linux goes first and gates every other target. It compiles the same
   # sources they do, so a failure here is a failure everywhere, and holding
   # Apple and Windows runners to rediscover it is the waste this ordering
   # removes. On Linux the builder is the host, so everything runs in place,
   # on one runner: the Linux-only checks first, then lint and the full suite.
   linux:
-    needs: verify
+    needs: [verify, pool]
     # A main push, a dispatch or a `ci-full` PR selects full mode (ci/ci_mode.py):
     # the full matrix (hosted macOS) and Full coverage. The queue runs `test`.
     # Minimal attestations omit dependency-boundary; the queue must execute it.
-    if: github.event_name == 'merge_group' || needs.verify.outputs.skip_linux != 'true'
-    runs-on: ubuntu-24.04
+    # !cancelled(): also runs (hosted) when the pool selector was skipped
+    # (routing off) or failed; verify must still have passed.
+    if: ${{ !cancelled() && needs.verify.result == 'success' && (github.event_name == 'merge_group' || needs.verify.outputs.skip_linux != 'true') }}
+    # Read the selector only when it ran: act replays expose a skipped job's
+    # unevaluated output template.
+    runs-on: ${{ needs.pool.result == 'success' && fromJSON(needs.pool.outputs.runs-on) || 'ubuntu-24.04' }}
     timeout-minutes: 120
     permissions:
       contents: read
@@ -195,14 +232,17 @@ jobs:
       # run 42005878882). Reclaim unused SDKs before setup restores/cooks,
       # retaining LLVM, graphics packages, tool caches and swap. Keep Soldr's
       # 5 GiB guard: reducing it would only postpone disk exhaustion.
+      # Hosted only: on a forge-pool runner the deletions would persist in the
+      # long-lived runner container and `docker-images` would prune the host's
+      # shared job dockerd; the pool host's GC manages its own disk.
       - name: Reclaim runner disk for full Linux builds
         if: steps.mode.outputs.mode == 'full'
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
         with:
-          android: true
-          dotnet: true
-          haskell: true
-          docker-images: true
+          android: ${{ runner.environment == 'github-hosted' }}
+          dotnet: ${{ runner.environment == 'github-hosted' }}
+          haskell: ${{ runner.environment == 'github-hosted' }}
+          docker-images: ${{ runner.environment == 'github-hosted' }}
           large-packages: false
           tool-cache: false
           swap-storage: false
@@ -1283,7 +1323,7 @@ jobs:
   # sweep at a time across runs.
   cache-janitor:
     name: Cache janitor
-    needs: [verify, fast, linux, lockfiles, wasm-guests, desktop-status, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary]
+    needs: [verify, pool, fast, linux, lockfiles, wasm-guests, desktop-status, build, test, dylints, linux-cache-writer, dylint-cache-writer, full-coverage, cache-retention, ci-summary]
     if: always() && github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

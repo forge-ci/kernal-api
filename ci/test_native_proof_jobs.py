@@ -29,6 +29,8 @@ TARGETS = {target for _, target in HOSTS}
 GATE_TARGET = "x86_64-unknown-linux-gnu"
 EXPECTED_JOBS = {
     "verify",
+    # Forge pool selector (pool-select on forge-quick): picks linux's runner.
+    "pool",
     # GEN-004: Ruff + Pylint over the Python sources; compiles nothing.
     "fast",
     "linux",
@@ -130,7 +132,8 @@ class NativeProofJobsTests(unittest.TestCase):
     def test_main_push_runs_the_full_tier(self):
         """A main push runs `linux` (full mode), `dylints` and Python lint; none is push-gated."""
         self.assertIn(
-            "if: github.event_name == 'merge_group' || needs.verify.outputs.skip_linux != 'true'\n",
+            "if: ${{ !cancelled() && needs.verify.result == 'success' && (github.event_name == 'merge_group'"
+            " || needs.verify.outputs.skip_linux != 'true') }}\n",
             self.job("linux"),
         )
         self.assertIn("if: needs.verify.outputs.skip_dylints != 'true'\n", self.job("dylints"))
@@ -174,7 +177,8 @@ class NativeProofJobsTests(unittest.TestCase):
 
     def test_every_other_platform_waits_for_linux(self):
         """A red Linux run must not cost an Apple or Windows runner."""
-        self.assertIn("needs: verify", self.job("linux").split("steps:", 1)[0])
+        self.assertIn("needs: [verify, pool]", self.job("linux").split("steps:", 1)[0])
+        self.assertIn("needs: verify", self.job("pool"))
         self.assertIn("needs: linux", self.job("build"))
         # Dylint starts beside Linux after the non-compiling verifier.
         self.assertIn("needs: verify", self.job("dylints").split("steps:", 1)[0])
