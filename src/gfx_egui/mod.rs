@@ -133,10 +133,12 @@ pub(crate) fn apply_theme(ctx: &egui::Context, theme: Theme) {
         },
         mode => mode,
     };
-    ctx.set_theme(if mode == ThemeMode::Light {
-        egui::Theme::Light
-    } else {
-        egui::Theme::Dark
+    // Keep the native window subscribed to system changes. A concrete theme
+    // here would pin its appearance and suppress notifications on some hosts.
+    ctx.set_theme(match theme.mode {
+        ThemeMode::FollowSystem => egui::ThemePreference::System,
+        ThemeMode::Light => egui::ThemePreference::Light,
+        ThemeMode::Dark => egui::ThemePreference::Dark,
     });
     ctx.data_mut(|data| data.insert_temp(egui::Id::new("kernal-theme"), theme));
     let mut visuals = match mode {

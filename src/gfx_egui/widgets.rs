@@ -60,14 +60,28 @@ impl FrameImp<'_> {
             .color
             .unwrap_or_else(|| self.widget_theme().role_color(style.role));
         let mut rich = egui::RichText::new(text).color(color32(color));
-        if style.strong {
-            rich = rich.strong();
-        }
         if style.small {
             rich = rich.small();
         }
-        self.ui
-            .add(egui::Label::new(rich).sense(egui::Sense::hover()));
+        let (pos, galley, response) = egui::Label::new(rich)
+            .sense(egui::Sense::hover())
+            .selectable(false)
+            .layout_in_ui(self.ui);
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::Role::Label, self.ui.is_enabled(), text)
+        });
+        if self.ui.is_rect_visible(response.rect) {
+            self.ui
+                .painter()
+                .galley(pos, galley.clone(), color32(color));
+            if style.strong {
+                // egui's `strong()` changes colour only. Embolden the glyphs
+                // without replacing semantic colour or bundling a second font.
+                self.ui
+                    .painter()
+                    .galley(pos + egui::vec2(0.45, 0.0), galley, color32(color));
+            }
+        }
     }
 
     pub(crate) fn status(&mut self, text: &str, role: TextRole) {
@@ -143,8 +157,8 @@ impl FrameImp<'_> {
             egui::Sense::hover(),
         );
         let stroke = egui::Stroke::new(1.5, color32(self.widget_theme().role_color(role)));
-        for segment in sparkline_segments(samples, rect.shrink(1.0)) {
-            self.ui.painter().line_segment(segment, stroke);
+        for segment in sparkline_segments(samples, rect.shrink((height / 2.0).min(1.0))) {
+            self.ui.painter_at(rect).line_segment(segment, stroke);
         }
     }
 }
@@ -303,6 +317,12 @@ mod tests {
         let ctx = egui::Context::default();
         for mode in [ThemeMode::FollowSystem, ThemeMode::Dark, ThemeMode::Light] {
             apply_theme(&ctx, Theme::with_mode(mode));
+            if mode == ThemeMode::FollowSystem {
+                assert_eq!(
+                    ctx.options(|o| o.theme_preference),
+                    egui::ThemePreference::System
+                );
+            }
             for system in [Some(egui::Theme::Light), Some(egui::Theme::Dark), None] {
                 let input = egui::RawInput {
                     system_theme: system,
@@ -319,6 +339,121 @@ mod tests {
                 output.textures_delta.clear();
             }
         }
+    }
+
+    #[test]
+    fn styled_label_uses_requested_color_size_and_emphasis() {
+        let ctx = egui::Context::default();
+        let theme = Theme::default();
+        apply_theme(&ctx, theme);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut shared = Shared::new(vec![]);
+            let mut f = Frame {
+                imp: FrameImp {
+                    ui,
+                    shared: &mut shared,
+                },
+            };
+            f.styled_label(
+                "warning",
+                TextStyle {
+                    role: TextRole::Warning,
+                    strong: true,
+                    small: true,
+                    color: None,
+                },
+            );
+            f.styled_label(
+                "custom",
+                TextStyle {
+                    color: Some(crate::gfx::Color::rgb(12, 34, 56)),
+                    ..TextStyle::default()
+                },
+            );
+        });
+        let texts: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::epaint::Shape::Text(text) => Some(&text.galley.job),
+                _ => None,
+            })
+            .collect();
+        let warning = texts.iter().find(|job| job.text == "warning").unwrap();
+        let format = &warning.sections[0].format;
+        assert_eq!(format.color, color32(theme.role_color(TextRole::Warning)));
+        assert!((format.font_id.size - theme.text_size * 0.75).abs() < 0.01);
+        assert_eq!(
+            texts.iter().filter(|job| job.text == "warning").count(),
+            2,
+            "strong paints an extra offset glyph pass; semantic colour alone is not weight"
+        );
+        let custom = texts.iter().find(|job| job.text == "custom").unwrap();
+        assert_eq!(
+            custom.sections[0].format.color,
+            egui::Color32::from_rgb(12, 34, 56)
+        );
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn progress_clamps_fractions_and_replaces_percentage_with_text() {
+        let ctx = egui::Context::default();
+        for (fraction, expected) in [(f32::NAN, "0%"), (-1.0, "0%"), (0.5, "50%"), (2.0, "100%")] {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let mut shared = Shared::new(vec![]);
+                let mut f = Frame {
+                    imp: FrameImp {
+                        ui,
+                        shared: &mut shared,
+                    },
+                };
+                f.progress(fraction, None);
+            });
+            assert!(format!("{:?}", output.shapes).contains(expected));
+            output.textures_delta.clear();
+        }
+    }
+
+    #[test]
+    fn tooltip_appears_over_a_disabled_control() {
+        let ctx = egui::Context::default();
+        ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        let mut at = egui::pos2(10.0, 10.0);
+        let mut shown = false;
+        for tick in 0..5 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 300.0),
+                )),
+                time: Some(f64::from(tick)),
+                events: if tick == 1 {
+                    vec![egui::Event::PointerMoved(at)]
+                } else {
+                    vec![]
+                },
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let mut shared = Shared::new(vec![]);
+                let mut f = Frame {
+                    imp: FrameImp {
+                        ui,
+                        shared: &mut shared,
+                    },
+                };
+                f.with_tooltip("Cannot restart while saving", |f| {
+                    f.enabled(false, |f| {
+                        assert!(!f.button("Restart"));
+                        at = f.imp.ui.min_rect().center();
+                    });
+                });
+            });
+            shown |= format!("{:?}", output.shapes).contains("Cannot restart while saving");
+            output.textures_delta.clear();
+        }
+        assert!(shown, "disabled controls retain explanatory tooltips");
     }
 
     #[test]
