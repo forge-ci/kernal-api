@@ -113,8 +113,9 @@
   bosn; `soldr lint` on the host only. The `lint` lane (`ci/lint_lane.py`,
   RUST-033) covers the remote `dylints` job (formatting, Ruff, Clippy and
   Dylint): host `soldr lint rust --host-only --check --all-features` (with the
-  `[workspace.metadata.soldr.lint]` extras), the default-feature
-  `soldr lint rust --host-only --check`, then Clippy for each Linux-hosted
+  `[workspace.metadata.soldr.lint]` Ruff extra), the default-feature
+  `soldr lint rust --host-only --check`, the Dylint crates' rustfmt, then
+  Clippy for each Linux-hosted
   cross target after `soldr prepare`. It does not cover aarch64 Linux, which
   CI lints natively. Every lane must pass before a stamp is cached. Local-gate enforcement rejects an
   unstamped PR head. Eligible attested minimal PRs skip the Linux and Dylint

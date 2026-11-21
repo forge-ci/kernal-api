@@ -4,9 +4,9 @@ Mirrors CI exactly rather than being stricter than it:
 
 * host (x86_64 Linux): ``soldr lint rust --host-only --check --all-features``
   -- formatting, Clippy with ``--all-targets -D warnings``, the host Dylint
-  pass and the ``extra`` commands of ``[workspace.metadata.soldr.lint]``
-  (Dylint crates' formatting, Ruff): the scope of ci.yml's ``dylints`` job,
-  "Lint every target" included.
+  pass and the ``extra`` command of ``[workspace.metadata.soldr.lint]``
+  (Ruff), then the standalone Dylint crates' formatting: the scope of
+  ci.yml's ``dylints`` job, "Lint every target" included.
 * host, default features: ``soldr lint rust --host-only --check``, the
   feature graph of that job's "Lint the default facade" Clippy.
 
@@ -34,6 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HOST_LINT = ("soldr", "lint", "rust", "--host-only", "--check", "--all-features")
 DEFAULT_FACADE_LINT = ("soldr", "lint", "rust", "--host-only", "--check")
+DYLINT_FMT = ("python3", "ci/linux_steps.py", "dylint-fmt")
 CROSS_TARGETS = (
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
@@ -70,7 +71,7 @@ def cross_commands(target: str, features: str) -> list[list[str]]:
 
 
 def commands(features: str) -> list[list[str]]:
-    plan = [list(HOST_LINT), list(DEFAULT_FACADE_LINT)]
+    plan = [list(HOST_LINT), list(DEFAULT_FACADE_LINT), list(DYLINT_FMT)]
     for target in CROSS_TARGETS:
         plan.extend(cross_commands(target, features))
     return plan

@@ -671,12 +671,12 @@ targets = [
 libraries = [{ path = "dylints/*" }]
 
 # `soldr lint` (soldr#3958) is the one lint front door, on the host: lint never
-# runs under bosn. `extra` carries the two lint steps CI's `dylints` job runs
-# beside Clippy and Dylint: the standalone Dylint crates' formatting and Ruff.
+# runs under bosn. `extra` carries Ruff, which CI's `dylints` job runs beside
+# Clippy and Dylint. The standalone Dylint crates' formatting re-enters soldr,
+# which an extra may not (SOLDR_REENTRANCY_GUARD), so ci/lint_lane.py runs it.
 [workspace.metadata.soldr.lint]
 steps = ["fmt", "clippy", "dylint"]
 extra = [
-    ["python3", "ci/linux_steps.py", "dylint-fmt"],
     ["uv", "run", "--no-project", "--with", "ruff==0.16.7", "ruff", "check", "."],
 ]
 
