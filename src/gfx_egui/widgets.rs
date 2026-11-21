@@ -313,6 +313,26 @@ mod tests {
     }
 
     #[test]
+    fn system_theme_query_reports_unknown_light_and_dark_observations() {
+        let ctx = egui::Context::default();
+        let saved = SYSTEM_THEME.load(Ordering::Relaxed);
+        for (system, expected) in [
+            (None, None),
+            (Some(egui::Theme::Light), Some(ThemeMode::Light)),
+            (Some(egui::Theme::Dark), Some(ThemeMode::Dark)),
+        ] {
+            let input = egui::RawInput {
+                system_theme: system,
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| observe_system_theme(ui.ctx()));
+            assert_eq!(crate::gfx::system_theme(), expected);
+            output.textures_delta.clear();
+        }
+        SYSTEM_THEME.store(saved, Ordering::Relaxed);
+    }
+
+    #[test]
     fn follows_system_changes_without_affecting_explicit_modes() {
         let ctx = egui::Context::default();
         for mode in [ThemeMode::FollowSystem, ThemeMode::Dark, ThemeMode::Light] {
