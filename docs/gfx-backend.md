@@ -399,7 +399,8 @@ captured as `93,97,99`; solving `out = a*S + (1-a)*D` per channel gives
   `wgpu::Device` handle. Exposing one would make the renderer the contract.
 - **Backend widgets, layouts, IDs and response objects.** Anything outside the
   subset needs a facade widget first.
-- **Fine-grained styling.** Per-widget colours, fonts, strokes.
+- **Fine-grained styling.** Arbitrary fonts and strokes; per-label colour,
+  semantic role, strong and small text are portable (see below).
 - **Multiple windows / viewports, menus, tray, dialogs.** (A dock's one
   drop-down panel is the exception; see "Panels".) `system-tray` and
   `webview` remain separate capabilities.
@@ -446,3 +447,104 @@ priority order); today there is only one.
   methods, `Capabilities`/`Support`, `GfxErrorKind`, `Color`/`ThemeMode`.
 - Provisional: the widget subset (will grow), `Event`/`Key` coverage, the
   `Theme` token list, and the `BestEffort` classification per host.
+
+## Utility-panel widgets
+
+`Frame::enabled(enabled, |f| ...)` scopes every interactive control and returns
+its closure's value. It follows the existing `horizontal`/`list` closure style
+instead of adding a parallel enabled variant of every control. Nested `true`
+cannot override a disabled parent. Disabled fields neither auto-focus nor edit,
+including `secret_field`; raw input events remain visible for app-owned
+shortcuts, which must independently honour application state.
+
+`Frame::styled_label(text, TextStyle { role, color, strong, small })` styles one
+non-interactive label. `TextStyle::default()` is primary body text.
+`TextRole::{Primary, Secondary, Success, Warning, Danger, Accent}` resolve through
+`Theme::role_color`; `small` uses 75% of the body size. An explicit `color`
+overrides the role and makes contrast the caller's responsibility. The egui
+backend synthesizes strong weight with a small offset glyph pass; its native
+`strong` option only changes colour and would discard this distinction. Semantic
+foregrounds are opaque and corrected toward black or white when needed to
+maintain WCAG AA's 4.5:1 against `Theme::background_color()`, including custom
+opaque fills. Transparent backgrounds require checking the composited pixels.
+
+`Frame::status(text, role)` draws a coloured dot and a text label. It is
+non-interactive, does not take focus, and exposes its actual text rather than
+encoding status only in colour. A dot avoids the conflicting foreground/fill
+contrast of coloured pills. Keep meaningful words such as “Ready” or “Building”
+in the text. Contrast unit tests cover every role on both palettes and custom
+fills.
+
+`Frame::grid(id, &[Column { width, align: ColumnAlign::Left | Right }], |g| ...)`
+returns `Result<R, GfxError>`. Each `g.cell(|f| ...)` advances a column; the last
+column starts the next row. Widths are explicit logical pixels, excluding theme
+spacing, so numeric columns stay stable even when values change. Text wraps;
+keep controls within the requested width. Rows grow to their tallest cell and
+an incomplete last row is allowed. IDs must be stable and unique in their
+layout. Empty columns and non-positive/non-finite widths return `InvalidOptions`
+before invoking the body. Caller-selected widths may exceed the window; select
+narrower columns or a stacked layout for small windows.
+
+`Frame::progress(fraction, Option<&str>)` draws a determinate bar followed by
+plain text (the supplied text, or a percentage). Adjacent text stays readable
+regardless of the bar's fill. Finite fractions clamp to 0..=1; NaN/infinity draw
+zero. Indeterminate animation is deliberately left out of this minimal API.
+
+`Frame::with_tooltip(text, |f| ...)` attaches a tooltip to the contents' bounding
+rectangle and returns its result, including for disabled controls. Put one
+control in the wrapper for a tooltip about one control. Essential status or
+instructions should remain visible text; hover is supplementary.
+
+`Frame::sparkline(samples, height, role)` draws a layout-wide line mini-chart
+using the backend painter. Finite samples auto-scale, constants are centred,
+and non-finite samples break the line; empty/one-sample inputs have no segments.
+Invalid heights draw nothing. Provide a text summary alongside the chart for
+accessibility. No painter, geometry or backend response is exposed publicly.
+
+`ThemeMode::FollowSystem` tracks the preference reported by the window backend
+and falls back to dark when unknown. `gfx::system_theme() -> Option<ThemeMode>`
+returns the last observation from a live window (`Dark` or `Light` only), not an
+OS probe: `None` before a report, without a backend, or on unsupported desktops.
+Snapshots do not update the observation and use dark for an unknown preference.
+System-theme changes reported by eframe update the palette on its next frame.
+The independent layer-shell dock path does not report a system preference yet.
+
+### Example and fixture parity
+
+`examples/gfx-widgets.rs` draws a compact status panel using every new widget.
+Its scene is shared with the offscreen unit tests. Run:
+
+```console
+soldr cargo run --example gfx-widgets --features gfx-egui -- snapshot /tmp/widgets.pam
+soldr cargo run --example gfx-widgets --features gfx-egui -- snapshot /tmp/widgets-light.pam light
+soldr cargo run --example gfx-widgets --features gfx-egui -- window /tmp/widgets-window.pam
+```
+
+Like `gfx-parity`, live capture uses `request_screenshot` after settling and
+requires a compositor that paints the window. Headless capture uses `snapshot`.
+Reference PNG generation and visual inspection are still pending: the worker's
+Soldr dependency builds stalled before the example could link. Generate and
+commit dark and light captures before considering this change validated. These
+should be visual references, not exact cross-adapter pixel goldens;
+antialiasing may differ as described above. The headless test checks both
+palettes, painted content and the panel's bottom margin; deterministic backend
+tests check interaction state and grid geometry.
+
+### Native utility seams
+
+`WindowOptions::decorations(false)` and `always_on_top(true)` already exist.
+Raising an existing window from a tray callback needs an externally held,
+thread-safe window control/wakeup handle; `run` currently owns one blocking
+event loop and exposes no such handle. This is a separate lifecycle API design.
+
+The `system-tray` facade currently implements Linux StatusNotifierItem/ksni;
+Windows and macOS explicitly return `Unsupported`. Linux has three fixed menu
+entries. Runtime icon updates and a checked “Start at login” entry require
+changes to the concrete native tray implementations and an application-owned
+login-setting/event contract. They are deferred here to keep this additive gfx
+change inside its assigned files. macOS template icons cannot be enabled through
+the current unsupported backend; there is no macOS tray crate to configure.
+
+This feature PR does not bump the package version. `soldr-ui` needs a published
+release containing these APIs (next patch after the current 0.1.41 is 0.1.42,
+subject to intervening releases); its exact crates.io pin must then be updated.
