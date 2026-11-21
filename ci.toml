@@ -150,12 +150,11 @@ run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/
 mode = "shadow"
 verify = "ci.yml:verify"
 
+# lint never runs under bosn; soldr lint only. The `linux` job this lane
+# replays holds no formatting, Clippy, Ruff or Dylint step: those run in the
+# remote `dylints` job, which the host `lint` lane below attests.
 [local.gate.lanes.linux-minimal]
 run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py"]
-tools = ["bosn", "uv"]
-
-[local.gate.lanes.dylint-minimal]
-run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py", "--job", "dylints"]
 tools = ["bosn", "uv"]
 
 # RUST-033 (forge-ci/ci.yml#511, forge-ci/kernal-api#516): the remote lint
@@ -171,12 +170,13 @@ tools = ["bosn", "uv"]
 run = ["uv", "run", "--no-project", "--with", "ci-lint @ git+https://github.com/forge-ci/ci.yml@54cec7ad3ac5c7b9866a1798b863c21e68936d60", "--python", "3.12", "python", "ci/local_gate.py", "--job", "lint"]
 tools = ["soldr", "uv"]
 
-# Eligible attested minimal PRs reuse both source-bound workflow lanes.
+# Eligible attested minimal PRs reuse the bosn-replayed `linux` lane and the
+# host `lint` lane (soldr lint), which covers the remote `dylints` job.
 # Extended/full PRs, changed gate surfaces, pushes and audit samples run remotely.
 [local.gate.trust]
 mode = "enforce"
 skip = ["ci.yml:linux", "ci.yml:dylints"]
-covered-by = { "ci.yml:linux" = ["linux-minimal", "lint"], "ci.yml:dylints" = ["dylint-minimal", "lint"] }
+covered-by = { "ci.yml:linux" = ["linux-minimal"], "ci.yml:dylints" = ["lint"] }
 full-labels = ["ci-full", "ci-test"]
 audit-rate = 10
 
@@ -195,7 +195,7 @@ mode = "minimal"
 source-job = "ci.yml:verify"
 key = "CI/verify"
 steps = ["Checkout candidate source", "Checkout pinned ci-lint", "Set up uv", "Verify local gate attestation"]
-lanes = ["linux-minimal", "dylint-minimal"]
+lanes = ["linux-minimal"]
 
 [[local.gate.replay.jobs]]
 source-job = "ci.yml:pool"
@@ -206,28 +206,14 @@ lanes = ["linux-minimal"]
 [[local.gate.replay.jobs]]
 source-job = "ci.yml:linux"
 key = "CI/linux"
-steps = ["Checkout candidate source", "Set up uv", "Select CI mode and verify the checked-out commit", "Verify selected source SHA", "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Precheck the repository with the pinned ci-lint", "Reclaim runner disk for full Linux builds", "Install native webview packages and a virtual display", "Set up soldr", "Restore native pkg-config search path", "Check workspace formatting", "Check Python function complexity", "Check the CI guards and the guest build scripts", "Scan the repository against the platform boundary", "Check the Dylint libraries' formatting", "Lint the default facade", "Test the default facade", "Test the Linux desktop status facade", "Test the Python package", "Verify checked-in guest, host, and ABI manifest generation", "Check every feature in isolation", "Test JSON with unified arbitrary-precision backend feature", "Run real semantic webview lifecycle and capture proofs", "Install the screenshot guest target", "Build, admit, and run the real guest through the default screenshot CLI", "Build the target-independent Wasm guests once", "Upload target-independent Wasm guests", "Compile the x86_64 Linux native proofs", "Run the x86_64 Linux compiler-policy proofs", "Run the x86_64 Linux screenshot and containment proofs", "Lint every target", "Run the full test suite", "Preserve screenshot and process diagnostics", "Cancel the run (this job failed)"]
+steps = ["Checkout candidate source", "Set up uv", "Select CI mode and verify the checked-out commit", "Verify selected source SHA", "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Precheck the repository with the pinned ci-lint", "Reclaim runner disk for full Linux builds", "Install native webview packages and a virtual display", "Set up soldr", "Restore native pkg-config search path", "Check the CI guards and the guest build scripts", "Scan the repository against the platform boundary", "Test the default facade", "Test the Linux desktop status facade", "Test the Python package", "Verify checked-in guest, host, and ABI manifest generation", "Check every feature in isolation", "Test JSON with unified arbitrary-precision backend feature", "Run real semantic webview lifecycle and capture proofs", "Install the screenshot guest target", "Build, admit, and run the real guest through the default screenshot CLI", "Build the target-independent Wasm guests once", "Upload target-independent Wasm guests", "Compile the x86_64 Linux native proofs", "Run the x86_64 Linux compiler-policy proofs", "Run the x86_64 Linux screenshot and containment proofs", "Run the full test suite", "Preserve screenshot and process diagnostics", "Cancel the run (this job failed)"]
 lanes = ["linux-minimal"]
-minimal-skip-steps = ["Reclaim runner disk for full Linux builds", "Install native webview packages and a virtual display", "Test the Python package", "Verify checked-in guest, host, and ABI manifest generation", "Check every feature in isolation", "Test JSON with unified arbitrary-precision backend feature", "Run real semantic webview lifecycle and capture proofs", "Install the screenshot guest target", "Build, admit, and run the real guest through the default screenshot CLI", "Build the target-independent Wasm guests once", "Upload target-independent Wasm guests", "Compile the x86_64 Linux native proofs", "Run the x86_64 Linux compiler-policy proofs", "Run the x86_64 Linux screenshot and containment proofs", "Lint every target", "Run the full test suite", "Preserve screenshot and process diagnostics", "Cancel the run (this job failed)"]
-minimal-mode-step = "Select CI mode and verify the checked-out commit"
-
-[[local.gate.replay.jobs]]
-source-job = "ci.yml:dylints"
-key = "CI/Dylint workspace"
-steps = ["Checkout candidate source", "Start installing native webview development packages", "Set up uv", "Select CI mode and verify the checked-out commit", "Verify selected source SHA", "Checkout pinned ci-lint", "Plan this run with the pinned ci-lint", "Set up soldr", "Restore native pkg-config search path", "Select the pinned Dylint compiler", "Decide whether the lint libraries need their own tests", "Finish installing native webview development packages", "Verify nightly checksum invalidation", "Lint every client-style target", "Cancel the run (this job failed)"]
-lanes = ["dylint-minimal"]
-minimal-skip-steps = ["Cancel the run (this job failed)"]
+minimal-skip-steps = ["Reclaim runner disk for full Linux builds", "Install native webview packages and a virtual display", "Test the Python package", "Verify checked-in guest, host, and ABI manifest generation", "Check every feature in isolation", "Test JSON with unified arbitrary-precision backend feature", "Run real semantic webview lifecycle and capture proofs", "Install the screenshot guest target", "Build, admit, and run the real guest through the default screenshot CLI", "Build the target-independent Wasm guests once", "Upload target-independent Wasm guests", "Compile the x86_64 Linux native proofs", "Run the x86_64 Linux compiler-policy proofs", "Run the x86_64 Linux screenshot and containment proofs", "Run the full test suite", "Preserve screenshot and process diagnostics", "Cancel the run (this job failed)"]
 minimal-mode-step = "Select CI mode and verify the checked-out commit"
 
 [[local.gate.replay.selections]]
 lane = "linux-minimal"
 job = "linux"
-event = "pull_request"
-inputs = {}
-
-[[local.gate.replay.selections]]
-lane = "dylint-minimal"
-job = "dylints"
 event = "pull_request"
 inputs = {}
 

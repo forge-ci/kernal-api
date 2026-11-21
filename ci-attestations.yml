@@ -1,4 +1,6 @@
-# The minimal Linux and Dylint workflow lanes prove these checks. Extended/full
+# The minimal Linux workflow lane (bosn) proves the test checks; lint never
+# runs under bosn, so the host `lint` lane (soldr lint) proves every lint gate,
+# including the Clippy/Dylint the remote `dylints` job runs. Extended/full
 # mode and other native platforms still need their own successful local lanes.
 # Jobs are mapped only for minimal mode: the base's trust policy forces remote
 # execution for ci-test/ci-full, changed gate surfaces and the audit sample.
@@ -17,10 +19,10 @@ gates:
   rust/x86_64-pc-windows-msvc/clippy: {lane: lint, fidelity: native}
   rust/x86_64-unknown-linux-gnu/clippy: {lane: lint, fidelity: native}
   rust/x86_64-unknown-linux-gnu/dylint: {lane: lint, fidelity: native}
-  rust/x86_64-unknown-linux-gnu/default-facade-clippy: {lane: linux-minimal, fidelity: native}
+  rust/x86_64-unknown-linux-gnu/default-facade-clippy: {lane: lint, fidelity: native}
   rust/x86_64-unknown-linux-gnu/default-facade-test: {lane: linux-minimal, fidelity: native}
   rust/x86_64-unknown-linux-gnu/desktop-status-test: {lane: linux-minimal, fidelity: native}
-  rust/x86_64-unknown-linux-gnu/dylint-all-features-all-targets: {lane: dylint-minimal, fidelity: native}
+  rust/x86_64-unknown-linux-gnu/dylint-all-features-all-targets: {lane: lint, fidelity: native}
 jobs:
-  ci.yml:linux: [general/all/ci-guards, rust/x86_64-unknown-linux-gnu/default-facade-clippy, rust/x86_64-unknown-linux-gnu/default-facade-test, rust/x86_64-unknown-linux-gnu/desktop-status-test, rust/x86_64-unknown-linux-gnu/clippy]
-  ci.yml:dylints: [rust/x86_64-unknown-linux-gnu/dylint-all-features-all-targets, rust/x86_64-unknown-linux-gnu/dylint]
+  ci.yml:linux: [general/all/ci-guards, rust/x86_64-unknown-linux-gnu/default-facade-test, rust/x86_64-unknown-linux-gnu/desktop-status-test]
+  ci.yml:dylints: [rust/x86_64-unknown-linux-gnu/dylint-all-features-all-targets, rust/x86_64-unknown-linux-gnu/dylint, rust/x86_64-unknown-linux-gnu/default-facade-clippy, rust/x86_64-unknown-linux-gnu/clippy]

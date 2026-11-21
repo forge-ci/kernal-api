@@ -276,10 +276,6 @@ jobs:
           cargo-registry-cache: false
       - name: Restore native pkg-config search path
         run: python3 ci/runner_setup.py pkg-config-path --target x86_64-unknown-linux-gnu
-      - name: Check workspace formatting
-        run: soldr cargo fmt --all -- --check
-      - name: Check Python function complexity
-        run: uv run --no-project --with ruff==0.16.7 ruff check .
       - name: Check the CI guards and the guest build scripts
         env:
           PYTHONPATH: .ci-lint
@@ -299,11 +295,6 @@ jobs:
         # build script fails to link. The scan is plain lib unit tests and
         # needs no Dylint linker.
         run: python3 ci/linux_steps.py boundary-scan
-      - name: Check the Dylint libraries' formatting
-        run: python3 ci/linux_steps.py dylint-fmt
-      - name: Lint the default facade
-        if: steps.mode.outputs.mode != 'full'
-        run: soldr cargo clippy --locked --lib -- --deny warnings
       - name: Test the default facade
         if: steps.mode.outputs.mode != 'full'
         # The build-ID assertion depends on the CI linker's note settings;
@@ -422,11 +413,6 @@ jobs:
           --bundle "${{ runner.temp }}/native-proof-x86_64-unknown-linux-gnu.tar"
           --guests "${{ runner.temp }}/native-proof-guests"
           --work "${{ runner.temp }}/native-proof-run-screenshot"
-      - name: Lint every target
-        if: steps.mode.outputs.mode == 'full'
-        run: >-
-          soldr cargo clippy
-          --locked --all-features --all-targets -- --deny warnings
       - name: Run the full test suite
         if: steps.mode.outputs.mode == 'full'
         # One test per process. `--no-fail-fast` is about tests, not runners:
@@ -1030,6 +1016,27 @@ jobs:
           dylint-link-version: 6.2.0
       - name: Restore native pkg-config search path
         run: echo "PKG_CONFIG_LIBDIR_x86_64_unknown_linux_gnu=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "${GITHUB_ENV}"
+      - name: Finish installing native webview development packages
+        timeout-minutes: 10
+        run: python3 ci/runner_setup.py apt-finish
+      # Formatting, Ruff and the default-facade Clippy moved here from `linux`
+      # (lint never runs under bosn; soldr lint only): `linux` is replayed in
+      # bosn by the local gate, this job is attested by the host `lint` lane.
+      # They run on the stable toolchain, so before the Dylint compiler swap.
+      - name: Check workspace formatting
+        run: soldr cargo fmt --all -- --check
+      - name: Check Python function complexity
+        run: uv run --no-project --with ruff==0.16.7 ruff check .
+      - name: Check the Dylint libraries' formatting
+        run: python3 ci/linux_steps.py dylint-fmt
+      - name: Lint the default facade
+        if: steps.mode.outputs.mode != 'full'
+        run: soldr cargo clippy --locked --lib -- --deny warnings
+      - name: Lint every target
+        if: steps.mode.outputs.mode == 'full'
+        run: >-
+          soldr cargo clippy
+          --locked --all-features --all-targets -- --deny warnings
       - name: Select the pinned Dylint compiler
         # RUSTC=$(soldr rustup which --toolchain "$DYLINT_TOOLCHAIN" rustc),
         # RUSTUP_TOOLCHAIN, and ci/dylint-shim first on PATH.
@@ -1045,9 +1052,6 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: python3 ci/dylint_steps.py lint-libs-decision --mode "${{ steps.mode.outputs.mode }}"
-      - name: Finish installing native webview development packages
-        timeout-minutes: 10
-        run: python3 ci/runner_setup.py apt-finish
       # A Dylint pass only sees what the compiler compiles, and `default = []`.
       # Without `--all-features` every gated module -- `crash`, `wasm`,
       # `symbolize`, `profile`, `fs`, `ipc`, the platform watchers -- is invisible
