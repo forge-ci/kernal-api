@@ -3,7 +3,7 @@
 //! Add `light` after the path for a light snapshot. `window OUT.pam` captures
 //! the same frame from a live window, like gfx-parity (requires a compositor).
 #[cfg(feature = "gfx-egui")]
-#[path = "gfx-widgets/panel.rs"]
+#[path = "../tests/support/gfx_widgets.rs"]
 mod scene;
 #[cfg(feature = "gfx-egui")]
 use kernal_api::gfx;

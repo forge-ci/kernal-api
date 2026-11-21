@@ -281,8 +281,15 @@ mod tests {
             let options = WindowOptions::new("widgets")
                 .size(360.0, 340.0)
                 .theme(crate::gfx::Theme::with_mode(mode));
-            let shot = crate::gfx::snapshot(&options, &mut super::widget_fixture::StatusPanel)
-                .expect("fixture requires a GPU or software Vulkan adapter");
+            let shot = match crate::gfx::snapshot(&options, &mut super::widget_fixture::StatusPanel)
+            {
+                Ok(shot) => shot,
+                Err(error) if error.kind() == GfxErrorKind::Backend => {
+                    eprintln!("skipped: fixture needs a GPU or software rasteriser: {error}");
+                    return;
+                }
+                Err(error) => panic!("{error}"),
+            };
             assert_eq!((shot.width(), shot.height()), (360, 340));
             let bg = &shot.rgba()[..4];
             let painted = shot
@@ -313,5 +320,5 @@ mod tests {
 use crate::gfx;
 
 #[cfg(test)]
-#[path = "../../examples/gfx-widgets/panel.rs"]
+#[path = "../../tests/support/gfx_widgets.rs"]
 mod widget_fixture;
