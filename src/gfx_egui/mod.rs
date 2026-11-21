@@ -140,7 +140,7 @@ pub(crate) fn apply_theme(ctx: &egui::Context, theme: Theme) {
         ThemeMode::Light => egui::ThemePreference::Light,
         ThemeMode::Dark => egui::ThemePreference::Dark,
     });
-    ctx.data_mut(|data| data.insert_temp(egui::Id::new("kernal-theme"), theme));
+    ctx.data_mut(|data| data.insert_temp(egui::Id::unique("kernal-theme"), theme));
     let mut visuals = match mode {
         ThemeMode::Light => egui::Visuals::light(),
         ThemeMode::Dark | ThemeMode::FollowSystem => egui::Visuals::dark(),

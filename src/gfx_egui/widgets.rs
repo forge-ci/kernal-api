@@ -25,7 +25,7 @@ pub(crate) fn system_theme() -> Option<ThemeMode> {
 pub(super) fn refresh_system_theme(ui: &mut egui::Ui) {
     let theme = ui
         .ctx()
-        .data(|data| data.get_temp::<Theme>(egui::Id::new("kernal-theme")));
+        .data(|data| data.get_temp::<Theme>(egui::Id::unique("kernal-theme")));
     if let Some(theme) = theme {
         if theme.mode == ThemeMode::FollowSystem {
             apply_theme(ui.ctx(), theme);
@@ -39,7 +39,7 @@ impl FrameImp<'_> {
         let mut theme = self
             .ui
             .ctx()
-            .data(|data| data.get_temp::<Theme>(egui::Id::new("kernal-theme")))
+            .data(|data| data.get_temp::<Theme>(egui::Id::unique("kernal-theme")))
             .unwrap_or_default();
         theme.mode = if self.ui.visuals().dark_mode {
             ThemeMode::Dark
