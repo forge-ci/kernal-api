@@ -670,6 +670,16 @@ targets = [
 [workspace.metadata.dylint]
 libraries = [{ path = "dylints/*" }]
 
+# `soldr lint` (soldr#3958) is the one lint front door, on the host: lint never
+# runs under bosn. `extra` carries the two lint steps CI's `dylints` job runs
+# beside Clippy and Dylint: the standalone Dylint crates' formatting and Ruff.
+[workspace.metadata.soldr.lint]
+steps = ["fmt", "clippy", "dylint"]
+extra = [
+    ["python3", "ci/linux_steps.py", "dylint-fmt"],
+    ["uv", "run", "--no-project", "--with", "ruff==0.16.7", "ruff", "check", "."],
+]
+
 # This public facade intentionally centralizes code that previously lived in
 # several crates. Keep the local dev/test unit single-codegen so Soldr's
 # exclusive amalgamation admission also bounds rustc's internal parallelism.

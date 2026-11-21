@@ -1,7 +1,10 @@
-"""Run minimal Linux and Dylint checks through bosn's pinned act2 engine.
+"""Run the minimal Linux tests through bosn's pinned act2 engine; lint on the host.
 
-Both required workflow lanes prove minimal checks. Full and other native platform
-jobs remain remote until their complete coverage has local evidence.
+`--job linux` replays the minimal `linux` workflow job, which holds no
+formatting, Clippy, Ruff or Dylint step. `--job lint` runs the lint phase on the
+host through `soldr lint` (ci/lint_lane.py): lint never runs under bosn. Full and
+other native platform jobs remain remote until their complete coverage has local
+evidence.
 """
 
 from __future__ import annotations
@@ -262,7 +265,7 @@ def run_lint() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--job", choices=("linux", "dylints", "lint"), default="linux")
+    parser.add_argument("--job", choices=("linux", "lint"), default="linux")
     args = parser.parse_args()
     if args.job == "lint":
         run_lint()

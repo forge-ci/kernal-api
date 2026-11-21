@@ -19,13 +19,8 @@ cargo-home = { scope = "machine", destination = "/usr/local/cargo" }
 rustup-home = { scope = "machine", destination = "/usr/local/rustup" }
 soldr-home = { scope = "machine", destination = "/root/.soldr" }
 
-[task.fmt]
-stack = "linux"
-cmd = "soldr cargo fmt --all -- --check"
-
-[task.lint]
-stack = "linux"
-cmd = "soldr cargo clippy --locked --all-features --all-targets -- --deny warnings"
+# No fmt/lint task: lint never runs under bosn. Run `soldr lint` on the host
+# (`python ci/local_gate.py --job lint` for the gate's full lint lane).
 
 [task.test]
 stack = "linux"

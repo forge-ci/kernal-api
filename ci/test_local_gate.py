@@ -120,9 +120,8 @@ class RunProofTests(unittest.TestCase):
     def test_completed_matching_run_passes(self):
         verify_run(self.proof, self.workspace, self.sha, self.git_tree)
 
-    def test_completed_dylint_run_proves_only_dylint(self):
+    def test_dylint_run_cannot_prove_linux(self):
         proof = replace(self.proof, job="dylints")
-        verify_run(proof, self.workspace, self.sha, self.git_tree, job="dylints")
         with self.assertRaises(ValueError):
             verify_run(proof, self.workspace, self.sha, self.git_tree)
 

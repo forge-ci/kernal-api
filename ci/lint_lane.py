@@ -2,9 +2,15 @@
 
 Mirrors CI exactly rather than being stricter than it:
 
-* host (x86_64 Linux): ``soldr lint rust --host-only --all-features`` --
-  formatting, Clippy with ``--all-targets -D warnings`` and the host Dylint
-  pass, the scope of ci.yml's ``linux`` "Lint every target" and ``dylints``.
+* host (x86_64 Linux): ``soldr lint rust --host-only --check --all-features``
+  -- formatting, Clippy with ``--all-targets -D warnings``, the host Dylint
+  pass and the ``extra`` commands of ``[workspace.metadata.soldr.lint]``
+  (Dylint crates' formatting, Ruff): the scope of ci.yml's ``dylints`` job,
+  "Lint every target" included.
+* host, default features: ``soldr lint rust --host-only --check``, the
+  feature graph of that job's "Lint the default facade" Clippy.
+
+Lint never runs under bosn; ``soldr lint`` on the host only.
 * each Linux-hosted cross target of ci.yml's ``build`` matrix:
   ``soldr prepare --target <t>`` (what setup-soldr's ``cross-targets`` does)
   then ``soldr cargo clippy --locked --features <target graph> --all-targets
@@ -26,7 +32,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HOST_LINT = ("soldr", "lint", "rust", "--host-only", "--all-features")
+HOST_LINT = ("soldr", "lint", "rust", "--host-only", "--check", "--all-features")
+DEFAULT_FACADE_LINT = ("soldr", "lint", "rust", "--host-only", "--check")
 CROSS_TARGETS = (
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
@@ -63,7 +70,7 @@ def cross_commands(target: str, features: str) -> list[list[str]]:
 
 
 def commands(features: str) -> list[list[str]]:
-    plan = [list(HOST_LINT)]
+    plan = [list(HOST_LINT), list(DEFAULT_FACADE_LINT)]
     for target in CROSS_TARGETS:
         plan.extend(cross_commands(target, features))
     return plan

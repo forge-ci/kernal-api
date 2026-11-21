@@ -7,12 +7,12 @@ from pathlib import Path
 from ci_lint.cargo_messages import JsonValue
 from ci_lint.workflow_scan import as_dict, jobs_of, load, steps_of
 
-from ci.replay_evidence import DYLINT, LINUX, VERIFY, verify_checks
+from ci.replay_evidence import LINUX, VERIFY, verify_checks
 
 
 def report(job: str) -> dict[str, JsonValue]:
     """Construct a JSON boundary matching the original runner report shape."""
-    checks = LINUX if job == "linux" else DYLINT
+    checks = LINUX
     return {
         "schema_version": 1,
         "provider": "github",
@@ -71,12 +71,15 @@ class ExecutedChecksTests(unittest.TestCase):
         verify_checks(raw, Path("/repo"), "a" * 40, "b" * 40, job)
 
     def test_each_selected_job_requires_its_verifier_and_checks(self):
-        for job in ("linux", "dylints"):
-            with self.subTest(job=job):
-                self.verify(report(job), job)
+        self.verify(report("linux"), "linux")
+
+    def test_dylints_is_never_a_bosn_replay(self):
+        """Lint never runs under bosn; soldr lint only (host `lint` lane)."""
+        with self.assertRaises(ValueError):
+            self.verify(report("dylints"), "dylints")
 
     def test_green_aggregate_does_not_excuse_any_skipped_check(self):
-        for job in ("linux", "dylints"):
+        for job in ("linux",):
             raw = report(job)
             for actual in raw["tree"]["groups"][0]["jobs"]:
                 for section in actual["sections"]:
@@ -126,7 +129,7 @@ class ExecutedChecksTests(unittest.TestCase):
         parsed = load(root, root / ".github/workflows/ci.yml")
         self.assertIsNotNone(parsed.document)
         jobs = jobs_of(as_dict(parsed.document))
-        expected_jobs = {"verify": VERIFY, "linux": LINUX, "dylints": DYLINT}
+        expected_jobs = {"verify": VERIFY, "linux": LINUX}
         excluded = {
             "steps.mode.outputs.mode == 'full'",
             "steps.mode.outputs.mode != 'minimal'",
@@ -145,6 +148,23 @@ class ExecutedChecksTests(unittest.TestCase):
                 required.append(step.get("name"))
             with self.subTest(job=job_id):
                 self.assertEqual(tuple(required), expected.steps)
+
+    def test_bosn_replayed_linux_job_holds_no_lint_step(self):
+        """Lint never runs under bosn; soldr lint only.
+
+        `linux` is the job the bosn lane replays, so no step in it may format,
+        Clippy, Dylint or Ruff the tree; those run in `dylints`, which the host
+        `lint` lane (`soldr lint`) attests.
+        """
+        root = Path(__file__).resolve().parents[1]
+        parsed = load(root, root / ".github/workflows/ci.yml")
+        self.assertIsNotNone(parsed.document)
+        jobs = jobs_of(as_dict(parsed.document))
+        for step in steps_of(jobs["linux"]):
+            run = str(step.get("run", ""))
+            for word in ("cargo fmt", "cargo clippy", "dylint", "ruff", "soldr lint"):
+                with self.subTest(step=step.get("name"), word=word):
+                    self.assertNotIn(word, run)
 
 
 if __name__ == "__main__":

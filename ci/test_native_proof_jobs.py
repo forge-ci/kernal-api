@@ -157,20 +157,24 @@ class NativeProofJobsTests(unittest.TestCase):
         self.assertIn('"--python", "3.10"', self.script("linux_steps.py"))
         self.assertNotIn("3.13", self.script("linux_steps.py"))
 
-    def test_linux_runs_its_own_checks_before_lint_and_the_suite(self):
-        """One Linux runner: the Linux-only checks first, then the gate's lint and suite.
+    def test_linux_runs_its_own_checks_before_the_suite(self):
+        """One Linux runner: the Linux-only checks first, then the suite.
 
         `linux` and `linux-checks` were two runners doing Linux work side by
         side; they are one job, and it stays the gate every other job waits on.
+        Its lint steps live in `dylints`: the local gate replays `linux` in
+        bosn, and lint never runs under bosn (soldr lint only).
         """
         linux = self.job("linux")
         first_check = linux.index("- name: Check the CI guards and the guest build scripts")
         last_check = linux.index("- name: Run the x86_64 Linux screenshot and containment proofs")
-        lint = linux.index("- name: Lint every target")
         suite = linux.index("- name: Run the full test suite")
         self.assertLess(first_check, last_check)
-        self.assertLess(last_check, lint)
-        self.assertLess(lint, suite)
+        self.assertLess(last_check, suite)
+        self.assertNotIn("- name: Lint every target", linux)
+        dylints = self.job("dylints")
+        lint = dylints.index("- name: Lint every target")
+        self.assertLess(lint, dylints.index("- name: Select the pinned Dylint compiler"))
 
     def test_every_other_platform_waits_for_linux(self):
         """A red Linux run must not cost an Apple or Windows runner."""
