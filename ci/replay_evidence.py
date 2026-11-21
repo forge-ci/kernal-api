@@ -39,6 +39,8 @@ LINUX = ReplayJob(
         "Test the Linux desktop status facade",
     ),
 )
+
+
 def verify_checks(raw: JsonValue, workspace: Path, sha: str, git_tree: str, job: str) -> None:
     """A green aggregate cannot replace a skipped or missing selected check."""
     # lint never runs under bosn; soldr lint only. The `dylints` job (and the
