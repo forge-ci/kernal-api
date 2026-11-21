@@ -27,10 +27,10 @@ pub(super) fn field(
         field.response.id.with("secret"),
         egui::Sense::click(),
     );
-    if response.clicked() || ui.ctx().memory(|m| m.focused().is_none()) {
+    if ui.is_enabled() && (response.clicked() || ui.ctx().memory(|m| m.focused().is_none())) {
         response.request_focus();
     }
-    let focused = response.has_focus();
+    let focused = ui.is_enabled() && response.has_focus();
     let mut changed = false;
     ui.ctx().input_mut(|input| {
         for event in &mut input.events {

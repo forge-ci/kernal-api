@@ -39,6 +39,8 @@ pub enum ThemeMode {
     Dark,
     /// Light backgrounds, dark text.
     Light,
+    /// Track the window backend's system preference; dark when unavailable.
+    FollowSystem,
 }
 
 /// The portable styling tokens. A backend maps each token onto its own
