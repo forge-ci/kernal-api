@@ -276,8 +276,49 @@ mod tests {
     }
 
     #[test]
+    fn utility_panel_fixture_renders_both_palettes() {
+        for mode in [crate::gfx::ThemeMode::Dark, crate::gfx::ThemeMode::Light] {
+            let options = WindowOptions::new("widgets")
+                .size(360.0, 340.0)
+                .theme(crate::gfx::Theme::with_mode(mode));
+            let shot = match crate::gfx::snapshot(&options, &mut super::widget_fixture::StatusPanel)
+            {
+                Ok(shot) => shot,
+                Err(error) if error.kind() == GfxErrorKind::Backend => {
+                    eprintln!("skipped: fixture needs a GPU or software rasteriser: {error}");
+                    return;
+                }
+                Err(error) => panic!("{error}"),
+            };
+            assert_eq!((shot.width(), shot.height()), (360, 340));
+            let bg = &shot.rgba()[..4];
+            let painted = shot
+                .rgba()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|px| *px != bg)
+                .count();
+            assert!(painted > 2000, "fixture contains text, bar and sparkline");
+            // No pixels should reach the last four rows: all content fits.
+            assert!(shot.rgba()[(360 * 336 * 4)..]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|px| px == bg));
+        }
+    }
+
+    #[test]
     fn pixel_size_rounds_and_clamps() {
         assert_eq!(pixel_size((640.4, 479.6)), (640, 480));
         assert_eq!(pixel_size((0.2, 1.0e9)), (1, 16384));
     }
 }
+
+#[cfg(test)]
+use crate::gfx;
+
+#[cfg(test)]
+#[path = "../../tests/support/gfx_widgets.rs"]
+mod widget_fixture;

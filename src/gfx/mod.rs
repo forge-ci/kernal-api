@@ -15,11 +15,13 @@
 mod frame;
 mod input;
 mod theme;
+mod widgets;
 mod window;
 
 pub use frame::Frame;
 pub use input::{Event, Key, Modifiers, PointerButton};
 pub use theme::{Color, Theme, ThemeMode};
+pub use widgets::{Column, ColumnAlign, Grid, TextRole, TextStyle};
 pub use window::{
     DockAlign, DockLength, Edge, Monitor, MonitorInfo, PanelOptions, Placement, WindowOptions,
 };
@@ -46,6 +48,34 @@ mod backend {
         reason = "uninhabited; mirrors the backend signatures"
     )]
     impl FrameImp<'_> {
+        pub(crate) fn enabled(&mut self, _: bool, _: &mut dyn FnMut(FrameImp<'_>)) {
+            match self.0 {}
+        }
+        pub(crate) fn styled_label(&mut self, _: &str, _: super::TextStyle) {
+            match self.0 {}
+        }
+        pub(crate) fn status(&mut self, _: &str, _: super::TextRole) {
+            match self.0 {}
+        }
+        pub(crate) fn progress(&mut self, _: f32, _: Option<&str>) {
+            match self.0 {}
+        }
+        pub(crate) fn with_tooltip(&mut self, _: &str, _: &mut dyn FnMut(FrameImp<'_>)) {
+            match self.0 {}
+        }
+        pub(crate) fn grid(&mut self, _: &str, _: usize, _: &mut dyn FnMut(FrameImp<'_>)) {
+            match self.0 {}
+        }
+        pub(crate) fn grid_cell(&mut self, _: super::Column, _: &mut dyn FnMut(FrameImp<'_>)) {
+            match self.0 {}
+        }
+        pub(crate) fn end_row(&mut self) {
+            match self.0 {}
+        }
+        pub(crate) fn sparkline(&mut self, _: &[f32], _: f32, _: super::TextRole) {
+            match self.0 {}
+        }
+
         pub(crate) fn events(&self) -> &[Event] {
             match self.0 {}
         }
@@ -393,4 +423,19 @@ pub fn snapshot(options: &WindowOptions, app: &mut impl App) -> Result<Snapshot,
     };
     options.validate(&caps)?;
     backend::snapshot(options, app)
+}
+
+/// Last system appearance reported by a live window backend. `None` before a
+/// window reports it, on unsupported desktops, or without a backend. This is
+/// an observation, not an OS probe; snapshots do not change it.
+#[must_use]
+pub fn system_theme() -> Option<ThemeMode> {
+    #[cfg(feature = "gfx-egui")]
+    {
+        backend::system_theme()
+    }
+    #[cfg(not(feature = "gfx-egui"))]
+    {
+        None
+    }
 }

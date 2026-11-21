@@ -4,9 +4,11 @@
 pub(crate) mod input;
 pub(crate) mod offscreen;
 mod secret;
+mod widgets;
 pub(crate) mod window_dock;
 
 pub(crate) use offscreen::snapshot;
+pub(crate) use widgets::system_theme;
 
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -68,6 +70,7 @@ pub(crate) fn run_eframe_with(
         &title,
         native,
         Box::new(move |cc| {
+            widgets::observe_system_theme(&cc.egui_ctx);
             apply_theme(&cc.egui_ctx, theme);
             let mut dock = dock;
             if let Some(dock) = dock.as_mut() {
@@ -123,9 +126,24 @@ pub(crate) fn color32(color: Color) -> egui::Color32 {
 }
 
 pub(crate) fn apply_theme(ctx: &egui::Context, theme: Theme) {
-    let mut visuals = match theme.mode {
+    let mode = match theme.mode {
+        ThemeMode::FollowSystem => match ctx.system_theme() {
+            Some(egui::Theme::Light) => ThemeMode::Light,
+            _ => ThemeMode::Dark,
+        },
+        mode => mode,
+    };
+    // Keep the native window subscribed to system changes. A concrete theme
+    // here would pin its appearance and suppress notifications on some hosts.
+    ctx.set_theme(match theme.mode {
+        ThemeMode::FollowSystem => egui::ThemePreference::System,
+        ThemeMode::Light => egui::ThemePreference::Light,
+        ThemeMode::Dark => egui::ThemePreference::Dark,
+    });
+    ctx.data_mut(|data| data.insert_temp(egui::Id::unique("kernal-theme"), theme));
+    let mut visuals = match mode {
         ThemeMode::Light => egui::Visuals::light(),
-        ThemeMode::Dark => egui::Visuals::dark(),
+        ThemeMode::Dark | ThemeMode::FollowSystem => egui::Visuals::dark(),
     };
     let accent = color32(theme.accent);
     visuals.selection.bg_fill = accent;
@@ -199,6 +217,7 @@ struct Adapter {
 impl eframe::App for Adapter {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        widgets::observe_system_theme(&ctx);
         if let Some(theme) = self.pending_theme.take() {
             self.theme = theme;
             apply_theme(&ctx, theme);
@@ -301,6 +320,7 @@ pub(crate) fn draw(
     shared: &mut Shared,
     body: &mut dyn FnMut(&mut crate::gfx::Frame<'_>),
 ) {
+    widgets::refresh_system_theme(ui);
     let panel = egui::CentralPanel::default();
     let panel = if transparent {
         panel.frame(egui::Frame::NONE)
@@ -408,7 +428,7 @@ impl FrameImp<'_> {
 
     pub(crate) fn text_field(&mut self, value: &mut String) -> bool {
         let response = self.ui.text_edit_singleline(value);
-        if self.ui.ctx().memory(|memory| memory.focused().is_none()) {
+        if self.ui.is_enabled() && self.ui.ctx().memory(|memory| memory.focused().is_none()) {
             response.request_focus();
         }
         response.changed()
@@ -432,7 +452,7 @@ impl FrameImp<'_> {
             .desired_rows(rows.max(1))
             .desired_width(f32::INFINITY);
         let response = self.ui.add(edit);
-        if self.ui.ctx().memory(|memory| memory.focused().is_none()) {
+        if self.ui.is_enabled() && self.ui.ctx().memory(|memory| memory.focused().is_none()) {
             response.request_focus();
         }
         response.changed()
@@ -635,7 +655,7 @@ mod tests {
     }
 
     /// Run one headless frame (no window, no GPU) over `events`.
-    fn frame(
+    pub(super) fn frame(
         ctx: &egui::Context,
         events: Vec<egui::Event>,
         mut body: impl FnMut(&mut crate::gfx::Frame<'_>),
@@ -664,7 +684,7 @@ mod tests {
         output.textures_delta.clear();
     }
 
-    fn click(pos: egui::Pos2, pressed: bool) -> egui::Event {
+    pub(super) fn click(pos: egui::Pos2, pressed: bool) -> egui::Event {
         egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
