@@ -763,3 +763,128 @@ async fn sse_response_emits_native_id_and_event_fields() {
     drop(sender);
     drop(task);
 }
+
+#[tokio::test]
+async fn streamed_upload_starts_before_eof_and_enforces_total_limit() {
+    let server = Server::bind(
+        loopback(),
+        Limits {
+            max_request_body_bytes: 5,
+            ..Limits::default()
+        },
+    )
+    .await
+    .unwrap()
+    .with_streaming_requests();
+    let addr = server.local_addr().unwrap();
+    let (received, mut chunks) = tokio::sync::mpsc::channel(1);
+    let task = async_engine::launch(server.serve(move |mut request| {
+        let received = received.clone();
+        async move {
+            assert!(request.body().is_empty());
+            let mut first = Vec::new();
+            while first.len() < 3 {
+                first.extend(request.next_chunk().await.unwrap().unwrap());
+            }
+            received.send(first).await.unwrap();
+            let error = request.next_chunk().await.unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::FileTooLarge);
+            assert_eq!(request.next_chunk().await.unwrap_err().kind(), error.kind());
+            Response::new(413, Vec::new()).unwrap()
+        }
+    }));
+    let mut peer = tokio::net::TcpStream::connect(addr).await.unwrap();
+    peer.write_all(
+        b"POST /upload HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n3\r\nabc\r\n",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), chunks.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        b"abc"
+    );
+    peer.write_all(b"3\r\ndef\r\n0\r\n\r\n").await.unwrap();
+    let mut response = String::new();
+    peer.read_to_string(&mut response).await.unwrap();
+    assert!(response.starts_with("HTTP/1.1 413"), "{response}");
+    drop(task);
+}
+
+#[tokio::test]
+async fn stream_transport_delivers_response_chunks_before_source_closes() {
+    let (mut peer, socket) = tokio::io::duplex(4096);
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    let receiver = std::sync::Mutex::new(Some(receiver));
+    let task = tokio::spawn(kernal_api::http_server::serve_connection(
+        socket,
+        Limits::default(),
+        move |_| {
+            let receiver = receiver.lock().unwrap().take().unwrap();
+            async move {
+                Response::stream(200, tokio_stream::wrappers::ReceiverStream::new(receiver))
+                    .unwrap()
+            }
+        },
+    ));
+    peer.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    sender.send(Ok(b"first".to_vec())).await.unwrap();
+    let mut peer = tokio::io::BufReader::new(peer);
+    use tokio::io::AsyncBufReadExt as _;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        assert!(line.starts_with("HTTP/1.1 200"));
+        while line != "\r\n" {
+            line.clear();
+            assert_ne!(peer.read_line(&mut line).await.unwrap(), 0);
+        }
+        line.clear();
+        peer.read_line(&mut line).await.unwrap();
+        assert_eq!(line, "5\r\n");
+        let mut first = [0; 7];
+        peer.read_exact(&mut first).await.unwrap();
+        assert_eq!(&first, b"first\r\n");
+    })
+    .await
+    .unwrap();
+    sender.send(Ok(b"second".to_vec())).await.unwrap();
+    drop(sender);
+    let mut rest = String::new();
+    peer.read_to_string(&mut rest).await.unwrap();
+    assert_eq!(rest, "6\r\nsecond\r\n0\r\n\r\n");
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn route_matches_method_and_captures_encoded_segments() {
+    let server = Server::bind(loopback(), Limits::default()).await.unwrap();
+    let addr = server.local_addr().unwrap();
+    let task = async_engine::launch(server.serve(|request| async move {
+        assert!(request
+            .match_route("POST", "/v1/:id/artifact/:name")
+            .is_none());
+        assert!(request
+            .match_route("GET", "/v1/:id/artifact/:name/")
+            .is_none());
+        assert!(request.match_route("GET", "/v1/:id/artifact").is_none());
+        let params = request
+            .match_route("GET", "/v1/:id/artifact/:name")
+            .unwrap();
+        assert_eq!(params.get("id"), Some("a%2Fb"));
+        assert_eq!(params.get("name"), Some("out+log"));
+        assert_eq!(params.get("other"), None);
+        Response::new(204, Vec::new()).unwrap()
+    }));
+    let response = exchange(
+        addr,
+        b"GET /v1/a%2Fb/artifact/out+log?download=1 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(response.starts_with("HTTP/1.1 204"), "{response}");
+    drop(task);
+}

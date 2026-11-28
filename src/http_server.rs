@@ -1,4 +1,4 @@
-//! Bounded native HTTP/1 serving on the caller's runtime.
+//! Bounded native HTTP/1.1 and HTTP/2 serving on the caller's runtime.
 //!
 //! Applications own routing, authorization and response policy. Dropping the
 //! serving future closes the listener and cancels all owned connections.
@@ -6,10 +6,14 @@
 use bytes::Bytes;
 use http_body_util::{BodyExt, Limited};
 use hyper::{body::Incoming, service::service_fn};
-use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::{
+    rt::{TokioIo, TokioTimer},
+    server::conn::auto,
+};
 #[cfg(feature = "websocket")]
 use std::pin::Pin;
 use std::{convert::Infallible, future::Future, io, net::SocketAddr, sync::Arc, time::Duration};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(feature = "websocket")]
 mod websocket;
@@ -22,12 +26,13 @@ mod body;
 mod diagnostics;
 #[cfg(all(test, any(feature = "http-client", feature = "http-client-rustls")))]
 mod h2_tests;
+mod request_body;
 mod target;
 mod transport;
 use body::ServerBody;
 use diagnostics::increment;
 pub use diagnostics::{Diagnostics, Snapshot};
-pub use target::QueryPairs;
+pub use target::{QueryPairs, RouteParams};
 
 /// One server-sent event. `id` is the reconnect cursor and `event` is its type.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -117,9 +122,9 @@ pub struct Limits {
     /// budget. A cancelled connection's native read retains its read slot until
     /// the OS call finishes; new file reads fail when this budget is exhausted.
     pub max_connections: usize,
-    /// Maximum collected request body bytes.
+    /// Maximum request body bytes, whether buffered or streamed.
     pub max_request_body_bytes: usize,
-    /// Maximum accepted in-memory response body bytes.
+    /// Maximum accepted in-memory response body bytes or streamed source item bytes.
     pub max_response_body_bytes: usize,
     /// Maximum file bytes (including an optional prefix), streamed rather than collected.
     pub max_file_bytes: u64,
@@ -127,7 +132,7 @@ pub struct Limits {
     pub max_stream_chunk_bytes: usize,
     /// Maximum UTF-8 SSE payload bytes before encoding (encoding adds bounded overhead).
     pub max_event_bytes: usize,
-    /// HTTP/1 parser read-buffer bound (at least 8192 bytes).
+    /// HTTP/1 parser read-buffer and HTTP/2 decoded header list bound (at least 8192 bytes).
     pub max_header_bytes: usize,
     /// Maximum parsed header count.
     pub max_headers: usize,
@@ -137,9 +142,9 @@ pub struct Limits {
     /// entry. Excludes transport-generated headers and the status line; this is
     /// an acceptance limit, not a limit on prior application allocations.
     pub max_response_header_bytes: usize,
-    /// Maximum time to receive each request's headers.
+    /// Maximum time for protocol detection and each HTTP/1 request header.
     pub header_timeout: Duration,
-    /// Maximum time to collect a request body.
+    /// Maximum elapsed time to receive a request body.
     pub body_timeout: Duration,
     /// Maximum time for application response preparation.
     pub handler_timeout: Duration,
@@ -203,7 +208,7 @@ impl Limits {
     }
 }
 
-/// A fully collected, bounded request; no implementation body type escapes.
+/// An owned request with a bounded buffered or streaming body.
 #[derive(Debug)]
 pub struct Request {
     method: String,
@@ -213,6 +218,7 @@ pub struct Request {
     uri: hyper::Uri,
     headers: hyper::HeaderMap,
     body: Vec<u8>,
+    streaming_body: Option<request_body::IncomingBody>,
     #[cfg(feature = "websocket")]
     upgrade: Option<hyper::upgrade::OnUpgrade>,
 }
@@ -252,9 +258,33 @@ impl Request {
     pub fn header(&self, name: &str) -> Option<&[u8]> {
         self.headers.get(name).map(|value| value.as_bytes())
     }
-    /// Accepted body bytes.
+    /// Accepted body bytes. This slice is empty in streaming mode.
     pub fn body(&self) -> &[u8] {
         &self.body
+    }
+
+    /// Match the method and encoded path, capturing each `:name` as one
+    /// nonempty segment. Capture values retain their original percent escapes.
+    /// The query is ignored and trailing slashes must match exactly.
+    pub fn match_route<'a>(&'a self, method: &str, pattern: &'a str) -> Option<RouteParams<'a>> {
+        if self.method != method {
+            return None;
+        }
+        RouteParams::matches(self.path(), pattern)
+    }
+
+    /// Read the next data chunk in streaming mode. Returns `None` after the
+    /// body ends or when this request was dispatched with a buffered body.
+    ///
+    /// # Errors
+    /// Returns `FileTooLarge` when the total byte limit is exceeded,
+    /// `TimedOut` when the body deadline elapses, or `InvalidData` when
+    /// the peer's body fails. The error persists on subsequent reads.
+    pub async fn next_chunk(&mut self) -> io::Result<Option<Vec<u8>>> {
+        match &mut self.streaming_body {
+            Some(body) => body.next_chunk().await,
+            None => Ok(None),
+        }
     }
 
     /// Consume this request as an RFC 6455 WebSocket upgrade. Validate route,
@@ -368,6 +398,28 @@ impl Response {
         Ok(response)
     }
 
+    /// Stream owned chunks on demand. The server limits each source item
+    /// using `max_response_body_bytes` and splits it into bounded frames.
+    /// Dropping the response drops its source.
+    ///
+    /// # Errors
+    /// Rejects invalid final statuses and statuses that disallow content.
+    /// Source errors and oversized items terminate the response stream.
+    pub fn stream<S>(status: u16, chunks: S) -> io::Result<Self>
+    where
+        S: futures_core::Stream<Item = io::Result<Vec<u8>>> + Send + 'static,
+    {
+        let mut response = Self::new(status, Vec::new())?;
+        if matches!(status, 204 | 205 | 304) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HTTP status does not permit response content",
+            ));
+        }
+        response.body = ServerBody::stream(chunks);
+        Ok(response)
+    }
+
     /// Encode a pull-driven sequence of SSE data events. Keepalives are comments;
     /// the next event is polled only when the transport requests another frame.
     /// Dropping the response drops its source. No producer task or queue is added.
@@ -440,6 +492,7 @@ pub struct Server {
     diagnostics: Diagnostics,
     response_headers: Arc<hyper::HeaderMap>,
     read_budget: body::ReadBudget,
+    streaming_requests: bool,
 }
 
 impl Server {
@@ -455,6 +508,7 @@ impl Server {
             diagnostics: Diagnostics::default(),
             response_headers: Arc::new(hyper::HeaderMap::new()),
             read_budget: body::ReadBudget::new(limits.max_connections),
+            streaming_requests: false,
         })
     }
 
@@ -495,6 +549,15 @@ impl Server {
         Ok(self)
     }
 
+    /// Dispatch requests as soon as their headers arrive, with their bodies
+    /// available through [`Request::next_chunk`]. By default the server
+    /// buffers and validates each body before the handler runs.
+    #[must_use]
+    pub fn with_streaming_requests(mut self) -> Self {
+        self.streaming_requests = true;
+        self
+    }
+
     /// Serve until cancelled or a listener error occurs. Connection tasks are
     /// owned by this future and cancelled on drop, including incomplete requests.
     ///
@@ -511,6 +574,20 @@ impl Server {
         H: Fn(Request) -> F + Clone + Send + Sync + 'static,
         F: Future<Output = Response> + Send + 'static,
     {
+        self.serve_with(move || handler.clone()).await
+    }
+
+    /// Like [`Self::serve`], constructing a handler for each accepted connection.
+    /// Requests multiplexed on the same HTTP/2 connection share that handler.
+    ///
+    /// # Errors
+    /// Returns native listener errors; individual client failures are isolated.
+    pub async fn serve_with<M, H, F>(self, make_handler: M) -> io::Result<()>
+    where
+        M: Fn() -> H + Send + Sync,
+        H: Fn(Request) -> F + Send + Sync + 'static,
+        F: Future<Output = Response> + Send + 'static,
+    {
         let mut tasks = tokio::task::JoinSet::new();
         loop {
             tokio::select! {
@@ -522,82 +599,144 @@ impl Server {
                 accepted = self.listener.accept(), if tasks.len() < self.limits.max_connections => {
                     let (socket, _) = accepted?;
                     increment(&self.diagnostics.0.accepted_connections);
-                    let handler = handler.clone();
-                    let limits = self.limits;
-                    let diagnostics = self.diagnostics.clone();
-                    let response_headers = self.response_headers.clone();
-                    let read_budget = self.read_budget.clone();
+                    let config = ConnectionConfig {
+                        limits: self.limits,
+                        diagnostics: self.diagnostics.clone(),
+                        response_headers: self.response_headers.clone(),
+                        read_budget: self.read_budget.clone(),
+                        streaming_requests: self.streaming_requests,
+                    };
+                    let handler = make_handler();
                     tasks.spawn(async move {
-                        let request_diagnostics = diagnostics.clone();
-                        #[cfg(feature = "websocket")]
-                        let (upgrades_tx, mut upgrades_rx) = tokio::sync::mpsc::unbounded_channel();
-                        let service = service_fn(move |request| {
-                            dispatch(
-                                request,
-                                handler.clone(),
-                                limits,
-                                request_diagnostics.clone(),
-                                response_headers.clone(),
-                                read_budget.clone(),
-                                #[cfg(feature = "websocket")]
-                                upgrades_tx.clone(),
-                            )
-                        });
-                        let mut builder = hyper::server::conn::http1::Builder::new();
-                        builder.timer(TokioTimer::new())
-                            .header_read_timeout(limits.header_timeout)
-                            .max_buf_size(limits.max_header_bytes)
-                            .max_headers(limits.max_headers);
-                        let socket = transport::ProgressIo::new(socket, limits.write_timeout);
-                        let connection = builder
-                            .serve_connection(TokioIo::new(socket), service)
-                            .with_upgrades();
-                        #[cfg(feature = "websocket")]
-                        let mut upgrade_tasks = tokio::task::JoinSet::new();
-                        #[cfg(feature = "websocket")]
-                        let outcome = tokio::time::timeout(limits.connection_timeout, async {
-                            tokio::pin!(connection);
-                            loop {
-                                tokio::select! {
-                                    result = &mut connection => break result,
-                                    Some(task) = upgrades_rx.recv() => { upgrade_tasks.spawn(task); }
-                                    Some(result) = upgrade_tasks.join_next(), if !upgrade_tasks.is_empty() => {
-                                        if result.is_err() { increment(&diagnostics.0.task_failures); }
-                                    }
-                                }
-                            }
-                        }).await;
-                        #[cfg(not(feature = "websocket"))]
-                        let outcome = tokio::time::timeout(limits.connection_timeout, connection).await;
-                        #[cfg(feature = "websocket")]
-                        {
-                            // A successful upgrade ends the HTTP connection while
-                            // the socket it handed off is still in use: with
-                            // `with_upgrades()`, hyper resolves this future as
-                            // soon as the `101` is written. The connection
-                            // budget therefore bounds the handshake, not the
-                            // lifetime of the upgraded connection, so remaining
-                            // upgrade tasks are drained and joined rather than
-                            // aborted. Aborting here killed every live upgrade
-                            // the moment it succeeded.
-                            upgrades_rx.close();
-                            while let Ok(task) = upgrades_rx.try_recv() {
-                                upgrade_tasks.spawn(task);
-                            }
-                            while let Some(result) = upgrade_tasks.join_next().await {
-                                if result.is_err() {
-                                    increment(&diagnostics.0.task_failures);
-                                }
-                            }
-                        }
-                        match outcome {
-                            Err(_) => increment(&diagnostics.0.connection_timeouts),
-                            Ok(Err(_)) => increment(&diagnostics.0.connection_errors),
-                            Ok(Ok(())) => increment(&diagnostics.0.completed_connections),
-                        }
+                        let _ = serve_on(socket, config, handler).await;
                     });
                 }
             }
+        }
+    }
+}
+
+/// Serve HTTP/1.1 or prior-knowledge HTTP/2 on one caller-provided stream.
+/// Request bodies are streamed through [`Request::next_chunk`].
+/// Dropping the future cancels the connection and its in-flight requests.
+/// With WebSocket support the connection remains owned until its upgrade task ends.
+///
+/// # Errors
+/// Reports invalid limits, connection deadlines, transport and protocol errors.
+pub async fn serve_connection<S, H, F>(stream: S, limits: Limits, handler: H) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    H: Fn(Request) -> F + Send + Sync + 'static,
+    F: Future<Output = Response> + Send + 'static,
+{
+    limits.validate()?;
+    serve_on(
+        stream,
+        ConnectionConfig {
+            limits,
+            diagnostics: Diagnostics::default(),
+            response_headers: Arc::default(),
+            read_budget: body::ReadBudget::new(limits.max_connections),
+            streaming_requests: true,
+        },
+        handler,
+    )
+    .await
+}
+
+#[derive(Clone)]
+struct ConnectionConfig {
+    limits: Limits,
+    diagnostics: Diagnostics,
+    response_headers: Arc<hyper::HeaderMap>,
+    read_budget: body::ReadBudget,
+    streaming_requests: bool,
+}
+
+async fn serve_on<S, H, F>(stream: S, config: ConnectionConfig, handler: H) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    H: Fn(Request) -> F + Send + Sync + 'static,
+    F: Future<Output = Response> + Send + 'static,
+{
+    let limits = config.limits;
+    let diagnostics = config.diagnostics.clone();
+    let h2_tasks = Arc::new(std::sync::Mutex::new(tokio::task::JoinSet::new()));
+    let mut builder = auto::Builder::new(transport::ConnectionExecutor::new(&h2_tasks));
+    builder
+        .http1()
+        .timer(TokioTimer::new())
+        .header_read_timeout(limits.header_timeout)
+        .max_buf_size(limits.max_header_bytes)
+        .max_headers(limits.max_headers);
+    builder
+        .http2()
+        .max_header_list_size(limits.max_header_bytes as u32);
+    #[cfg(feature = "websocket")]
+    let (upgrades_tx, mut upgrades_rx) = tokio::sync::mpsc::unbounded_channel();
+    let handler = Arc::new(handler);
+    let service = service_fn(move |request| {
+        dispatch(
+            request,
+            handler.clone(),
+            config.clone(),
+            #[cfg(feature = "websocket")]
+            upgrades_tx.clone(),
+        )
+    });
+    let stream = transport::ProgressIo::new(stream, limits.write_timeout)
+        .with_detection_deadline(limits.header_timeout);
+    let connection = builder.serve_connection_with_upgrades(TokioIo::new(stream), service);
+    #[cfg(feature = "websocket")]
+    let mut upgrade_tasks = tokio::task::JoinSet::new();
+    #[cfg(feature = "websocket")]
+    let outcome = tokio::time::timeout(limits.connection_timeout, async {
+        tokio::pin!(connection);
+        loop {
+            tokio::select! {
+                result = &mut connection => break result,
+                Some(task) = upgrades_rx.recv() => { upgrade_tasks.spawn(task); }
+                Some(result) = upgrade_tasks.join_next(), if !upgrade_tasks.is_empty() => {
+                    if result.is_err() { increment(&diagnostics.0.task_failures); }
+                }
+            }
+        }
+    })
+    .await;
+    #[cfg(not(feature = "websocket"))]
+    let outcome = tokio::time::timeout(limits.connection_timeout, connection).await;
+    drop(h2_tasks);
+    #[cfg(feature = "websocket")]
+    {
+        // Hyper resolves after the handshake. Keep successful upgrades owned
+        // until their tasks finish, independently of the HTTP deadline.
+        upgrades_rx.close();
+        while let Ok(task) = upgrades_rx.try_recv() {
+            upgrade_tasks.spawn(task);
+        }
+        while let Some(result) = upgrade_tasks.join_next().await {
+            if result.is_err() {
+                increment(&diagnostics.0.task_failures);
+            }
+        }
+    }
+    match outcome {
+        Err(_) => {
+            increment(&diagnostics.0.connection_timeouts);
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "HTTP connection deadline elapsed",
+            ))
+        }
+        Ok(Err(error)) => {
+            increment(&diagnostics.0.connection_errors);
+            Err(error
+                .downcast::<io::Error>()
+                .map_or_else(io::Error::other, |error| *error))
+        }
+        Ok(Ok(())) => {
+            increment(&diagnostics.0.completed_connections);
+            Ok(())
         }
     }
 }
@@ -610,22 +749,27 @@ fn empty(status: hyper::StatusCode) -> hyper::Response<ServerBody> {
 
 async fn dispatch<H, F>(
     request: hyper::Request<Incoming>,
-    handler: H,
-    limits: Limits,
-    diagnostics: Diagnostics,
-    response_headers: Arc<hyper::HeaderMap>,
-    read_budget: body::ReadBudget,
+    handler: Arc<H>,
+    config: ConnectionConfig,
     #[cfg(feature = "websocket")] upgrades_tx: tokio::sync::mpsc::UnboundedSender<UpgradeTask>,
 ) -> Result<hyper::Response<ServerBody>, Infallible>
 where
     H: Fn(Request) -> F,
     F: Future<Output = Response>,
 {
+    let ConnectionConfig {
+        limits,
+        diagnostics,
+        response_headers,
+        read_budget,
+        streaming_requests,
+    } = config;
     let mut result = dispatch_inner(
         request,
-        handler,
+        &*handler,
         limits,
-        diagnostics.clone(),
+        &diagnostics,
+        streaming_requests,
         #[cfg(feature = "websocket")]
         upgrades_tx,
     )
@@ -657,7 +801,8 @@ async fn dispatch_inner<H, F>(
     request: hyper::Request<Incoming>,
     handler: H,
     limits: Limits,
-    diagnostics: Diagnostics,
+    diagnostics: &Diagnostics,
+    streaming_requests: bool,
     #[cfg(feature = "websocket")] upgrades_tx: tokio::sync::mpsc::UnboundedSender<UpgradeTask>,
 ) -> Result<hyper::Response<ServerBody>, Infallible>
 where
@@ -669,25 +814,47 @@ where
     #[cfg(feature = "websocket")]
     let upgrade = hyper::upgrade::on(&mut request);
     let (parts, body) = request.into_parts();
-    let collected = tokio::time::timeout(
-        limits.body_timeout,
-        Limited::new(body, limits.max_request_body_bytes).collect(),
-    )
-    .await;
-    let body = match collected {
-        Err(_) => {
-            increment(&diagnostics.0.body_timeouts);
-            return Ok(empty(hyper::StatusCode::REQUEST_TIMEOUT));
-        }
-        Ok(Err(error)) => {
+    let h2 = parts.version == hyper::Version::HTTP_2;
+    let h2_head = h2 && parts.method == hyper::Method::HEAD;
+    if h2 && parts.headers.len() > limits.max_headers {
+        increment(&diagnostics.0.request_rejections);
+        return Ok(empty(hyper::StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE));
+    }
+    let (body, streaming_body) = if streaming_requests {
+        use hyper::body::Body as _;
+        if body.size_hint().lower() > limits.max_request_body_bytes as u64 {
             increment(&diagnostics.0.request_rejections);
-            return Ok(empty(if error.is::<http_body_util::LengthLimitError>() {
-                hyper::StatusCode::PAYLOAD_TOO_LARGE
-            } else {
-                hyper::StatusCode::BAD_REQUEST
-            }));
+            return Ok(empty(hyper::StatusCode::PAYLOAD_TOO_LARGE));
         }
-        Ok(Ok(body)) => body.to_bytes().to_vec(),
+        (
+            Vec::new(),
+            Some(request_body::IncomingBody::new(
+                body,
+                limits,
+                diagnostics.clone(),
+            )),
+        )
+    } else {
+        match tokio::time::timeout(
+            limits.body_timeout,
+            Limited::new(body, limits.max_request_body_bytes).collect(),
+        )
+        .await
+        {
+            Err(_) => {
+                increment(&diagnostics.0.body_timeouts);
+                return Ok(empty(hyper::StatusCode::REQUEST_TIMEOUT));
+            }
+            Ok(Err(error)) => {
+                increment(&diagnostics.0.request_rejections);
+                return Ok(empty(if error.is::<http_body_util::LengthLimitError>() {
+                    hyper::StatusCode::PAYLOAD_TOO_LARGE
+                } else {
+                    hyper::StatusCode::BAD_REQUEST
+                }));
+            }
+            Ok(Ok(body)) => (body.to_bytes().to_vec(), None),
+        }
     };
     let request = Request {
         method: parts.method.to_string(),
@@ -697,6 +864,7 @@ where
         uri: parts.uri,
         headers: parts.headers,
         body,
+        streaming_body,
         #[cfg(feature = "websocket")]
         upgrade: Some(upgrade),
     };
@@ -714,6 +882,20 @@ where
     if !headers_fit(&response.headers, limits) || response.body.configure(limits).is_err() {
         increment(&diagnostics.0.response_rejections);
         return Ok(empty(hyper::StatusCode::INTERNAL_SERVER_ERROR));
+    }
+    if h2_head {
+        use hyper::body::Body as _;
+        if let Some(length) = response
+            .body
+            .size_hint()
+            .exact()
+            .filter(|&length| length > 0)
+        {
+            response
+                .headers
+                .insert(hyper::header::CONTENT_LENGTH, length.into());
+        }
+        response.body = ServerBody::bytes(Bytes::new());
     }
     let mut result = hyper::Response::new(response.body);
     *result.status_mut() = response.status;
