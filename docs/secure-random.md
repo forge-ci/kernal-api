@@ -18,6 +18,12 @@ No fallback is used and no partial output is returned on failure. Errors contain
 semantic categories only, not bytes or backend error types. Returned `Vec<u8>`
 storage is ordinary memory, not a protected or zeroizing secret container.
 
+`SecureRandom::fill(&mut [u8])` (#631) is the synchronous form for callers
+without a runtime. It takes no instance, budget, timeout or worker: it calls the
+OS CSPRNG on the caller's thread, may block until the OS entropy pool is
+initialized, and has no length limit because the caller owns the buffer. Empty
+buffers skip the OS call; on `Unavailable` the buffer contents are unspecified.
+
 Applications choose token length, formatting, storage and authorization policy.
 Generic failure, admission and cancellation tests belong here. Native smoke
 tests verify availability and result shape; they are not statistical proof of

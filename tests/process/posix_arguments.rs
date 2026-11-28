@@ -56,3 +56,29 @@ fn input_bytes_and_output_count_have_exact_limits() {
         Err(ArgumentParseError::TooManyArguments)
     );
 }
+
+#[test]
+fn quote_and_join_round_trip_through_parse() {
+    use kernal_api::arguments::{join_posix, quote_posix};
+    assert_eq!(quote_posix("plain-word"), "plain-word");
+    assert_eq!(quote_posix(""), "''");
+    assert_eq!(quote_posix("a b"), "'a b'");
+    let words = [
+        "sudo",
+        "-E",
+        "",
+        "it's",
+        "$HOME",
+        "a b",
+        "x\"y",
+        "*",
+        "日本語",
+        "line\nbreak",
+    ];
+    let joined = join_posix(words);
+    assert_eq!(parse_posix(&joined).unwrap(), words);
+    for word in words {
+        assert_eq!(parse_posix(&quote_posix(word)).unwrap(), [word]);
+    }
+    assert_eq!(join_posix(Vec::<String>::new()), "");
+}

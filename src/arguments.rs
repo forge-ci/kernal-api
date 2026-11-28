@@ -42,3 +42,23 @@ pub fn parse_posix(source: &str) -> Result<Vec<String>, ArgumentParseError> {
     }
     Ok(words)
 }
+
+/// Quote one word so [`parse_posix`] and a POSIX shell read it back unchanged.
+///
+/// Words made only of shell-safe characters are returned as-is; anything else
+/// is single-quoted, with embedded single quotes escaped. An empty word becomes
+/// `''`. The result is for display or a POSIX `sh` command line, not Windows
+/// command-line encoding. NUL cannot be represented in a process argument and
+/// is passed through unchanged; callers must reject it.
+pub fn quote_posix(word: &str) -> String {
+    shell_words::quote(word).into_owned()
+}
+
+/// Quote each word with [`quote_posix`] and join them with single spaces.
+pub fn join_posix<I, S>(words: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    shell_words::join(words)
+}
