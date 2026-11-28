@@ -18,6 +18,8 @@ Enable exactly one of the two features; both expose the same `http` module.
   leaf, so the native-TLS fixture tests run only under `http-client`.
 
 Enabling both links both backends and selects native TLS.
+Both offer HTTP/2 over TLS via ALPN, with HTTP/1.1 fallback. Plain HTTP uses
+HTTP/1.1. Inspect the negotiated protocol with `Response::version`.
 
 ## Metadata and buffering
 
@@ -37,8 +39,9 @@ application limits does not relax these:
   The caller buffer bounds each returned transfer, not every private allocation.
   Body bytes are counted cumulatively before a received chunk is accepted.
 
-The client is owned on Hyper 1.11.0's HTTP/1 connection API (hyper-util
-0.1.20 for the TCP connector, http-body-util 0.1.5 for body frames), with
+HTTP/2 has an independent 64 KiB header-list ceiling, including per-field
+overhead. The client uses Hyper 1.11.0 (hyper-util 0.1.20 for the pool and
+TCP connector, http-body-util 0.1.5 for body frames), with
 hyper-tls 0.6.0 or hyper-rustls 0.27.10 for TLS; these and Bytes 1.12.1 are
 exact optional private pins.
 The Hyper constraint is intentional even though the facade does not name its
@@ -86,12 +89,20 @@ API did not change. Two behaviours did:
 
 Requests and response bodies have byte ceilings; URLs and application headers
 are validated before copying. Connect, network-read and cumulative request/body
-deadlines are finite. Dropping an operation or response releases its transport.
-No decompression layer is linked, so no downstream feature unification can
-enable one; content-encoded bytes and their headers are preserved. Each request
-uses its own connection (no pooling) and HTTP/1.1 only. The connect timeout
-covers DNS, TCP and the TLS handshake; the read timeout bounds the wait for the
-response head and for each body frame; the total deadline bounds all of them.
+deadlines are finite. The connect timeout covers pool checkout or connection
+setup, including DNS, TCP, and TLS. The read timeout bounds the wait for the
+response head and each body frame. The total deadline bounds the entire
+exchange, including redirects. A client and its clones share a per-origin
+connection pool. Consume HTTP/1.1 response bodies to EOF to allow reuse. HTTP/2
+can carry concurrent requests while a response is still streaming.
+
+Set application headers such as `Range` through `Request::headers` and access
+fields such as `Content-Range` and `ETag` with `Response::header`. For downloads,
+set the cumulative `Limits::max_body_bytes` and read one owned chunk at a time
+with `Response::next_chunk`. The client preserves content-encoded bytes and
+headers without automatic decompression. With the `json` feature,
+`Client::post_json` encodes a `json::Value`, and `Response::into_json` decodes
+the unread body under the HTTP and JSON limits.
 
 Redirects default to zero and are capped at 32. Cross-origin hops discard all
 application headers. POST becomes GET for 301/302/303; 307/308 replay is allowed

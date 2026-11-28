@@ -50,7 +50,8 @@ self-signed fixture above can only prove that refusal under
 `chain-leaf.p12.hex` is a PKCS#12 identity (password `fixture`) for a
 `CA:FALSE` leaf with only the `localhost` DNS name, bundled with that root.
 Both are valid from November 8, 2026 through February 5, 2029; keep the same
-820-day window. To regenerate:
+820-day window. The HTTP/2 test uses `chain-leaf.pem`, which holds the same leaf
+certificate and private key in PEM form. To regenerate:
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 820 \
@@ -65,4 +66,5 @@ openssl pkcs12 -export -inkey leaf.key -in leaf.pem -certfile ca.pem \
   -out leaf.p12 -passout pass:fixture -keypbe PBE-SHA1-3DES \
   -certpbe PBE-SHA1-3DES -macalg sha1
 od -An -v -tx1 leaf.p12
+cat leaf.pem leaf.key
 ```

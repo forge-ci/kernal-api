@@ -20,6 +20,8 @@ pub use websocket::{
 
 mod body;
 mod diagnostics;
+#[cfg(all(test, any(feature = "http-client", feature = "http-client-rustls")))]
+mod h2_tests;
 mod target;
 mod transport;
 use body::ServerBody;
