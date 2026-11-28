@@ -289,8 +289,9 @@ mod tests {
                 assert!(!invoked);
             });
         }
+        // egui sizes grid columns from the previous frame's measurements.
         assert!(
-            positions
+            positions[1..]
                 .windows(2)
                 .all(|pair| (pair[0] - pair[1]).abs() < 0.01),
             "{positions:?}"
