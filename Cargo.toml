@@ -183,6 +183,8 @@ http-server = ["dep:hyper", "hyper/server", "hyper/http1", "dep:hyper-util", "de
 # HTTP/1 WebSocket upgrading remains part of the owned server surface: callers
 # exchange facade messages and never name Hyper or a WebSocket implementation.
 websocket = ["http-server", "dep:futures-util", "dep:tokio-tungstenite"]
+# rustls by default; http-client takes precedence when explicitly enabled.
+websocket-client = ["http-client-rustls", "dep:futures-util", "dep:tokio-tungstenite"]
 # Build-script helper: Windows executable resources (icon, version info,
 # Common-Controls v6 manifest) for an application's own `build.rs`, taken as a
 # second, same-name `kernal-api` build-dependency with only this feature.

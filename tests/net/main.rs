@@ -21,3 +21,4 @@ mod bounded_ipc_connect;
 mod http_client;
 mod http_server;
 mod owner_only_local_ipc;
+mod websocket_client;

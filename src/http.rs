@@ -24,6 +24,9 @@ mod tls_tests;
 #[path = "http_url.rs"]
 mod url;
 
+#[cfg(feature = "websocket-client")]
+pub mod websocket;
+
 use http_body_util::BodyExt;
 use tower_service::Service;
 use url::Target;
@@ -78,9 +81,13 @@ fn tcp_connector() -> HttpConnector {
 /// Platform TLS verified against the operating system's trust store.
 /// `extra_root` is a test-only PEM root added to one client.
 #[cfg(feature = "http-client")]
-fn connector(extra_root: Option<&[u8]>) -> io::Result<Connector> {
+fn connector(extra_root: Option<&[u8]>, enable_http2: bool) -> io::Result<Connector> {
     let mut builder = native_tls::TlsConnector::builder();
-    builder.request_alpns(&["h2", "http/1.1"]);
+    builder.request_alpns(if enable_http2 {
+        &["h2", "http/1.1"]
+    } else {
+        &["http/1.1"]
+    });
     if let Some(pem) = extra_root {
         builder.add_root_certificate(
             native_tls::Certificate::from_pem(pem).map_err(io::Error::other)?,
@@ -97,7 +104,7 @@ fn connector(extra_root: Option<&[u8]>) -> io::Result<Connector> {
 /// OpenSSL, no platform verifier, no system trust store (#427).
 /// `extra_root` is a test-only PEM root added to one client.
 #[cfg(all(feature = "http-client-rustls", not(feature = "http-client")))]
-fn connector(extra_root: Option<&[u8]>) -> io::Result<Connector> {
+fn connector(extra_root: Option<&[u8]>, enable_http2: bool) -> io::Result<Connector> {
     use rustls::pki_types::pem::PemObject;
     let mut roots = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -109,19 +116,21 @@ fn connector(extra_root: Option<&[u8]>) -> io::Result<Connector> {
                 .map_err(io::Error::other)?;
         }
     }
-    let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+    let mut config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
     .with_safe_default_protocol_versions()
     .map_err(io::Error::other)?
     .with_root_certificates(roots)
     .with_no_client_auth();
-    Ok(hyper_rustls::HttpsConnectorBuilder::new()
-        .with_tls_config(config)
-        .https_or_http()
-        .enable_http1()
-        .enable_http2()
-        .wrap_connector(tcp_connector()))
+    if enable_http2 {
+        config.alpn_protocols.push(b"h2".to_vec());
+    }
+    config.alpn_protocols.push(b"http/1.1".to_vec());
+    Ok(hyper_rustls::HttpsConnector::from((
+        tcp_connector(),
+        config,
+    )))
 }
 
 fn timed_out(message: &'static str) -> io::Error {
@@ -337,12 +346,12 @@ impl io::Read for BlockingResponse<'_> {
 impl Client {
     /// Build a transport with finite, nonzero timeouts and verified TLS.
     pub fn new(limits: Limits) -> io::Result<Self> {
-        Self::with_connector(limits, connector(None)?)
+        Self::with_connector(limits, connector(None, true)?)
     }
 
     #[cfg(test)]
     pub(crate) fn with_test_root(limits: Limits, pem: &[u8]) -> io::Result<Self> {
-        Self::with_connector(limits, connector(Some(pem))?)
+        Self::with_connector(limits, connector(Some(pem), true)?)
     }
 
     fn with_connector(limits: Limits, connector: Connector) -> io::Result<Self> {
