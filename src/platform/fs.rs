@@ -538,23 +538,51 @@ use std::time::{Duration, SystemTime};
 /// Hold one guard per open file. A second lock on the same path needs a
 /// second [`open_lock_file`] handle, which is also what makes the exclusion
 /// between the two meaningful.
+///
+/// # Whole-file mode
+///
+/// The `_whole` entry points ([`try_lock_exclusive_whole`],
+/// [`lock_exclusive_whole_for`] and their shared and owned forms) lock the
+/// entire file instead. On Unix that is the same `flock`. On Windows it is
+/// `LockFileEx` from offset 0 for the full `u32::MAX`/`u32::MAX` length --
+/// the range `fs4` locks -- so it excludes a peer that still locks that way
+/// (an older build of the same program during an upgrade) and, because the
+/// range is mandatory there, denies other handles' reads and writes of the
+/// body. A whole-file holder also excludes a default-mode locker on Windows,
+/// since the full range contains the sentinel byte. Use it only for
+/// compatibility with such a peer; the default mode is the portable one.
 #[cfg(feature = "fs")]
 #[derive(Debug)]
 pub struct FileLock<'file> {
     file: &'file File,
+    unlock: Unlock,
 }
+
+/// The host release that matches the range a guard locked.
+#[cfg(feature = "fs")]
+type Unlock = fn(&File) -> io::Result<()>;
 
 #[cfg(feature = "fs")]
 impl<'file> FileLock<'file> {
     fn new(file: &'file File) -> Self {
-        Self { file }
+        Self {
+            file,
+            unlock: crate::fs_unlock,
+        }
+    }
+
+    fn whole(file: &'file File) -> Self {
+        Self {
+            file,
+            unlock: crate::fs_unlock_whole,
+        }
     }
 }
 
 #[cfg(feature = "fs")]
 impl Drop for FileLock<'_> {
     fn drop(&mut self) {
-        let _ = crate::fs_unlock(self.file);
+        let _ = (self.unlock)(self.file);
     }
 }
 
@@ -632,6 +660,24 @@ pub fn try_lock_shared(file: &File) -> io::Result<FileLock<'_>> {
 #[derive(Debug)]
 pub struct OwnedFileLock {
     file: Option<File>,
+    unlock: Unlock,
+}
+
+#[cfg(feature = "fs")]
+impl OwnedFileLock {
+    fn new(file: File) -> Self {
+        Self {
+            file: Some(file),
+            unlock: crate::fs_unlock,
+        }
+    }
+
+    fn whole(file: File) -> Self {
+        Self {
+            file: Some(file),
+            unlock: crate::fs_unlock_whole,
+        }
+    }
 }
 
 #[cfg(feature = "fs")]
@@ -657,7 +703,7 @@ impl OwnedFileLock {
             .file
             .take()
             .expect("the handle is taken only here, and this consumes self");
-        match crate::fs_unlock(&file) {
+        match (self.unlock)(&file) {
             Ok(()) => Ok(file),
             Err(error) => Err((file, error)),
         }
@@ -668,7 +714,7 @@ impl OwnedFileLock {
 impl Drop for OwnedFileLock {
     fn drop(&mut self) {
         if let Some(file) = self.file.as_ref() {
-            let _ = crate::fs_unlock(file);
+            let _ = (self.unlock)(file);
         }
     }
 }
@@ -684,7 +730,7 @@ impl Drop for OwnedFileLock {
 #[deprecated(note = "waits forever for a stuck holder; use `lock_exclusive_owned_for` (#433)")]
 pub fn lock_exclusive_owned(file: File) -> io::Result<OwnedFileLock> {
     crate::fs_lock_exclusive(&file)?;
-    Ok(OwnedFileLock { file: Some(file) })
+    Ok(OwnedFileLock::new(file))
 }
 
 /// Take a shared advisory lock that owns `file`, waiting for it.
@@ -696,7 +742,7 @@ pub fn lock_exclusive_owned(file: File) -> io::Result<OwnedFileLock> {
 #[deprecated(note = "waits forever for a stuck holder; use `lock_shared_owned_for` (#433)")]
 pub fn lock_shared_owned(file: File) -> io::Result<OwnedFileLock> {
     crate::fs_lock_shared(&file)?;
-    Ok(OwnedFileLock { file: Some(file) })
+    Ok(OwnedFileLock::new(file))
 }
 
 /// Take an exclusive advisory lock that owns `file`, without waiting.
@@ -709,7 +755,7 @@ pub fn lock_shared_owned(file: File) -> io::Result<OwnedFileLock> {
 #[cfg(feature = "fs")]
 pub fn try_lock_exclusive_owned(file: File) -> io::Result<OwnedFileLock> {
     crate::fs_try_lock_exclusive(&file)?;
-    Ok(OwnedFileLock { file: Some(file) })
+    Ok(OwnedFileLock::new(file))
 }
 
 /// Take a shared advisory lock that owns `file`, without waiting.
@@ -720,7 +766,7 @@ pub fn try_lock_exclusive_owned(file: File) -> io::Result<OwnedFileLock> {
 #[cfg(feature = "fs")]
 pub fn try_lock_shared_owned(file: File) -> io::Result<OwnedFileLock> {
     crate::fs_try_lock_shared(&file)?;
-    Ok(OwnedFileLock { file: Some(file) })
+    Ok(OwnedFileLock::new(file))
 }
 
 /// Retry a non-blocking lock attempt on the same handle until it succeeds,
@@ -784,7 +830,7 @@ pub fn lock_shared_for(file: &File, timeout: Duration) -> io::Result<FileLock<'_
 #[cfg(feature = "fs")]
 pub fn lock_exclusive_owned_for(file: File, timeout: Duration) -> io::Result<OwnedFileLock> {
     lock_within(&file, timeout, crate::fs_try_lock_exclusive)?;
-    Ok(OwnedFileLock { file: Some(file) })
+    Ok(OwnedFileLock::new(file))
 }
 
 /// Take a shared advisory lock that owns `file`, waiting at most `timeout`.
@@ -795,7 +841,100 @@ pub fn lock_exclusive_owned_for(file: File, timeout: Duration) -> io::Result<Own
 #[cfg(feature = "fs")]
 pub fn lock_shared_owned_for(file: File, timeout: Duration) -> io::Result<OwnedFileLock> {
     lock_within(&file, timeout, crate::fs_try_lock_shared)?;
-    Ok(OwnedFileLock { file: Some(file) })
+    Ok(OwnedFileLock::new(file))
+}
+
+/// Take an exclusive whole-file lock without waiting. See
+/// [whole-file mode](FileLock#whole-file-mode).
+///
+/// # Errors
+///
+/// As [`try_lock_exclusive`].
+#[cfg(feature = "fs")]
+pub fn try_lock_exclusive_whole(file: &File) -> io::Result<FileLock<'_>> {
+    crate::fs_try_lock_exclusive_whole(file)?;
+    Ok(FileLock::whole(file))
+}
+
+/// Take a shared whole-file lock without waiting. See
+/// [whole-file mode](FileLock#whole-file-mode).
+///
+/// # Errors
+///
+/// As [`try_lock_shared`].
+#[cfg(feature = "fs")]
+pub fn try_lock_shared_whole(file: &File) -> io::Result<FileLock<'_>> {
+    crate::fs_try_lock_shared_whole(file)?;
+    Ok(FileLock::whole(file))
+}
+
+/// Take an exclusive whole-file lock, waiting at most `timeout`. See
+/// [whole-file mode](FileLock#whole-file-mode).
+///
+/// # Errors
+///
+/// As [`lock_exclusive_for`].
+#[cfg(feature = "fs")]
+pub fn lock_exclusive_whole_for(file: &File, timeout: Duration) -> io::Result<FileLock<'_>> {
+    lock_within(file, timeout, crate::fs_try_lock_exclusive_whole)?;
+    Ok(FileLock::whole(file))
+}
+
+/// Take a shared whole-file lock, waiting at most `timeout`. See
+/// [whole-file mode](FileLock#whole-file-mode).
+///
+/// # Errors
+///
+/// As [`lock_exclusive_for`].
+#[cfg(feature = "fs")]
+pub fn lock_shared_whole_for(file: &File, timeout: Duration) -> io::Result<FileLock<'_>> {
+    lock_within(file, timeout, crate::fs_try_lock_shared_whole)?;
+    Ok(FileLock::whole(file))
+}
+
+/// Take an exclusive whole-file lock that owns `file`, without waiting.
+///
+/// # Errors
+///
+/// As [`try_lock_exclusive_owned`].
+#[cfg(feature = "fs")]
+pub fn try_lock_exclusive_whole_owned(file: File) -> io::Result<OwnedFileLock> {
+    crate::fs_try_lock_exclusive_whole(&file)?;
+    Ok(OwnedFileLock::whole(file))
+}
+
+/// Take a shared whole-file lock that owns `file`, without waiting.
+///
+/// # Errors
+///
+/// As [`try_lock_exclusive_owned`].
+#[cfg(feature = "fs")]
+pub fn try_lock_shared_whole_owned(file: File) -> io::Result<OwnedFileLock> {
+    crate::fs_try_lock_shared_whole(&file)?;
+    Ok(OwnedFileLock::whole(file))
+}
+
+/// Take an exclusive whole-file lock that owns `file`, waiting at most
+/// `timeout`.
+///
+/// # Errors
+///
+/// As [`lock_exclusive_owned_for`].
+#[cfg(feature = "fs")]
+pub fn lock_exclusive_whole_owned_for(file: File, timeout: Duration) -> io::Result<OwnedFileLock> {
+    lock_within(&file, timeout, crate::fs_try_lock_exclusive_whole)?;
+    Ok(OwnedFileLock::whole(file))
+}
+
+/// Take a shared whole-file lock that owns `file`, waiting at most `timeout`.
+///
+/// # Errors
+///
+/// As [`lock_exclusive_owned_for`].
+#[cfg(feature = "fs")]
+pub fn lock_shared_whole_owned_for(file: File, timeout: Duration) -> io::Result<OwnedFileLock> {
+    lock_within(&file, timeout, crate::fs_try_lock_shared_whole)?;
+    Ok(OwnedFileLock::whole(file))
 }
 
 // ---------------------------------------------------------------------------

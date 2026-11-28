@@ -52,6 +52,8 @@ Status key:
 | --- | --- | --- | --- |
 | `lock_exclusive`, `lock_shared`, `lock_exclusive_owned`, `lock_shared_owned` | yes (`flock` / `LockFileEx`) | **deprecated** (#433), no internal callers; bounded replacements `lock_{exclusive,shared}{,_owned}_for(file, timeout)` exist (`TimedOut` on expiry, owned forms keep the handle across retries) | Migrate zccache's direct callers (`staged_lock.rs`, `download_client/artifact/lock.rs`, `object_store.rs`, test helpers) and its `wait::lock_*_for` wrappers, then remove the unbounded forms. |
 | `try_lock_exclusive`, `try_lock_shared` and the `_owned` variants | no | bounded (non-blocking) | none |
+| `lock_{exclusive,shared}_whole{,_owned}_for` (whole-file mode) | yes (`flock` / full-range `LockFileEx`) | bounded only: shipped without an unbounded form | none |
+| `try_lock_{exclusive,shared}_whole` and the `_owned` variants | no | bounded (non-blocking) | none |
 
 ## Webview (`src/tauri.rs`)
 
