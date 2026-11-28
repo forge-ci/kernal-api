@@ -35,6 +35,7 @@ CASES = (
     ("http-client", "openssl-sys"),
     ("http-client-rustls", "hyper-rustls"),
     ("http-client-rustls", "rustls"),
+    ("p2p", "iroh"),
     ("http-server", "hyper"),
     ("http-server", "http-body-util"),
     ("event-stream", "tokio-stream"),

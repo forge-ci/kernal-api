@@ -143,6 +143,7 @@ fn implementation_crates_are_not_publicly_reexported() {
         "pub use framehop",
         "pub use globset",
         "pub use interprocess",
+        "pub use iroh",
         "pub use jwalk",
         "pub use libc",
         "pub use libsqlite3_sys",
@@ -753,7 +754,7 @@ fn process_session_surface_keeps_backend_and_native_status_types_private() {
 /// Owned-crate spellings that name a backend type wherever they appear in a
 /// type position. Mirrors `OWNED_IMPLEMENTATION_CRATES` in
 /// `dylints/kernal_api_boundary`.
-const OWNED_BACKEND_PATHS: [&str; 25] = [
+const OWNED_BACKEND_PATHS: [&str; 27] = [
     "addr2line::",
     "blake3::",
     "console_api::",
@@ -762,6 +763,8 @@ const OWNED_BACKEND_PATHS: [&str; 25] = [
     "framehop::",
     "globset::",
     "interprocess::",
+    "iroh::",
+    "iroh_base::",
     "jwalk::",
     "libc::",
     "libsqlite3_sys::",
