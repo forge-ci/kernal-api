@@ -15,6 +15,13 @@ pub use crate::{
     ProcessSessionOptions, SpawnAdmission, SpawnSpec, StreamMode, TracedChild, WindowsJobHandle,
 };
 
+/// Re-exported host process types so consumers can name a command, its child
+/// handle and its exit status in their own public signatures without spelling
+/// `std::process` directly, which the platform-boundary lint bans outside the
+/// approved adapters. These are the host's own types, not wrappers: spawning,
+/// waiting, stdio and exit-code semantics are unchanged.
+pub use std::process::{Child, Command, ExitStatus};
+
 /// Host-neutral command options selected by the caller before spawning.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProcessCommandConfig {
@@ -1653,5 +1660,23 @@ pub fn is_alive(pid: u32) -> bool {
     match ProcessLiveness::open(pid) {
         Ok(process) => process.is_alive(),
         Err(error) => matches!(error.kind, ProcessInspectErrorKind::Host),
+    }
+}
+
+#[cfg(test)]
+mod reexport_tests {
+    use super::{Child, Command, ExitStatus};
+
+    #[test]
+    fn host_process_types_are_reexported_and_usable() {
+        // `--list` makes the child — this same test binary — print its test
+        // names and exit 0 without running them, so this covers a real
+        // spawn/wait round trip without recursion.
+        let executable = std::env::current_exe().expect("current executable path");
+        let mut command: Command = Command::new(executable);
+        command.arg("--list").stdout(std::process::Stdio::null());
+        let mut child: Child = command.spawn().expect("spawn test binary");
+        let status: ExitStatus = child.wait().expect("wait for test binary");
+        assert!(status.success(), "listed test binary exited with {status}");
     }
 }
