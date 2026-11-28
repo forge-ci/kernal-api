@@ -183,6 +183,7 @@ http-server = ["dep:hyper", "hyper/server", "hyper/http1", "dep:hyper-util", "de
 # HTTP/1 WebSocket upgrading remains part of the owned server surface: callers
 # exchange facade messages and never name Hyper or a WebSocket implementation.
 websocket = ["http-server", "dep:futures-util", "dep:tokio-tungstenite"]
+p2p = ["dep:iroh", "dep:futures-util"]
 # Build-script helper: Windows executable resources (icon, version info,
 # Common-Controls v6 manifest) for an application's own `build.rs`, taken as a
 # second, same-name `kernal-api` build-dependency with only this feature.
@@ -373,7 +374,7 @@ hyper = { version = "=1.11.0", default-features = false, optional = true }
 hyper-tls = { version = "=0.6.0", default-features = false, features = ["alpn"], optional = true }
 native-tls = { version = "=0.2.18", optional = true }
 hyper-rustls = { version = "=0.27.10", default-features = false, features = ["http1", "http2", "ring", "tls12"], optional = true }
-rustls = { version = "=0.23.44", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 webpki-roots = { version = "=1.0.9", optional = true }
 tower-service = { version = "=0.3.3", optional = true }
 hyper-util = { version = "=0.1.20", default-features = false, features = ["tokio"], optional = true }
@@ -406,6 +407,7 @@ tree-sitter = { version = "=0.26.11", optional = true }
 tree-sitter-cpp = { version = "=0.23.4", optional = true }
 globset = { version = "0.4.18", optional = true }
 interprocess = { version = "=2.4.3", optional = true }
+iroh = { version = "=1.5.0", default-features = false, features = ["tls-ring"], optional = true }
 jwalk = { version = "0.8.1", optional = true }
 lzma-rust2 = { version = "=0.21.0", default-features = false, features = ["std", "encoder", "optimization", "xz"], optional = true }
 mimalloc-pprof = { version = "=1.1.0", default-features = false, features = ["pprof"], optional = true }
@@ -624,6 +626,7 @@ features = [
   "broker-client",
   "broker-v2",
   "build-resources",
+  "p2p",
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 targets = [

@@ -12,6 +12,7 @@ implementations of these facilities.
 | Operating systems | Linux, macOS, Windows |
 | Architectures | x86-64, ARM64 |
 | Async engine | `kernal_api::async_engine`, backed by exactly Tokio 1.53.1 |
+| Peer transport | `kernal_api::p2p` (feature `p2p`), backed by exactly iroh 1.5.0 with ring TLS |
 | Heap allocator/profiler | exactly `mimalloc-pprof` 1.1.0 (`pprof` feature) |
 | Native crash interception | exactly `crash-handler` 0.7.0 |
 | Async task protocol | exactly `console-api` 0.9.0 / `console-subscriber` 0.5.0 |

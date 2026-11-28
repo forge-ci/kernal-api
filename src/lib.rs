@@ -133,6 +133,8 @@ pub mod archive;
 pub mod http;
 #[cfg(feature = "http-server")]
 pub mod http_server;
+#[cfg(feature = "p2p")]
+pub mod p2p;
 /// Owned native pseudo-terminal sessions without backend descriptor types.
 #[cfg(feature = "pty")]
 pub mod pty;

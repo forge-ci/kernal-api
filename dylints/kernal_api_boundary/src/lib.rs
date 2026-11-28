@@ -268,6 +268,8 @@ const OWNED_IMPLEMENTATION_CRATES: &[&str] = &[
     "framehop",
     "globset",
     "interprocess",
+    "iroh",
+    "iroh_base",
     "jwalk",
     "libc",
     "libsqlite3_sys",
