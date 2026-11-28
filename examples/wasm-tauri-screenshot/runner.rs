@@ -8,10 +8,20 @@ use std::time::Duration;
 mod deadline;
 mod status;
 
-/// Bound on the whole in-process run. Legitimate runs take up to ~36s (30s
-/// load hold plus the 5s guest sleep); the test's 90s stall guard must never
-/// be what notices a hang.
-const IN_PROCESS_DEADLINE: Duration = Duration::from_secs(75);
+/// Bound on one screenshot run, in process or contained.
+///
+/// Hosted aarch64 Linux runners under xvfb have been measured stalling a
+/// single WebKit page load, capture or worker hand-off well past 60s, even
+/// though the same commit passes on a later run (#617: 4 of 9 full runs hit
+/// `DeadlineElapsed` there, each in a different proof). Legitimate work stays
+/// at ~36s (30s load hold plus the 5s guest sleep), so 180s still catches a
+/// real hang while leaving a slow ARM host room to finish.
+///
+/// The test's stall guard is longer than this on purpose: it must never be
+/// what notices a hang, so the runner's typed deadline reports it.
+const RUN_BUDGET: Duration = Duration::from_secs(180);
+/// Bound on the whole in-process run.
+const IN_PROCESS_DEADLINE: Duration = RUN_BUDGET;
 /// Exit status for an elapsed in-process deadline.
 const DEADLINE_EXIT: i32 = 124;
 
@@ -176,7 +186,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let terminal = runtime
             .run_within(
                 sketch.execute_threaded_root_contained(runtime.handle(), &config),
-                Duration::from_secs(60),
+                RUN_BUDGET,
             )
             .expect("screenshot runner budget");
         #[cfg(feature = "tauri-webview-test-support")]
@@ -241,10 +251,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     stage.enter(0);
     host.run();
     stage.enter(1);
-    let result = receiver.recv_timeout(Duration::from_secs(60))?;
+    let result = receiver.recv_timeout(RUN_BUDGET)?;
     stage.enter(2);
     runtime
-        .run_within(task, Duration::from_secs(60))
+        .run_within(task, RUN_BUDGET)
         .expect("screenshot runner budget")?;
     watchdog.disarm();
     result.map_err(screenshot_error)?;

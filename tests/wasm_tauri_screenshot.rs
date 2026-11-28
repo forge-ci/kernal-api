@@ -6,6 +6,14 @@ use kernal_api::wasm::{
     SketchModulePolicy,
 };
 
+/// Bound on one contained screenshot run and its cancellation probe. Matches
+/// the CLI runner's `RUN_BUDGET`: hosted aarch64 Linux runners under xvfb have
+/// been measured stalling a single WebKit load or worker hand-off past the old
+/// 60s (#617), while legitimate runs stay at ~36s, so 180s still catches a
+/// real hang.
+#[cfg(all(feature = "wasm-sketch-worker", feature = "tauri-webview-test-support"))]
+const CONTAINED_BUDGET: std::time::Duration = std::time::Duration::from_secs(180);
+
 // Cargo check/Dylint do not necessarily build binaries or define their paths.
 // Actual test execution still requires an explicit binary; no runtime fallback.
 #[cfg(all(feature = "wasm-sketch-worker", feature = "tauri-webview-test-support"))]
@@ -328,7 +336,7 @@ fn run_contained_screenshot(scenario: ContainedScenario) {
                 &config,
                 cancellation.token(),
             ),
-            std::time::Duration::from_secs(60),
+            CONTAINED_BUDGET,
         )
         .expect("test runtime budget");
     let directory = if scenario == ContainedScenario::RenamedParent {
@@ -363,7 +371,7 @@ fn run_contained_screenshot(scenario: ContainedScenario) {
     if let Some(task) = cancel_task {
         assert!(
             runtime
-                .run_within(task, std::time::Duration::from_secs(60))
+                .run_within(task, CONTAINED_BUDGET)
                 .expect("test runtime budget")
                 .unwrap(),
             "cancellation never observed a native HTTP request"
@@ -779,7 +787,9 @@ fn run_native_screenshot_proof(scenario: NativeScenario) {
     // wall-clock allowance because one amalgamated crate may compile longer
     // than any silence the stall bound would accept.
     let build_allowance = Duration::from_secs(300);
-    let stall_bound = Duration::from_secs(90);
+    // Longer than the runner's own 180s run budget (#617), so a hang is
+    // reported by the runner's typed deadline rather than by this guard.
+    let stall_bound = Duration::from_secs(240);
     let stdout_log = proof.join("runner.stdout.log");
     let stderr_log = proof.join("runner.stderr.log");
     let mut child = Child(
