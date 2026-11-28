@@ -33,6 +33,7 @@ use body::ServerBody;
 use diagnostics::increment;
 pub use diagnostics::{Diagnostics, Snapshot};
 pub use target::{QueryPairs, RouteParams};
+pub use transport::ConnectionStream;
 
 /// One server-sent event. `id` is the reconnect cursor and `event` is its type.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -617,6 +618,7 @@ impl Server {
 }
 
 /// Serve HTTP/1.1 or prior-knowledge HTTP/2 on one caller-provided stream.
+/// Any owned Tokio async read/write stream can be passed directly.
 /// Request bodies are streamed through [`Request::next_chunk`].
 /// Dropping the future cancels the connection and its in-flight requests.
 /// With WebSocket support the connection remains owned until its upgrade task ends.
@@ -625,13 +627,13 @@ impl Server {
 /// Reports invalid limits, connection deadlines, transport and protocol errors.
 pub async fn serve_connection<S, H, F>(stream: S, limits: Limits, handler: H) -> io::Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    S: Into<ConnectionStream> + Send,
     H: Fn(Request) -> F + Send + Sync + 'static,
     F: Future<Output = Response> + Send + 'static,
 {
     limits.validate()?;
     serve_on(
-        stream,
+        stream.into().into_inner(),
         ConnectionConfig {
             limits,
             diagnostics: Diagnostics::default(),

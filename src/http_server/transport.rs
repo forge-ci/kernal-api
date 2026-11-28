@@ -8,6 +8,27 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+/// An owned transport for a single HTTP connection.
+///
+/// Construct it with `From` using an owned Tokio async read/write stream.
+pub struct ConnectionStream(Box<dyn StreamIo>);
+
+pub(super) trait StreamIo: AsyncRead + AsyncWrite + Unpin + Send {}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> StreamIo for S {}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> From<S> for ConnectionStream {
+    fn from(stream: S) -> Self {
+        Self(Box::new(stream))
+    }
+}
+
+impl ConnectionStream {
+    pub(super) fn into_inner(self) -> Box<dyn StreamIo> {
+        self.0
+    }
+}
+
 /// Keep Hyper's HTTP/2 stream tasks scoped to the owning connection.
 #[derive(Clone)]
 pub(super) struct ConnectionExecutor(Weak<Mutex<tokio::task::JoinSet<()>>>);
