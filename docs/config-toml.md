@@ -16,3 +16,12 @@ recursion limit. Errors return no partial document and do not echo source text.
 The exact private `toml` 1.1.8 dependency is enabled on runtime edges only by
 this feature. It already occurs as a build dependency, so whole dependency-graph
 absence and build-speed gains are not claimed. CI checks runtime edges separately.
+
+Serialization (#635): `config::quote_toml_string(&str)` returns one TOML
+string literal, quotes included, that parses back to exactly the input.
+`Value::to_toml_value()` encodes one value expression (tables become inline
+tables) and `Value::to_toml_document()` / `Document::to_toml_string()` encode a
+root table as a full document. Re-parsing the output yields an equal `Value`;
+comments and layout are not reproduced. `DateTime` text must be canonical TOML,
+and depth is limited to 32; failures are `SerializeError` categories that do not
+echo contents.

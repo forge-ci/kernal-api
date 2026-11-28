@@ -81,6 +81,31 @@ impl SecureRandom {
             .await
     }
 
+    /// Fill `bytes` synchronously from the private OS-random backend.
+    ///
+    /// This is the blocking form of [`Self::bytes`] for callers without an
+    /// async runtime. It uses no admission budget, timeout or worker thread and
+    /// has no length limit: the caller owns the buffer. The OS call can block
+    /// (for example, until entropy is initialized early in boot). An empty
+    /// buffer returns immediately without invoking the OS. On failure the
+    /// buffer contents are unspecified and must not be used.
+    ///
+    /// # Errors
+    /// Returns `Unavailable` when the operating system cannot supply entropy.
+    pub fn fill(bytes: &mut [u8]) -> Result<(), RandomError> {
+        Self::fill_with(bytes, |bytes| getrandom::fill(bytes).map_err(|_| ()))
+    }
+
+    fn fill_with<F>(bytes: &mut [u8], generate: F) -> Result<(), RandomError>
+    where
+        F: FnOnce(&mut [u8]) -> Result<(), ()>,
+    {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        generate(bytes).map_err(|()| RandomError::Unavailable)
+    }
+
     async fn generate_with<F>(&self, length: usize, generate: F) -> Result<Vec<u8>, RandomError>
     where
         F: FnOnce(&mut [u8]) -> Result<(), ()> + Send + 'static,
@@ -154,6 +179,23 @@ mod tests {
         for (error, expected) in cases {
             assert_eq!(error.to_string(), expected);
         }
+    }
+
+    #[test]
+    fn sync_fill_maps_failure_and_skips_empty_buffers() {
+        let mut empty = [0u8; 0];
+        SecureRandom::fill_with(&mut empty, |_| panic!("empty fill reached backend")).unwrap();
+        let mut bytes = [0u8; 4];
+        assert_eq!(
+            SecureRandom::fill_with(&mut bytes, |_| Err(())),
+            Err(RandomError::Unavailable)
+        );
+        SecureRandom::fill_with(&mut bytes, |bytes| {
+            bytes.copy_from_slice(&[1, 2, 3, 4]);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(bytes, [1, 2, 3, 4]);
     }
 
     #[tokio::test]

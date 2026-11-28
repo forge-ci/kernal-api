@@ -68,6 +68,90 @@ impl Document {
     }
 }
 
+/// Serialization failures; diagnostics never echo configuration contents.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SerializeError {
+    #[error("value is not a valid TOML date/time")]
+    InvalidDateTime,
+    #[error("configuration exceeds value depth 32")]
+    TooDeep,
+    #[error("TOML document root must be a table")]
+    RootNotTable,
+    #[error("value cannot be encoded as TOML")]
+    Unencodable,
+}
+
+/// Encode `text` as one TOML basic or literal string, including its quotes.
+///
+/// The output parses back to exactly `text` as a TOML string value, so it can
+/// be spliced into generated TOML (for example `key = <quoted>`).
+pub fn quote_toml_string(text: &str) -> String {
+    toml::Value::String(text.to_owned()).to_string()
+}
+
+impl Value {
+    /// Encode this value as one TOML value expression (tables become inline
+    /// tables), suitable for the right-hand side of `key = ...`.
+    ///
+    /// # Errors
+    /// `InvalidDateTime` for a `DateTime` that is not canonical TOML, and
+    /// `TooDeep` beyond [`MAX_DEPTH`].
+    pub fn to_toml_value(&self) -> Result<String, SerializeError> {
+        Ok(to_backend(self, 0)?.to_string())
+    }
+
+    /// Encode a `Table` as a complete TOML document, with nested tables as
+    /// `[section]` headers. Parsing the output with [`Document::parse_toml`]
+    /// yields an equal value.
+    ///
+    /// # Errors
+    /// `RootNotTable` unless this is a table, plus the
+    /// [`Self::to_toml_value`] failures.
+    pub fn to_toml_document(&self) -> Result<String, SerializeError> {
+        let toml::Value::Table(table) = to_backend(self, 0)? else {
+            return Err(SerializeError::RootNotTable);
+        };
+        toml::to_string(&table).map_err(|_| SerializeError::Unencodable)
+    }
+}
+
+impl Document {
+    /// Encode this document as TOML text; comments and layout are not kept.
+    ///
+    /// # Errors
+    /// See [`Value::to_toml_document`].
+    pub fn to_toml_string(&self) -> Result<String, SerializeError> {
+        self.root.to_toml_document()
+    }
+}
+
+fn to_backend(value: &Value, depth: usize) -> Result<toml::Value, SerializeError> {
+    if depth > MAX_DEPTH {
+        return Err(SerializeError::TooDeep);
+    }
+    Ok(match value {
+        Value::String(value) => toml::Value::String(value.clone()),
+        Value::Integer(value) => toml::Value::Integer(*value),
+        Value::Float(value) => toml::Value::Float(*value),
+        Value::Boolean(value) => toml::Value::Boolean(*value),
+        Value::DateTime(value) => {
+            toml::Value::Datetime(value.parse().map_err(|_| SerializeError::InvalidDateTime)?)
+        }
+        Value::Array(values) => toml::Value::Array(
+            values
+                .iter()
+                .map(|value| to_backend(value, depth + 1))
+                .collect::<Result<_, _>>()?,
+        ),
+        Value::Table(values) => toml::Value::Table(
+            values
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), to_backend(value, depth + 1)?)))
+                .collect::<Result<_, SerializeError>>()?,
+        ),
+    })
+}
+
 fn convert(value: toml::Value, depth: usize, remaining: &mut usize) -> Result<Value, ParseError> {
     if depth > MAX_DEPTH {
         return Err(ParseError::TooDeep);

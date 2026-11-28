@@ -41,3 +41,18 @@ fn user_home_handles_override_empty_and_missing_environment() {
         assert!(command.status().unwrap().success(), "home mode {mode}");
     }
 }
+
+#[test]
+fn user_cache_and_picture_dirs_match_dirs_semantics() {
+    assert_eq!(
+        kernal_api::platform::fs::user_cache_dir(),
+        dirs::cache_dir()
+    );
+    assert_eq!(
+        kernal_api::platform::fs::user_picture_dir(),
+        dirs::picture_dir()
+    );
+    if let Some(cache) = kernal_api::platform::fs::user_cache_dir() {
+        assert!(cache.is_absolute());
+    }
+}

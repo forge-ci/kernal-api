@@ -27,6 +27,52 @@ impl Sha256Digest {
     }
 }
 
+impl AsRef<[u8]> for Sha256Digest {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8; 32]> for Sha256Digest {
+    fn as_ref(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<[u8]> for Sha256Digest {
+    fn borrow(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for Sha256Digest {
+    type Target = [u8; 32];
+
+    fn deref(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl From<Sha256Digest> for [u8; 32] {
+    fn from(digest: Sha256Digest) -> Self {
+        digest.0
+    }
+}
+
+impl From<[u8; 32]> for Sha256Digest {
+    /// Wrap bytes already known to be a SHA-256 digest (for example, decoded
+    /// from a stored seal). No hashing is performed.
+    fn from(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl PartialEq<[u8; 32]> for Sha256Digest {
+    fn eq(&self, other: &[u8; 32]) -> bool {
+        self.0 == *other
+    }
+}
+
 impl fmt::LowerHex for Sha256Digest {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.to_hex())
@@ -62,6 +108,25 @@ impl Sha256Hasher {
     /// Hash one in-memory message.
     pub fn digest(bytes: impl AsRef<[u8]>) -> Sha256Digest {
         sha256_bytes(bytes.as_ref())
+    }
+}
+
+/// Feed written bytes into the hash, so `std::io::copy(reader, &mut hasher)`
+/// works. Writes always consume the whole buffer and never fail; there is no
+/// byte limit, unlike [`sha256_reader`].
+impl io::Write for Sha256Hasher {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+
+    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.0.update(bytes);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

@@ -132,6 +132,29 @@ pub fn user_home_dir() -> Option<std::path::PathBuf> {
     dirs::home_dir()
 }
 
+/// Resolve the current user's cache directory, matching the `dirs` crate.
+///
+/// Linux: `$XDG_CACHE_HOME` when absolute, else `$HOME/.cache`. macOS:
+/// `$HOME/Library/Caches`. Windows: the Local AppData known folder
+/// (`FOLDERID_LocalAppData`). Returns `None` when the host cannot resolve it;
+/// does not create the directory. This is the shared per-user cache root, not
+/// an application-scoped subdirectory.
+#[cfg(feature = "fs")]
+pub fn user_cache_dir() -> Option<std::path::PathBuf> {
+    dirs::cache_dir()
+}
+
+/// Resolve the current user's pictures directory, matching the `dirs` crate.
+///
+/// Linux: `XDG_PICTURES_DIR` from `user-dirs.dirs`; `None` when it is unset.
+/// macOS: `$HOME/Pictures`. Windows: the Pictures known folder
+/// (`FOLDERID_Pictures`). Returns `None` when the host cannot resolve it;
+/// does not create the directory.
+#[cfg(feature = "fs")]
+pub fn user_picture_dir() -> Option<std::path::PathBuf> {
+    dirs::picture_dir()
+}
+
 #[cfg(feature = "fs")]
 pub use crate::{
     fs_create_dir_all_private as create_dir_all_private,

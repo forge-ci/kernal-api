@@ -84,3 +84,24 @@ fn sha256_reader_retries_interruptions_and_propagates_errors() {
         io::ErrorKind::PermissionDenied
     );
 }
+
+#[test]
+fn sha256_digest_conversions_and_io_write() {
+    use std::io::Write as _;
+    let digest = sha256_bytes(b"abc");
+    let bytes: [u8; 32] = digest.into();
+    assert_eq!(&bytes, digest.as_bytes());
+    let slice: &[u8] = digest.as_ref();
+    assert_eq!(slice, &bytes[..]);
+    assert_eq!(digest.len(), 32);
+    assert_eq!(digest[0], 0xba);
+    assert_eq!(digest, bytes);
+    assert_eq!(kernal_api::hash::Sha256Digest::from(bytes), digest);
+
+    let mut hasher = Sha256Hasher::new();
+    let copied = io::copy(&mut &b"abc"[..], &mut hasher).unwrap();
+    assert_eq!(copied, 3);
+    hasher.write_all(b"").unwrap();
+    hasher.flush().unwrap();
+    assert_eq!(hasher.finalize(), digest);
+}
