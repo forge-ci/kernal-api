@@ -8,7 +8,11 @@
 //! HTTP/1 transport metadata has independent fixed parser ceilings. Caller
 //! header limits are post-parse acceptance limits, not allocator/RSS ceilings.
 
+use std::error::Error as _;
+use std::future::Future;
 use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 // Local TLS fixtures for whichever backend is selected. rustls must refuse the
@@ -21,7 +25,11 @@ mod tls_tests;
 mod url;
 
 use http_body_util::BodyExt;
+use tower_service::Service;
 use url::Target;
+
+type RequestBody = http_body_util::Full<bytes::Bytes>;
+type Transport = hyper_util::client::legacy::Client<TimedConnector, RequestBody>;
 
 type HttpConnector = hyper_util::client::legacy::connect::HttpConnector;
 
@@ -30,6 +38,34 @@ type HttpConnector = hyper_util::client::legacy::connect::HttpConnector;
 type Connector = hyper_tls::HttpsConnector<HttpConnector>;
 #[cfg(all(feature = "http-client-rustls", not(feature = "http-client")))]
 type Connector = hyper_rustls::HttpsConnector<HttpConnector>;
+
+// The pool can finish a speculative connection in the background. Bound that
+// attempt even after the request has checked out a different connection.
+#[derive(Clone)]
+struct TimedConnector {
+    inner: Connector,
+    timeout: Duration,
+}
+
+impl Service<hyper::Uri> for TimedConnector {
+    type Response = <Connector as Service<hyper::Uri>>::Response;
+    type Error = io::Error;
+    type Future = Pin<Box<dyn Future<Output = io::Result<Self::Response>> + Send>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.inner.poll_ready(cx).map_err(transport)
+    }
+
+    fn call(&mut self, uri: hyper::Uri) -> Self::Future {
+        let connecting = tokio::time::timeout(self.timeout, self.inner.call(uri));
+        Box::pin(async move {
+            connecting
+                .await
+                .map_err(|_| timed_out("HTTP connect timed out"))?
+                .map_err(transport)
+        })
+    }
+}
 
 /// TCP only; the connector never consults proxy settings.
 fn tcp_connector() -> HttpConnector {
@@ -44,6 +80,7 @@ fn tcp_connector() -> HttpConnector {
 #[cfg(feature = "http-client")]
 fn connector(extra_root: Option<&[u8]>) -> io::Result<Connector> {
     let mut builder = native_tls::TlsConnector::builder();
+    builder.request_alpns(&["h2", "http/1.1"]);
     if let Some(pem) = extra_root {
         builder.add_root_certificate(
             native_tls::Certificate::from_pem(pem).map_err(io::Error::other)?,
@@ -83,16 +120,8 @@ fn connector(extra_root: Option<&[u8]>) -> io::Result<Connector> {
         .with_tls_config(config)
         .https_or_http()
         .enable_http1()
+        .enable_http2()
         .wrap_connector(tcp_connector()))
-}
-
-/// Aborts the spawned HTTP/1 connection task, closing its socket, on drop.
-struct Connection(tokio::task::JoinHandle<()>);
-
-impl Drop for Connection {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
 }
 
 fn timed_out(message: &'static str) -> io::Error {
@@ -192,7 +221,7 @@ impl<'a> Request<'a> {
 /// Reusable HTTP transport; does not construct an executor or runtime.
 #[derive(Clone)]
 pub struct Client {
-    connector: Connector,
+    transport: Transport,
     limits: Limits,
 }
 
@@ -203,6 +232,18 @@ fn invalid(message: &'static str) -> io::Error {
 /// Transport failure. Backend errors never carry the request URL.
 fn transport(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> io::Error {
     io::Error::other(error)
+}
+
+fn request_error(error: hyper_util::client::legacy::Error) -> io::Error {
+    if error
+        .source()
+        .and_then(|source| source.downcast_ref::<io::Error>())
+        .is_some_and(|source| source.kind() == io::ErrorKind::TimedOut)
+    {
+        timed_out("HTTP connect timed out")
+    } else {
+        transport(error)
+    }
 }
 
 fn require_blocking_context() -> io::Result<()> {
@@ -299,6 +340,11 @@ impl Client {
         Self::with_connector(limits, connector(None)?)
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_test_root(limits: Limits, pem: &[u8]) -> io::Result<Self> {
+        Self::with_connector(limits, connector(Some(pem))?)
+    }
+
     fn with_connector(limits: Limits, connector: Connector) -> io::Result<Self> {
         if limits.max_redirects > 32 {
             return Err(invalid("HTTP redirect limit cannot exceed 32"));
@@ -320,13 +366,53 @@ impl Client {
                 ));
             }
         }
-        Ok(Self { connector, limits })
+        let transport =
+            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .pool_timer(hyper_util::rt::TokioTimer::new())
+                .pool_max_idle_per_host(8)
+                .http2_max_header_list_size(64 * 1024)
+                .build(TimedConnector {
+                    inner: connector,
+                    timeout: limits.connect_timeout,
+                });
+        Ok(Self { transport, limits })
     }
 
     /// Issue a GET, following redirects only when explicitly enabled in limits.
     /// Drop the future or response to release the in-flight operation.
     pub async fn get(&self, url: &str) -> io::Result<Response> {
         self.execute(Request::get(url)).await
+    }
+
+    /// POST a JSON value, adding the JSON content type unless the caller set one.
+    #[cfg(feature = "json")]
+    pub async fn post_json(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        value: &crate::json::Value,
+    ) -> io::Result<Response> {
+        let has_content_type = headers
+            .iter()
+            .any(|(name, _)| name.eq_ignore_ascii_case("content-type"));
+        if headers.len().saturating_add(usize::from(!has_content_type))
+            > self.limits.max_header_count
+        {
+            return Err(invalid("HTTP request exceeds limit"));
+        }
+        let mut headers = headers.to_vec();
+        if !has_content_type {
+            headers.push(("content-type", "application/json"));
+        }
+        let body = crate::json::encode(value, crate::json::Layout::Compact)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        self.execute(Request {
+            method: Method::Post,
+            url,
+            headers: &headers,
+            body: &body,
+        })
+        .await
     }
 
     /// Send a validated request. Status interpretation belongs to the caller.
@@ -400,7 +486,7 @@ impl Client {
         &self,
         request: &Request<'_>,
         target: &Target,
-    ) -> io::Result<hyper::Request<http_body_util::Full<bytes::Bytes>>> {
+    ) -> io::Result<hyper::Request<RequestBody>> {
         let method = match request.method {
             Method::Get => hyper::Method::GET,
             Method::Head => hyper::Method::HEAD,
@@ -421,6 +507,8 @@ impl Client {
                     | "content-length"
                     | "transfer-encoding"
                     | "connection"
+                    | "keep-alive"
+                    | "proxy-connection"
                     | "upgrade"
                     | "trailer"
                     | "te"
@@ -438,11 +526,6 @@ impl Client {
         headers
             .entry(hyper::header::ACCEPT)
             .or_insert(hyper::header::HeaderValue::from_static("*/*"));
-        headers.insert(
-            hyper::header::HOST,
-            hyper::header::HeaderValue::from_str(&target.host_header())
-                .map_err(|_| invalid("invalid HTTP URL"))?,
-        );
         let body = if request.method == Method::Post {
             bytes::Bytes::copy_from_slice(request.body)
         } else {
@@ -450,46 +533,35 @@ impl Client {
         };
         let mut built = hyper::Request::new(http_body_util::Full::new(body));
         *built.method_mut() = method;
-        *built.uri_mut() = target
-            .path_and_query()
-            .parse()
-            .map_err(|_| invalid("invalid HTTP URL"))?;
+        *built.uri_mut() = target.request_uri()?;
         *built.headers_mut() = headers;
         Ok(built)
     }
 
-    /// Connect (TCP and TLS) and start a one-request HTTP/1 connection.
-    async fn connect(
+    async fn send(
         &self,
-        target: &Target,
+        mut request: hyper::Request<RequestBody>,
         deadline: std::time::Instant,
-    ) -> io::Result<(
-        hyper::client::conn::http1::SendRequest<http_body_util::Full<bytes::Bytes>>,
-        Connection,
-    )> {
-        let endpoint = target.endpoint()?;
-        let mut connector = self.connector.clone();
-        let connecting = async {
-            std::future::poll_fn(|cx| tower_service::Service::poll_ready(&mut connector, cx))
-                .await
-                .map_err(transport)?;
-            let stream = tower_service::Service::call(&mut connector, endpoint)
-                .await
-                .map_err(transport)?;
-            hyper::client::conn::http1::Builder::new()
-                .handshake(stream)
-                .await
-                .map_err(transport)
-        };
-        let budget = phase_budget(self.limits.connect_timeout, deadline)?;
-        let (sender, connection) = tokio::time::timeout(budget, connecting)
+    ) -> io::Result<hyper::Response<hyper::body::Incoming>> {
+        let mut connection = hyper_util::client::legacy::connect::capture_connection(&mut request);
+        let connect_budget = phase_budget(self.limits.connect_timeout, deadline)?;
+        let response = self.transport.request(request);
+        tokio::pin!(response);
+        // Pool checkout signals once a reused or newly established connection
+        // is ready. Poll the response as well to surface early transport errors.
+        tokio::select! {
+            biased;
+            result = &mut response => return result.map_err(request_error),
+            _ = connection.wait_for_connection_metadata() => {}
+            () = tokio::time::sleep(connect_budget) => {
+                return Err(timed_out("HTTP connect timed out"));
+            }
+        }
+        let read_budget = phase_budget(self.limits.read_timeout, deadline)?;
+        tokio::time::timeout(read_budget, response)
             .await
-            .map_err(|_| timed_out("HTTP connect timed out"))??;
-        let connection = Connection(tokio::spawn(async move {
-            // Request and body futures observe connection failures.
-            let _ = connection.await;
-        }));
-        Ok((sender, connection))
+            .map_err(|_| timed_out("HTTP response headers timed out"))?
+            .map_err(request_error)
     }
 
     async fn execute_once(
@@ -508,12 +580,7 @@ impl Client {
         }
         let target = Target::parse(request.url)?;
         let built = self.build_request(&request, &target)?;
-        let (mut sender, connection) = self.connect(&target, deadline).await?;
-        let budget = phase_budget(self.limits.read_timeout, deadline)?;
-        let inner = tokio::time::timeout(budget, sender.send_request(built))
-            .await
-            .map_err(|_| timed_out("HTTP response headers timed out"))?
-            .map_err(transport)?;
+        let inner = self.send(built, deadline).await?;
         let (parts, body) = inner.into_parts();
         if parts.headers.len() > self.limits.max_header_count {
             return Err(invalid("HTTP response header count exceeds limit"));
@@ -536,10 +603,16 @@ impl Client {
             deadline,
             read_timeout: self.limits.read_timeout,
             status: parts.status.as_u16(),
+            version: if parts.version == hyper::Version::HTTP_2 {
+                Version::Http2
+            } else if parts.version == hyper::Version::HTTP_10 {
+                Version::Http10
+            } else {
+                Version::Http11
+            },
             headers: parts.headers,
             body,
             target,
-            _connection: connection,
             remaining: self.limits.max_body_bytes,
             pending: bytes::Bytes::new(),
             failed: false,
@@ -548,15 +621,36 @@ impl Client {
     }
 }
 
+/// HTTP wire protocol reported by the peer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Version {
+    /// HTTP/1.0.
+    Http10,
+    /// HTTP/1.1.
+    Http11,
+    /// HTTP/2 negotiated over TLS.
+    Http2,
+}
+
+/// An owned response data chunk. Borrow its bytes without copying.
+#[derive(Clone, Debug)]
+pub struct Chunk(bytes::Bytes);
+
+impl AsRef<[u8]> for Chunk {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// Owned response, with backend resources released when dropped.
 pub struct Response {
     deadline: std::time::Instant,
     read_timeout: Duration,
     status: u16,
+    version: Version,
     headers: hyper::HeaderMap,
     body: hyper::body::Incoming,
     target: Target,
-    _connection: Connection,
     remaining: u64,
     pending: bytes::Bytes,
     failed: bool,
@@ -575,17 +669,34 @@ impl Response {
         self.status
     }
 
+    /// HTTP version used for this response.
+    pub fn version(&self) -> Version {
+        self.version
+    }
+
     /// Read at most the caller's buffer length, pulling only when needed.
     /// An empty buffer returns zero without reading; otherwise zero means EOF.
-    /// The total body ceiling applies across all reads. Errors are terminal;
-    /// drop the response to release the transport after an error.
-    /// Retains at most one private transport chunk, not the complete body.
+    /// Errors are terminal. Drop the response to release the body after an error.
     pub async fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if !self.failed && buffer.is_empty() {
+            return Ok(0);
+        }
+        self.fill_pending().await?;
+        let n = buffer.len().min(self.pending.len());
+        buffer[..n].copy_from_slice(&self.pending.split_to(n));
+        Ok(n)
+    }
+
+    /// Take the next unread data chunk, or return `None` at EOF.
+    /// Shares the read deadline and cumulative body limit with [Self::read].
+    pub async fn next_chunk(&mut self) -> io::Result<Option<Chunk>> {
+        self.fill_pending().await?;
+        Ok((!self.pending.is_empty()).then(|| Chunk(std::mem::take(&mut self.pending))))
+    }
+
+    async fn fill_pending(&mut self) -> io::Result<()> {
         if self.failed {
             return Err(invalid("HTTP response body is in a failed state"));
-        }
-        if buffer.is_empty() {
-            return Ok(0);
         }
         if !self.eof && std::time::Instant::now() >= self.deadline {
             self.failed = true;
@@ -598,9 +709,7 @@ impl Response {
                 return Err(error);
             }
         }
-        let n = buffer.len().min(self.pending.len());
-        buffer[..n].copy_from_slice(&self.pending.split_to(n));
-        Ok(n)
+        Ok(())
     }
 
     /// Wait for the next body frame under the read and total deadlines.
@@ -629,16 +738,26 @@ impl Response {
 
     /// Consume the unread part of a small response under its byte ceiling.
     /// No declared length is trusted for allocation or stream completion.
-    pub async fn into_bytes(mut self) -> io::Result<Vec<u8>> {
+    pub async fn into_bytes(self) -> io::Result<Vec<u8>> {
+        self.collect(usize::MAX).await
+    }
+
+    /// Collect and decode the unread response body using the JSON facade's limits.
+    #[cfg(feature = "json")]
+    pub async fn into_json(self) -> io::Result<crate::json::Value> {
+        let body = self.collect(crate::json::MAX_INPUT_BYTES).await?;
+        crate::json::parse(&body).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    }
+
+    async fn collect(mut self, max_bytes: usize) -> io::Result<Vec<u8>> {
         let mut body = Vec::new();
-        let mut buffer = [0; 64 * 1024];
-        loop {
-            let n = self.read(&mut buffer).await?;
-            if n == 0 {
-                break;
+        while let Some(chunk) = self.next_chunk().await? {
+            let chunk = chunk.as_ref();
+            if chunk.len() > max_bytes.saturating_sub(body.len()) {
+                return Err(invalid("HTTP response body exceeds collection limit"));
             }
-            body.try_reserve_exact(n).map_err(io::Error::other)?;
-            body.extend_from_slice(&buffer[..n]);
+            body.try_reserve(chunk.len()).map_err(io::Error::other)?;
+            body.extend_from_slice(chunk);
         }
         Ok(body)
     }

@@ -1155,3 +1155,55 @@ async fn non_ascii_hosts_are_rejected_before_any_lookup() {
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     assert!(error.to_string().contains("ASCII"), "{error}");
 }
+
+#[cfg(all(feature = "http-server", feature = "json"))]
+#[tokio::test]
+async fn http1_pool_reuses_connection_for_json_and_range_requests() {
+    use kernal_api::{http::Version, http_server, json};
+
+    let server = http_server::Server::bind("127.0.0.1:0".parse().unwrap(), Default::default())
+        .await
+        .unwrap();
+    let diagnostics = server.diagnostics();
+    let url = format!("http://{}/", server.local_addr().unwrap());
+    let peer = tokio::spawn(server.serve(|request| async move {
+        if request.method() == "POST" {
+            assert_eq!(
+                request.header("content-type"),
+                Some(b"application/json".as_slice())
+            );
+            assert_eq!(request.header("x-test"), Some(b"application".as_slice()));
+            http_server::Response::new(200, request.body().to_vec()).unwrap()
+        } else {
+            assert_eq!(request.header("range"), Some(b"bytes=2-4".as_slice()));
+            http_server::Response::new(206, b"cde".to_vec())
+                .unwrap()
+                .with_header("content-range", "bytes 2-4/6")
+                .unwrap()
+        }
+    }));
+
+    let client = Client::new(Limits::default()).unwrap();
+    let value = json::Value::String("hello".to_owned());
+    let response = client
+        .post_json(&url, &[("x-test", "application")], &value)
+        .await
+        .unwrap();
+    assert_eq!(response.version(), Version::Http11);
+    assert_eq!(response.into_json().await.unwrap(), value);
+    let response = client
+        .execute(Request {
+            headers: &[("range", "bytes=2-4")],
+            ..Request::get(&url)
+        })
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 206);
+    assert_eq!(
+        response.header("content-range"),
+        Some(b"bytes 2-4/6".as_slice())
+    );
+    assert_eq!(response.into_bytes().await.unwrap(), b"cde");
+    assert_eq!(diagnostics.snapshot().accepted_connections, 1);
+    peer.abort();
+}

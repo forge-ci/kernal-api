@@ -83,7 +83,7 @@ fn limits() -> Limits {
 }
 
 fn trusting_client(root: &[u8]) -> Client {
-    Client::with_connector(limits(), connector(Some(root)).unwrap()).unwrap()
+    Client::with_test_root(limits(), root).unwrap()
 }
 
 async fn joined(worker: JoinHandle<bool>) -> bool {
@@ -104,6 +104,7 @@ async fn trusted_local_tls_preserves_body() {
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
+    assert_eq!(response.version(), Version::Http11);
     assert_eq!(response.into_bytes().await.unwrap(), b"ok");
     assert!(joined(worker).await);
 }

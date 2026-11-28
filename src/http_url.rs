@@ -85,15 +85,16 @@ impl Target {
         }
     }
 
-    pub(super) fn path_and_query(&self) -> &str {
-        &self.path_and_query
-    }
-
-    /// Absolute URI naming only the connection endpoint, for the connector.
-    pub(super) fn endpoint(&self) -> io::Result<hyper::Uri> {
-        format!("{}://{}:{}/", self.scheme(), self.host, self.port)
-            .parse()
-            .map_err(|_| invalid("invalid HTTP URL"))
+    /// Absolute request URI. The client derives the pool key and wire target.
+    pub(super) fn request_uri(&self) -> io::Result<hyper::Uri> {
+        format!(
+            "{}://{}{}",
+            self.scheme(),
+            self.host_header(),
+            self.path_and_query
+        )
+        .parse()
+        .map_err(|_| invalid("invalid HTTP URL"))
     }
 
     /// Resolve a `Location` reference against this URL (RFC 3986 5.2). The
@@ -232,17 +233,20 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_always_names_the_effective_port() {
+    fn request_uri_preserves_target_and_normalizes_authority() {
         assert_eq!(
             Target::parse("https://example.com/a?b")
                 .unwrap()
-                .endpoint()
+                .request_uri()
                 .unwrap(),
-            "https://example.com:443/"
+            "https://example.com/a?b"
         );
         assert_eq!(
-            Target::parse("http://[::1]/").unwrap().endpoint().unwrap(),
-            "http://[::1]:80/"
+            Target::parse("http://[::1]/")
+                .unwrap()
+                .request_uri()
+                .unwrap(),
+            "http://[::1]/"
         );
     }
 
@@ -302,7 +306,7 @@ mod tests {
                     "{}://{}{}",
                     target.scheme(),
                     target.host_header(),
-                    target.path_and_query()
+                    target.path_and_query
                 )
             });
             assert_eq!(normalized, expected, "{reference:?}");
@@ -336,7 +340,7 @@ mod tests {
             ("http://example.com/b%C3%BCcher?q=%20", "/b%C3%BCcher?q=%20"),
         ] {
             assert_eq!(
-                Target::parse(url).unwrap().path_and_query(),
+                Target::parse(url).unwrap().path_and_query,
                 target,
                 "{url:?}"
             );
