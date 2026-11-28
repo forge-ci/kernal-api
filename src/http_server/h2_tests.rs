@@ -9,7 +9,7 @@ use tokio_rustls::rustls::{
 const ROOT: &[u8] = include_bytes!("../../tests/fixtures/http-tls/chain-root.pem");
 const IDENTITY: &[u8] = include_bytes!("../../tests/fixtures/http-tls/chain-leaf.pem");
 
-fn h2_acceptor() -> tokio_rustls::TlsAcceptor {
+fn tls_acceptor(alpn_protocols: Vec<Vec<u8>>) -> tokio_rustls::TlsAcceptor {
     let mut tls = ServerConfig::builder_with_provider(Arc::new(
         tokio_rustls::rustls::crypto::ring::default_provider(),
     ))
@@ -21,7 +21,7 @@ fn h2_acceptor() -> tokio_rustls::TlsAcceptor {
         PrivateKeyDer::from_pem_slice(IDENTITY).unwrap(),
     )
     .unwrap();
-    tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    tls.alpn_protocols = alpn_protocols;
     tokio_rustls::TlsAcceptor::from(Arc::new(tls))
 }
 
@@ -62,7 +62,7 @@ where
 
 #[tokio::test]
 async fn tls_negotiates_h2_and_reuses_it_while_streaming() {
-    let acceptor = h2_acceptor();
+    let acceptor = tls_acceptor(vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
     let server = Server::bind("127.0.0.1:0".parse().unwrap(), Limits::default())
         .await
         .unwrap();
@@ -141,4 +141,68 @@ async fn tls_negotiates_h2_and_reuses_it_while_streaming() {
     );
     assert!(response.next_chunk().await.unwrap().is_none());
     peer.abort();
+}
+
+#[cfg(all(feature = "websocket", feature = "websocket-client"))]
+#[tokio::test]
+async fn websocket_tls_uses_http1_when_peer_also_offers_h2() {
+    use crate::http::websocket::{connect_with_root, Message, WebSocketLimits};
+    use tokio::net::{TcpListener, TcpStream};
+
+    let server = Server::bind("127.0.0.1:0".parse().unwrap(), Limits::default())
+        .await
+        .unwrap();
+    let server_addr = server.local_addr().unwrap();
+    let server_task = tokio::spawn(server.serve(|request: Request| async move {
+        assert_eq!(
+            request.header("authorization"),
+            Some(b"Bearer fixture".as_slice())
+        );
+        request
+            .into_websocket()
+            .unwrap()
+            .on_upgrade(WebSocketLimits::default(), |mut socket| async move {
+                socket.send(Message::Binary(vec![1, 2, 3])).await.unwrap();
+            })
+            .unwrap()
+    }));
+
+    // Terminate TLS in front of the crate's plain HTTP/1.1 server.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!(
+        "wss://localhost:{}/socket",
+        listener.local_addr().unwrap().port()
+    );
+    let proxy = tokio::spawn(async move {
+        let acceptor = tls_acceptor(vec![b"h2".to_vec(), b"http/1.1".to_vec()]);
+        let (socket, _) = listener.accept().await.unwrap();
+        let mut tls = acceptor.accept(socket).await.unwrap();
+        assert_eq!(
+            tls.get_ref().1.alpn_protocol(),
+            Some(b"http/1.1".as_slice())
+        );
+        let mut upstream = TcpStream::connect(server_addr).await.unwrap();
+        tokio::io::copy_bidirectional(&mut tls, &mut upstream)
+            .await
+            .unwrap();
+    });
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut socket = connect_with_root(
+            &url,
+            &[("Authorization", "Bearer fixture")],
+            WebSocketLimits::default(),
+            Some(ROOT),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            socket.receive().await.unwrap(),
+            Some(Message::Binary(vec![1, 2, 3]))
+        );
+    })
+    .await
+    .unwrap();
+    proxy.abort();
+    server_task.abort();
 }

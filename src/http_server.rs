@@ -14,9 +14,9 @@ use std::{convert::Infallible, future::Future, io, net::SocketAddr, sync::Arc, t
 #[cfg(feature = "websocket")]
 mod websocket;
 #[cfg(feature = "websocket")]
-pub use websocket::{
-    Message as WebSocketMessage, Upgrade as WebSocketUpgrade, WebSocket, WebSocketLimits,
-};
+pub use crate::websocket::{Message as WebSocketMessage, WebSocket, WebSocketLimits};
+#[cfg(feature = "websocket")]
+pub use websocket::Upgrade as WebSocketUpgrade;
 
 mod body;
 mod diagnostics;
