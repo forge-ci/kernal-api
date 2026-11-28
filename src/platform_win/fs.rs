@@ -155,41 +155,82 @@ pub fn open_lock_file(path: &Path) -> io::Result<File> {
 /// range beyond end-of-file is legal and does not extend the file.
 const LOCK_BYTE_OFFSET: u64 = 1 << 62;
 
-/// Fill the `OVERLAPPED` offset pair that names [`LOCK_BYTE_OFFSET`].
+/// Which bytes a lock covers on this host.
 ///
-/// Both `LockFileEx` and `UnlockFileEx` take the range's start this way and
-/// its length in the two `DWORD` arguments, so the pair has to agree between
-/// them or a release silently fails with `ERROR_NOT_LOCKED`.
-fn lock_byte_overlapped() -> winapi::um::minwinbase::OVERLAPPED {
-    use std::mem;
-    use winapi::um::minwinbase::OVERLAPPED;
-
-    let mut overlapped: OVERLAPPED = unsafe { mem::zeroed() };
-    let offsets = unsafe { overlapped.u.s_mut() };
-    offsets.Offset = LOCK_BYTE_OFFSET as u32;
-    offsets.OffsetHigh = (LOCK_BYTE_OFFSET >> 32) as u32;
-    overlapped
+/// [`Sentinel`](LockSpan::Sentinel) is the default advisory byte at
+/// [`LOCK_BYTE_OFFSET`]. [`Whole`](LockSpan::Whole) is offset 0 for the full
+/// `u32::MAX`/`u32::MAX` length, the range `fs4` takes, so a holder excludes
+/// those lockers too -- and, being mandatory, also denies other handles'
+/// reads and writes of the body.
+#[derive(Clone, Copy)]
+enum LockSpan {
+    Sentinel,
+    Whole,
 }
 
-/// Take or wait for a lock on [`LOCK_BYTE_OFFSET`], with the given
-/// `LockFileEx` flags. Private: every public lock entry point below is one
-/// flag combination of this call.
-fn lock_file(file: &File, flags: winapi::shared::minwindef::DWORD) -> io::Result<()> {
+impl LockSpan {
+    /// The `OVERLAPPED` start and the `(low, high)` length of this span.
+    ///
+    /// Both `LockFileEx` and `UnlockFileEx` take the range's start in the
+    /// `OVERLAPPED` and its length in two `DWORD` arguments, so the triple
+    /// has to agree between them or a release silently fails with
+    /// `ERROR_NOT_LOCKED`.
+    fn range(self) -> (winapi::um::minwinbase::OVERLAPPED, u32, u32) {
+        use std::mem;
+        use winapi::um::minwinbase::OVERLAPPED;
+
+        let mut overlapped: OVERLAPPED = unsafe { mem::zeroed() };
+        match self {
+            Self::Sentinel => {
+                let offsets = unsafe { overlapped.u.s_mut() };
+                offsets.Offset = LOCK_BYTE_OFFSET as u32;
+                offsets.OffsetHigh = (LOCK_BYTE_OFFSET >> 32) as u32;
+                (overlapped, 1, 0)
+            }
+            Self::Whole => (overlapped, u32::MAX, u32::MAX),
+        }
+    }
+}
+
+/// Take or wait for a lock on `span`, with the given `LockFileEx` flags.
+/// Private: every public lock entry point below is one flag and span
+/// combination of this call.
+fn lock_file(
+    file: &File,
+    flags: winapi::shared::minwindef::DWORD,
+    span: LockSpan,
+) -> io::Result<()> {
     use std::os::windows::io::AsRawHandle as _;
     use winapi::um::fileapi::LockFileEx;
     use winapi::um::winnt::HANDLE;
 
-    let mut overlapped = lock_byte_overlapped();
+    let (mut overlapped, low, high) = span.range();
     let result = unsafe {
         LockFileEx(
             file.as_raw_handle() as HANDLE,
             flags,
             0,
-            1,
-            0,
+            low,
+            high,
             &mut overlapped,
         )
     };
+    if result == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Release the lock `lock_file` took on `span`.
+fn unlock_span(file: &File, span: LockSpan) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle as _;
+    use winapi::um::fileapi::UnlockFileEx;
+    use winapi::um::winnt::HANDLE;
+
+    let (mut overlapped, low, high) = span.range();
+    let result =
+        unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, low, high, &mut overlapped) };
     if result == 0 {
         Err(io::Error::last_os_error())
     } else {
@@ -207,7 +248,11 @@ fn lock_file(file: &File, flags: winapi::shared::minwindef::DWORD) -> io::Result
 pub fn try_lock_exclusive(file: &File) -> io::Result<()> {
     use winapi::um::minwinbase::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY};
 
-    lock_file(file, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY)
+    lock_file(
+        file,
+        LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+        LockSpan::Sentinel,
+    )
 }
 
 /// Take an exclusive advisory lock, waiting until it is available.
@@ -218,7 +263,7 @@ pub fn try_lock_exclusive(file: &File) -> io::Result<()> {
 pub fn lock_exclusive(file: &File) -> io::Result<()> {
     use winapi::um::minwinbase::LOCKFILE_EXCLUSIVE_LOCK;
 
-    lock_file(file, LOCKFILE_EXCLUSIVE_LOCK)
+    lock_file(file, LOCKFILE_EXCLUSIVE_LOCK, LockSpan::Sentinel)
 }
 
 /// Take a shared advisory lock, waiting until it is available.
@@ -226,7 +271,7 @@ pub fn lock_exclusive(file: &File) -> io::Result<()> {
 /// A `LockFileEx` call without `LOCKFILE_EXCLUSIVE_LOCK` set is what this
 /// host spells "shared" -- there is no separate shared-lock flag.
 pub fn lock_shared(file: &File) -> io::Result<()> {
-    lock_file(file, 0)
+    lock_file(file, 0, LockSpan::Sentinel)
 }
 
 /// Take a shared advisory lock without waiting.
@@ -236,7 +281,7 @@ pub fn lock_shared(file: &File) -> io::Result<()> {
 pub fn try_lock_shared(file: &File) -> io::Result<()> {
     use winapi::um::minwinbase::LOCKFILE_FAIL_IMMEDIATELY;
 
-    lock_file(file, LOCKFILE_FAIL_IMMEDIATELY)
+    lock_file(file, LOCKFILE_FAIL_IMMEDIATELY, LockSpan::Sentinel)
 }
 
 /// Release a lock taken by [`try_lock_exclusive`], [`try_lock_shared`],
@@ -246,17 +291,32 @@ pub fn try_lock_shared(file: &File) -> io::Result<()> {
 /// releases a named range, not "whatever this handle holds", and a mismatched
 /// range fails with `ERROR_NOT_LOCKED` while the lock stays held.
 pub fn unlock(file: &File) -> io::Result<()> {
-    use std::os::windows::io::AsRawHandle as _;
-    use winapi::um::fileapi::UnlockFileEx;
-    use winapi::um::winnt::HANDLE;
+    unlock_span(file, LockSpan::Sentinel)
+}
 
-    let mut overlapped = lock_byte_overlapped();
-    let result = unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, 1, 0, &mut overlapped) };
-    if result == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+/// Take an exclusive lock over the whole file without waiting: offset 0,
+/// length `u32::MAX`/`u32::MAX`, as `fs4` does.
+pub fn try_lock_exclusive_whole(file: &File) -> io::Result<()> {
+    use winapi::um::minwinbase::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY};
+
+    lock_file(
+        file,
+        LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+        LockSpan::Whole,
+    )
+}
+
+/// Take a shared lock over the whole file without waiting.
+pub fn try_lock_shared_whole(file: &File) -> io::Result<()> {
+    use winapi::um::minwinbase::LOCKFILE_FAIL_IMMEDIATELY;
+
+    lock_file(file, LOCKFILE_FAIL_IMMEDIATELY, LockSpan::Whole)
+}
+
+/// Release a lock taken by [`try_lock_exclusive_whole`] or
+/// [`try_lock_shared_whole`].
+pub fn unlock_whole(file: &File) -> io::Result<()> {
+    unlock_span(file, LockSpan::Whole)
 }
 
 /// Whether `error` means "someone else holds it", rather than a real failure.
@@ -705,5 +765,46 @@ mod identity_tests {
             super::path_identity(&path).expect("identity while executable is running"),
             super::file_identity(&file).expect("opened executable identity")
         );
+    }
+}
+
+#[cfg(test)]
+mod whole_lock_tests {
+    use std::io::Read as _;
+
+    use super::{
+        is_lock_conflict, open_lock_file, try_lock_exclusive, try_lock_exclusive_whole,
+        try_lock_shared_whole, unlock, unlock_whole,
+    };
+
+    #[test]
+    fn whole_file_lock_covers_the_body_and_releases_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lock");
+        std::fs::write(&path, b"pid").unwrap();
+        let holder = open_lock_file(&path).unwrap();
+        try_lock_exclusive_whole(&holder).unwrap();
+
+        // The full range is mandatory on this host: another handle cannot
+        // read the body, which is what fs4's lock did and the sentinel byte
+        // deliberately does not do.
+        let mut reader = open_lock_file(&path).unwrap();
+        let mut body = Vec::new();
+        let error = reader.read_to_end(&mut body).unwrap_err();
+        assert!(is_lock_conflict(&error), "{error}");
+
+        // The whole range includes the sentinel byte, so a default-mode
+        // locker is excluded too.
+        let contender = open_lock_file(&path).unwrap();
+        let error = try_lock_exclusive(&contender).unwrap_err();
+        assert!(is_lock_conflict(&error), "{error}");
+        let error = try_lock_shared_whole(&contender).unwrap_err();
+        assert!(is_lock_conflict(&error), "{error}");
+
+        unlock_whole(&holder).unwrap();
+        // A mismatched range does not release the whole-file lock.
+        try_lock_shared_whole(&contender).unwrap();
+        assert!(unlock(&contender).is_err());
+        unlock_whole(&contender).unwrap();
     }
 }

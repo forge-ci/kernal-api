@@ -387,7 +387,8 @@ pub use platform_imp::{
     fs_ensure_dir_private, fs_ensure_no_extended_acl, fs_file_identity, fs_open_shared_append,
     fs_is_lock_conflict, fs_lock_exclusive, fs_lock_shared, fs_open_lock_file, fs_path_identity,
     fs_replace_file, fs_set_file_mtime, fs_sync_directory, fs_try_lock_exclusive,
-    fs_try_lock_shared, fs_unlock, fs_user_config_dir, fs_user_data_dir, fs_user_run_data_root,
+    fs_try_lock_exclusive_whole, fs_try_lock_shared, fs_try_lock_shared_whole, fs_unlock,
+    fs_unlock_whole, fs_user_config_dir, fs_user_data_dir, fs_user_run_data_root,
     fs_user_runtime_dir, fs_user_state_dir, FsFileIdentity,
 };
 

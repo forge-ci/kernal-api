@@ -142,6 +142,10 @@ pub use fs::{
     set_file_mtime as fs_set_file_mtime,
     try_lock_exclusive as fs_try_lock_exclusive, try_lock_shared as fs_try_lock_shared,
     unlock as fs_unlock,
+    // flock has one lock per open file, so the whole-file mode is the same
+    // call; only the Windows tree distinguishes the two ranges.
+    try_lock_exclusive as fs_try_lock_exclusive_whole,
+    try_lock_shared as fs_try_lock_shared_whole, unlock as fs_unlock_whole,
     user_run_data_root as fs_user_run_data_root, user_runtime_dir as fs_user_runtime_dir,
     user_state_dir as fs_user_state_dir, FileIdentity as FsFileIdentity,
     read_context_regular_file_bounded as fs_read_context_regular_file_bounded,

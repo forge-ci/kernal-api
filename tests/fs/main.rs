@@ -25,4 +25,5 @@ mod sha256_facade;
 mod temporary_directory;
 mod tree_hash;
 mod user_home;
+mod whole_file_lock;
 mod write_seal_facade;
