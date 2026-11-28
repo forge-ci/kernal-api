@@ -295,6 +295,7 @@ mod tests {
             uri: "/terminal/ws".parse().unwrap(),
             headers: hyper::HeaderMap::new(),
             body: Vec::new(),
+            streaming_body: None,
             upgrade: None,
         };
         assert!(Upgrade::from_request(request).is_err());

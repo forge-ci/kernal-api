@@ -179,7 +179,7 @@ broker-client = ["running-process/client"]
 broker-v2 = ["running-process/client", "daemon-identity", "ipc"]
 pty = ["dep:portable-pty", "terminal-input"]
 event-stream = ["dep:futures-core", "dep:tokio-stream", "tokio-stream/sync"]
-http-server = ["dep:hyper", "hyper/server", "hyper/http1", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:futures-core"]
+http-server = ["dep:hyper", "hyper/server", "hyper/http1", "hyper/http2", "dep:hyper-util", "hyper-util/http2", "hyper-util/server-auto", "dep:http-body-util", "dep:bytes", "dep:futures-core"]
 # HTTP/1 WebSocket upgrading remains part of the owned server surface: callers
 # exchange facade messages and never name Hyper or a WebSocket implementation.
 websocket = ["http-server", "dep:futures-util", "dep:tokio-tungstenite"]

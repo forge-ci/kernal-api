@@ -1,6 +1,5 @@
 use super::*;
 use crate::http::{Client, Request as ClientRequest, Version};
-use hyper_util::rt::TokioExecutor;
 use tokio_rustls::rustls::{
     pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
     ServerConfig,
@@ -29,35 +28,15 @@ async fn serve_h2<H, F>(
     server: Server,
     acceptor: tokio_rustls::TlsAcceptor,
     handler: H,
-) -> Result<(), hyper::Error>
+) -> io::Result<()>
 where
     H: Fn(Request) -> F + Clone + Send + Sync + 'static,
     F: Future<Output = Response> + Send + 'static,
 {
-    // Accept exactly one socket and route every HTTP/2 stream through the
-    // same server dispatch used by Server::serve.
     let (socket, _) = server.listener.accept().await.unwrap();
     let socket = acceptor.accept(socket).await.unwrap();
     assert_eq!(socket.get_ref().1.alpn_protocol(), Some(b"h2".as_slice()));
-    #[cfg(feature = "websocket")]
-    let (upgrades, _receiver) = tokio::sync::mpsc::unbounded_channel();
-    hyper::server::conn::http2::Builder::new(TokioExecutor::new())
-        .serve_connection(
-            TokioIo::new(socket),
-            service_fn(move |request| {
-                dispatch(
-                    request,
-                    handler.clone(),
-                    server.limits,
-                    server.diagnostics(),
-                    server.response_headers.clone(),
-                    server.read_budget.clone(),
-                    #[cfg(feature = "websocket")]
-                    upgrades.clone(),
-                )
-            }),
-        )
-        .await
+    serve_connection(socket, server.limits, handler).await
 }
 
 #[tokio::test]
@@ -141,4 +120,57 @@ async fn tls_negotiates_h2_and_reuses_it_while_streaming() {
     );
     assert!(response.next_chunk().await.unwrap().is_none());
     peer.abort();
+}
+
+#[tokio::test]
+async fn prior_knowledge_and_http1_share_a_listener() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let server = Server::bind("127.0.0.1:0".parse().unwrap(), Limits::default())
+            .await
+            .unwrap();
+        let addr = server.local_addr().unwrap();
+        let server = tokio::spawn(server.serve_with(|| {
+            let requests = std::sync::atomic::AtomicUsize::new(0);
+            move |request| {
+                let n = requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let body = format!("{n}:{}", String::from_utf8_lossy(request.body()));
+                std::future::ready(Response::new(200, body.into_bytes()).unwrap())
+            }
+        }));
+
+        let socket = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut client, connection) = hyper::client::conn::http2::handshake(
+            hyper_util::rt::TokioExecutor::new(),
+            TokioIo::new(socket),
+        )
+        .await
+        .unwrap();
+        let h2 = tokio::spawn(connection);
+        for expected in [b"0:upload", b"1:upload"] {
+            let request = hyper::Request::post(format!("http://{addr}/upload"))
+                .body(http_body_util::Full::new(Bytes::from_static(b"upload")))
+                .unwrap();
+            let response = client.send_request(request).await.unwrap();
+            assert_eq!(response.version(), hyper::Version::HTTP_2);
+            assert_eq!(
+                response.into_body().collect().await.unwrap().to_bytes(),
+                &expected[..]
+            );
+        }
+
+        let mut h1 = tokio::net::TcpStream::connect(addr).await.unwrap();
+        h1.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = String::new();
+        h1.read_to_string(&mut response).await.unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert!(response.ends_with("\r\n\r\n0:"));
+        server.abort();
+        h2.abort();
+    })
+    .await
+    .unwrap();
 }

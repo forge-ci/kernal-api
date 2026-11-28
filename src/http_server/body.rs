@@ -46,6 +46,7 @@ enum Source {
     Bytes(Bytes),
     File(FileSource),
     Events(EventSource),
+    Chunks(ChunkSource),
 }
 
 struct FileSource {
@@ -54,6 +55,38 @@ struct FileSource {
     prefix: Bytes,
     pending: Option<tokio::task::JoinHandle<io::Result<Bytes>>>,
     budget: ReadBudget,
+}
+
+struct ChunkSource {
+    stream: Pin<Box<dyn Stream<Item = io::Result<Vec<u8>>> + Send>>,
+    pending: Bytes,
+    max_item: usize,
+}
+
+impl ChunkSource {
+    fn poll_data(&mut self, cx: &mut Context<'_>, chunk: usize) -> Poll<Option<io::Result<Bytes>>> {
+        if self.pending.is_empty() {
+            let data = match std::task::ready!(self.stream.as_mut().poll_next(cx)) {
+                Some(Ok(data)) => data,
+                Some(Err(error)) => return Poll::Ready(Some(Err(error))),
+                None => return Poll::Ready(None),
+            };
+            if data.len() > self.max_item {
+                return Poll::Ready(Some(Err(io::Error::new(
+                    io::ErrorKind::FileTooLarge,
+                    "HTTP response chunk exceeds configured limit",
+                ))));
+            }
+            if data.is_empty() {
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            self.pending = data.into();
+        }
+        Poll::Ready(Some(Ok(self
+            .pending
+            .split_to(self.pending.len().min(chunk)))))
+    }
 }
 
 struct EventSource {
@@ -177,6 +210,21 @@ impl ServerBody {
         })
     }
 
+    pub(super) fn stream<S>(stream: S) -> Self
+    where
+        S: Stream<Item = io::Result<Vec<u8>>> + Send + 'static,
+    {
+        Self {
+            source: Source::Chunks(ChunkSource {
+                stream: Box::pin(stream),
+                pending: Bytes::new(),
+                max_item: Limits::default().max_response_body_bytes,
+            }),
+            chunk: 65536,
+            done: false,
+        }
+    }
+
     pub(super) fn events<S>(events: S, keepalive: Duration) -> io::Result<Self>
     where
         S: Stream<Item = io::Result<String>> + Send + 'static,
@@ -225,6 +273,10 @@ impl ServerBody {
             }
             Source::Events(events) => {
                 events.max_event = limits.max_event_bytes;
+                true
+            }
+            Source::Chunks(chunks) => {
+                chunks.max_item = limits.max_response_body_bytes;
                 true
             }
         };
@@ -299,6 +351,7 @@ impl ServerBody {
                     }
                 }
             }
+            Source::Chunks(chunks) => chunks.poll_data(cx, self.chunk),
             Source::Events(events) => {
                 if events.pending.is_empty() {
                     match events.stream.poll_next(cx) {
@@ -358,7 +411,7 @@ impl Body for ServerBody {
             || match &self.source {
                 Source::Bytes(bytes) => bytes.is_empty(),
                 Source::File(file) => file.prefix.is_empty() && file.remaining == 0,
-                Source::Events(_) => false,
+                Source::Events(_) | Source::Chunks(_) => false,
             }
     }
 
@@ -371,7 +424,7 @@ impl Body for ServerBody {
             Source::File(file) => {
                 SizeHint::with_exact(file.remaining.saturating_add(file.prefix.len() as u64))
             }
-            Source::Events(_) => SizeHint::default(),
+            Source::Events(_) | Source::Chunks(_) => SizeHint::default(),
         }
     }
 }

@@ -2,10 +2,52 @@ use std::{
     future::Future,
     io,
     pin::Pin,
+    sync::{Arc, Mutex, Weak},
     task::{Context, Poll},
     time::Duration,
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+/// An owned transport for a single HTTP connection.
+///
+/// Construct it with `From` using an owned Tokio async read/write stream.
+pub struct ConnectionStream(Box<dyn StreamIo>);
+
+pub(super) trait StreamIo: AsyncRead + AsyncWrite + Unpin + Send {}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send> StreamIo for S {}
+
+impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> From<S> for ConnectionStream {
+    fn from(stream: S) -> Self {
+        Self(Box::new(stream))
+    }
+}
+
+impl ConnectionStream {
+    pub(super) fn into_inner(self) -> Box<dyn StreamIo> {
+        self.0
+    }
+}
+
+/// Keep Hyper's HTTP/2 stream tasks scoped to the owning connection.
+#[derive(Clone)]
+pub(super) struct ConnectionExecutor(Weak<Mutex<tokio::task::JoinSet<()>>>);
+
+impl ConnectionExecutor {
+    pub(super) fn new(tasks: &Arc<Mutex<tokio::task::JoinSet<()>>>) -> Self {
+        Self(Arc::downgrade(tasks))
+    }
+}
+
+impl<F: Future<Output = ()> + Send + 'static> hyper::rt::Executor<F> for ConnectionExecutor {
+    fn execute(&self, future: F) {
+        if let Some(tasks) = self.0.upgrade() {
+            let mut tasks = tasks.lock().expect("HTTP/2 task set mutex poisoned");
+            while tasks.try_join_next().is_some() {}
+            tasks.spawn(future);
+        }
+    }
+}
 
 /// A write-progress budget, armed only while an attempted write/flush/shutdown
 /// is pending. Idle application streams do not spend this budget.
@@ -13,6 +55,7 @@ pub(super) struct ProgressIo<S> {
     socket: S,
     timeout: Duration,
     deadline: Option<Pin<Box<tokio::time::Sleep>>>,
+    detection: Option<(Pin<Box<tokio::time::Sleep>>, &'static [u8])>,
 }
 
 impl<S> ProgressIo<S> {
@@ -21,7 +64,16 @@ impl<S> ProgressIo<S> {
             socket,
             timeout,
             deadline: None,
+            detection: None,
         }
+    }
+
+    pub(super) fn with_detection_deadline(mut self, timeout: Duration) -> Self {
+        self.detection = Some((
+            Box::pin(tokio::time::sleep(timeout)),
+            b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n",
+        ));
+        self
     }
 
     fn expired(&mut self, cx: &mut Context<'_>) -> bool {
@@ -54,7 +106,26 @@ impl<S: AsyncRead + Unpin> AsyncRead for ProgressIo<S> {
         cx: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().socket).poll_read(cx, buffer)
+        let this = self.get_mut();
+        let Some((deadline, preface)) = this.detection.as_mut() else {
+            return Pin::new(&mut this.socket).poll_read(cx, buffer);
+        };
+        if deadline.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "HTTP protocol detection deadline elapsed",
+            )));
+        }
+        let start = buffer.filled().len();
+        std::task::ready!(Pin::new(&mut this.socket).poll_read(cx, buffer))?;
+        let received = &buffer.filled()[start..];
+        // Auto detection completes on a mismatch or a full HTTP/2 preface.
+        if preface.starts_with(received) && received.len() < preface.len() {
+            *preface = &preface[received.len()..];
+        } else {
+            this.detection = None;
+        }
+        Poll::Ready(Ok(()))
     }
 }
 

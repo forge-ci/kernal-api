@@ -27,6 +27,36 @@ impl Iterator for QueryPairs<'_> {
     }
 }
 
+/// Named captures from a successful route match. Values are encoded path segments.
+#[derive(Debug)]
+pub struct RouteParams<'a> {
+    path: &'a str,
+    pattern: &'a str,
+}
+
+impl<'a> RouteParams<'a> {
+    pub(super) fn matches(path: &'a str, pattern: &'a str) -> Option<Self> {
+        let mut segments = path.strip_prefix('/')?.split('/');
+        for expected in pattern.strip_prefix('/')?.split('/') {
+            let actual = segments.next()?;
+            match expected.strip_prefix(':') {
+                Some(name) if !name.is_empty() && !actual.is_empty() => {}
+                None if expected == actual => {}
+                _ => return None,
+            }
+        }
+        segments.next().is_none().then_some(Self { path, pattern })
+    }
+
+    /// First capture with this name, preserving percent escapes.
+    pub fn get(&self, name: &str) -> Option<&'a str> {
+        self.pattern
+            .split('/')
+            .zip(self.path.split('/'))
+            .find_map(|(pattern, value)| (pattern.strip_prefix(':') == Some(name)).then_some(value))
+    }
+}
+
 pub(super) fn decode(input: &str, plus_space: bool) -> io::Result<String> {
     let mut output = Vec::with_capacity(input.len());
     let mut bytes = input.bytes();
